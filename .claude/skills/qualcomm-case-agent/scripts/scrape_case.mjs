@@ -18,8 +18,11 @@ export const EXIT = {
 // ---- Pure helpers ----
 
 export function validateSelectors(config) {
-  const required = ['fields', 'comments', 'displayedCommentCount'];
-  const missingKeys = required.filter(k => config[k] == null);
+  const missingKeys = [];
+  if (config.fields == null || config.fields.title == null) missingKeys.push('fields.title');
+  if (config.comments == null || config.comments.container == null) missingKeys.push('comments.container');
+  if (config.comments == null || config.comments.body == null) missingKeys.push('comments.body');
+  if (config.displayedCommentCount == null) missingKeys.push('displayedCommentCount');
   return { valid: missingKeys.length === 0, missingKeys };
 }
 
@@ -174,7 +177,11 @@ function browserSnapshot() {
 
 function browserEval(js) {
   const result = abRun(`eval ${JSON.stringify(js)}`);
-  return JSON.parse(result);
+  try {
+    return JSON.parse(result);
+  } catch {
+    throw new Error(`browserEval: non-JSON output from agent-browser (${result.slice(0, 200)})`);
+  }
 }
 
 // ---- Fixpoint expand loop ----
@@ -198,11 +205,11 @@ function runFixpointLoop(maxPasses = 25) {
 }
 
 // ---- Progressive scroll fallback (for virtualized lists) ----
-function progressiveScrollExtract(selectors, expectedCount, stepPx = 600) {
+function progressiveScrollExtract(selectors, expectedCount, stepPx = 600, maxIter = 60) {
   const map = new Map();
 
   let lastHeight = -1;
-  while (true) {
+  for (let iter = 0; iter < maxIter; iter++) {
     const scrollResult = browserEval(`(function() {
       window.scrollBy(0, ${stepPx});
       return { scrollY: window.scrollY, scrollHeight: document.body.scrollHeight };
@@ -217,6 +224,9 @@ function progressiveScrollExtract(selectors, expectedCount, stepPx = 600) {
     if (map.size >= expectedCount) break;
     if (scrollResult.scrollHeight === lastHeight) break;
     lastHeight = scrollResult.scrollHeight;
+  }
+  if (map.size < expectedCount) {
+    throw new Error(`progressiveScrollExtract: only ${map.size}/${expectedCount} after ${maxIter} iterations`);
   }
 
   return [...map.values()];
@@ -283,9 +293,14 @@ async function main(caseCode) {
   writeFileSync(outPath, JSON.stringify(raw, null, 2), 'utf8');
 
   // 9. Update _index.json
-  const index = existsSync(INDEX_PATH)
-    ? JSON.parse(readFileSync(INDEX_PATH, 'utf8'))
-    : {};
+  let index = {};
+  if (existsSync(INDEX_PATH)) {
+    try {
+      index = JSON.parse(readFileSync(INDEX_PATH, 'utf8'));
+    } catch {
+      process.stderr.write('Warning: _index.json unreadable, starting fresh\n');
+    }
+  }
   index[caseCode] = {
     syncedAt: raw.extractedAt,
     commentCount: raw.comments.length,

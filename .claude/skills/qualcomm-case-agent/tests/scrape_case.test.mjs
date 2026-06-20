@@ -115,7 +115,7 @@ test('validateSelectors: null values → invalid', () => {
 test('validateSelectors: all required keys present → valid', () => {
   const r = validateSelectors({
     fields: { title: 'h1' },
-    comments: { container: '.comment' },
+    comments: { container: '.comment', body: '.body' },
     displayedCommentCount: '.count-badge',
   });
   assert.strictEqual(r.valid, true);
