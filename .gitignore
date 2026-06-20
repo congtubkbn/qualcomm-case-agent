@@ -1,0 +1,11 @@
+# Live Qualcomm auth — never commit
+data/chrome-profile/
+data/qualcomm-session.json
+*.session.json
+data/_proftest/
+
+# Cached case content is Qualcomm NDA material — keep local only
+data/cases/
+
+# Browser screenshots
+*.png
