@@ -108,69 +108,99 @@ Full step-by-step + failure handling: **`references\login-flow.md`**. Summary:
 - **Guard:** zero results / "not found" → the code may be wrong or not visible to this account.
   Report and STOP.
 
-## PHASE 3 — Extract the complete case (verbatim)
+## PHASE 3 — Scrape (Stage 1 — deterministic)
 
-Selectors + the JS extractor template + validation rules live in **`references\extraction.md`**.
-The robust pattern is: **snapshot → read the REAL selectors → write the extractor → `eval` → validate**.
+- **Goal:** Capture all raw case data; write `data/cases/<CODE>.json` and update `_index.json`.
+- **Action:**
+  1. (Optional) Read existing `data/cases/_index.json` to capture the old hash for `<CODE>` (needed for incremental check in step 2).
+  2. Run Stage 1:
+     ```bash
+     node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CASE_CODE>
+     ```
+     The script emits a machine-readable JSON line on stdout and exits with a code.
 
-### 3a — Expand EVERYTHING to a fixpoint (mandatory gate)
-A case hides data behind stacked controls: "Show/Read more" (long bodies), "Load more comments"
-(pagination), "Expand post", "Show N replies", collapsed "View detail" logs, and lazy-load on
-scroll. Clicking "load more" reveals NEW posts that each have their own "see more" → you MUST loop
-to a fixpoint. Do it in-page with a generated `expandPass()` (full algorithm + JS in
-`references\extraction.md`), driven from the shell:
-```bash
-agent-browser scroll down 4000               # trigger lazy-load (repeat toward bottom)
-agent-browser eval "<expandPass JS>"         # -> {clicked, count}; loop until clicked==0 twice
-agent-browser snapshot -c                    # CONFIRM: no expander text, no "…", count stable
-```
-Proceed only when the snapshot confirms nothing remains collapsed.
+- **Exit code handling:**
 
-### 3b — Run the extractor + completeness cross-check
-Generate the extractor from the live DOM (template in `references\extraction.md`), then:
-```bash
-agent-browser eval "<your extractor JS that returns JSON.stringify(...)>"
-```
-Validate, in order:
-1. **Completeness assert:** `comments.length === displayedCommentCount` (the case's own "N comments"
-   total). Lower → not fully expanded; go back to 3a or fix selectors. This is the primary
-   "got everything" signal.
-2. No comment whose `body` is empty but was visibly non-empty on screen.
-3. Sort comments **newest-first** (parse timestamps to dates; stable sort).
-Optionally download attachments: `agent-browser download <sel> "data/cases/<CODE>/attachments/<name>"`.
+  | Code | Meaning | Agent action |
+  |------|---------|--------------|
+  | 0 | ok | Read the emitted JSON (contains new `hash`). Compare with old hash from `_index.json`. If identical → "No update since `<syncedAt>`", STOP. Else → Phase 4. |
+  | 2 | bad args | Fix invocation. |
+  | 3 | auth-needed | Ask user to sign in + paste email OTP in the browser, then retry. |
+  | 4 | case not found / no access | Report to user, STOP. |
+  | 5 | incomplete — count < displayed after all fallbacks | Run LLM selector re-discovery (below), retry. STOP if still exit 5. |
+  | 6 | selectors.json missing or incomplete | Run LLM selector discovery (below), retry. |
 
-## PHASE 3.5 — Incremental check (skip unchanged)
+### Selector Discovery (run on exit 5 or 6)
 
-- Compute `hash` over the raw extracted case (comment count + each comment's timestamp+author+body,
-  joined and SHA-256'd) and `commentCount`.
-- Read `data\cases\_index.json`. If `<CODE>` exists with the SAME `hash` → **no update**: report
-  "no change since `<syncedAt>`" and STOP (skip enrichment + writes).
-- Else continue (new case or changed). Carry the new `hash`/`commentCount` to Phase 5.
+1. `agent-browser snapshot -c` — inspect the live case page DOM.
+2. Identify CSS selectors for all fields in `config/selectors.json` (`fields.*`, `comments.*`, `displayedCommentCount`, `expanders.selector`).
+3. Write discovered selectors to `config/selectors.json` (update `_discoveredAt`, keep `_version`).
+4. Retry `node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CASE_CODE>`.
 
-## PHASE 4 — Engineer enrichment
+## PHASE 3.5 — (merged into Phase 3 exit-0 handling above)
 
-For EACH comment, as a Qualcomm / Protocol / RF / 3GPP engineer, add:
-- `summary` (2–4 sentences): the technical point, root-cause/hypothesis, band/RAT/feature, the
-  action/answer. Cite the exact 3GPP clause (TS 36./38.xxx, RAN1–4, CT) if referenced. Keep key
-  numbers (band/EARFCN, dBm, ms, error/QXDM codes). Thin comment → `"Insufficient detail"`.
+The incremental skip is now automatic: compare the `hash` emitted by `scrape_case.mjs` (exit 0) with the old hash stored in `_index.json` before the run. Identical → STOP and report "no update". Changed → continue to Phase 4.
 
-At CASE level, synthesize:
-- `engineerSummary` (5–8 sentences): end-to-end debug narrative + current conclusion.
-- `rootCause` (best current hypothesis, or `"Unresolved"`).
-- `recommendedActions[]` — concrete next steps for the owner.
-- `tags[]` — e.g. `["NR","n78","desense","RRC reestablishment","TS 38.331"]`.
-- `timeline[]` — date → key event, newest-first.
+## PHASE 4 — Enrich (Stage 2 — LLM, incremental)
 
-**Rule:** summaries interpret; they NEVER add technical facts not present in the source.
+- **Trigger:** Phase 3 exit 0 AND hash changed (new or updated case data).
+- **Skip:** If the user/orchestrator requested raw-only sync, skip this phase.
+
+- **Goal:** Produce per-comment summaries + case-level synthesis, written into `data.enrichment`
+  in `data/cases/<CODE>.json`. Raw fields and `hash` are NEVER mutated by enrichment.
+
+### Incremental logic (preserve existing summaries, re-synthesize case level)
+
+1. Read `data/cases/<CODE>.json`.
+2. Identify new comment ids: those in `raw.comments[].id` NOT already in
+   `enrichment.commentSummaries` (keyed by comment id).
+3. For EACH NEW comment, produce:
+   - `summary` (2–4 sentences): technical point, root-cause/hypothesis, band/RAT/feature, action.
+     Cite the exact 3GPP clause (TS 36./38.xxx, RAN1–4, CT) if referenced. Include key numbers
+     (band/EARFCN, dBm, ms, error/QXDM codes). Thin comment → `"Insufficient detail"`.
+4. Re-generate case-level fields from ALL comments (new comments may change the full picture):
+   - `engineerSummary` (5–8 sentences): end-to-end debug narrative + current conclusion.
+   - `rootCause` (best current hypothesis, or `"Unresolved"`).
+   - `recommendedActions[]` — concrete next steps.
+   - `tags[]` — e.g. `["NR","n78","desense","RRC reestablishment","TS 38.331"]`.
+   - `timeline[]` — date → key event, newest-first.
+5. Merge and write back to `data/cases/<CODE>.json`:
+   ```json
+   {
+     "enrichment": {
+       "engineerSummary": "...",
+       "rootCause": "...",
+       "recommendedActions": ["..."],
+       "tags": ["..."],
+       "timeline": [{ "date": "...", "event": "..." }],
+       "commentSummaries": { "<comment id>": "summary text" },
+       "enrichedAt": "<ISO-8601>"
+     }
+   }
+   ```
+   Raw fields (`caseNumber`, `comments[].body`, `hash`, `extractedAt`, etc.) are NEVER changed.
+6. Update `data/cases/_index.json["<CODE>"].enrichedAt`.
+
+### Re-enrich flow (user requests improved analysis — no re-scrape)
+
+- Detect intent from user message keywords: "re-enrich", "redo analysis", "improve summary",
+  "update enrichment", "re-run enrichment".
+- Ask: `"Do you want to customize the enrichment prompt? (Enter to keep default)"`
+- If user provides custom instructions → use for this run only (not persisted).
+- Read existing `data/cases/<CODE>.json` (raw is already cached). Run incremental Stage 2.
+  Case-level fields are always re-generated; only new comment ids are added to `commentSummaries`.
+
+**Rule:** Summaries interpret source data — they NEVER add technical facts not present in the case.
 
 ## PHASE 5 — Persist (3 formats, newest-first)
 
 1. Write **`data\cases\<CODE>.json`** — full object (source of truth):
    ```
    { caseNumber, title, status, priority, severity, product, customer, created, updated,
-     description, url, engineerSummary, rootCause, recommendedActions[], tags[], timeline[],
-     displayedCommentCount, commentCount, hash, extractedAt, syncedAt,
-     comments: [ { id, timestamp, company, author, role, body, analysisLog[], attachments[], summary } ] }
+     description, url, displayedCommentCount, commentCount, hash, extractedAt,
+     comments: [ { id, timestamp, company, author, role, body, analysisLog[], attachments[] } ],
+     enrichment?: { engineerSummary, rootCause, recommendedActions[], tags[], timeline[],
+                    commentSummaries: { <id>: string }, enrichedAt } }
    ```
    Comments newest-first. `displayedCommentCount` = the case's own "N comments" total (completeness).
 2. Render the human-review + summary files deterministically (no hand-built HTML/report):
