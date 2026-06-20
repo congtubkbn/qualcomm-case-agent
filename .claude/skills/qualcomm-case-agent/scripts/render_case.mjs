@@ -24,6 +24,7 @@ const stem = basename(jsonPath).replace(/\.json$/i, '');
 const S = v => (v == null ? '' : String(v));
 const arr = v => (Array.isArray(v) ? v : []);
 const comments = arr(data.comments);
+const enrich = data.enrichment || {};
 
 /* ----------------------------- Markdown ----------------------------- */
 function md() {
@@ -34,23 +35,23 @@ function md() {
     ['Status', data.status], ['Priority', data.priority], ['Severity', data.severity],
     ['Product', data.product], ['Customer', data.customer],
     ['Created', data.created], ['Updated', data.updated],
-    ['Comments', comments.length], ['Synced', data.syncedAt],
+    ['Comments', comments.length], ['Synced', data.extractedAt],
   ].filter(([, v]) => S(v) !== '');
   for (const [k, v] of meta) L.push(`- **${k}:** ${S(v)}`);
   if (S(data.url)) L.push(`- **URL:** ${S(data.url)}`);
   L.push('');
 
-  if (S(data.engineerSummary)) { L.push('## Engineer Summary', '', S(data.engineerSummary), ''); }
-  if (S(data.rootCause))       { L.push('## Root Cause', '', S(data.rootCause), ''); }
-  if (arr(data.recommendedActions).length) {
+  if (S(enrich.engineerSummary)) { L.push('## Engineer Summary', '', S(enrich.engineerSummary), ''); }
+  if (S(enrich.rootCause))       { L.push('## Root Cause', '', S(enrich.rootCause), ''); }
+  if (arr(enrich.recommendedActions).length) {
     L.push('## Recommended Actions', '');
-    for (const a of data.recommendedActions) L.push(`- ${S(a)}`);
+    for (const a of enrich.recommendedActions) L.push(`- ${S(a)}`);
     L.push('');
   }
-  if (arr(data.tags).length) { L.push('## Tags', '', data.tags.map(t => `\`${S(t)}\``).join(' '), ''); }
-  if (arr(data.timeline).length) {
+  if (arr(enrich.tags).length) { L.push('## Tags', '', enrich.tags.map(t => `\`${S(t)}\``).join(' '), ''); }
+  if (arr(enrich.timeline).length) {
     L.push('## Timeline (newest first)', '');
-    for (const t of data.timeline) {
+    for (const t of enrich.timeline) {
       if (t && typeof t === 'object') L.push(`- **${S(t.date)}** — ${S(t.event)}`);
       else L.push(`- ${S(t)}`);
     }
@@ -63,7 +64,8 @@ function md() {
     const head = [S(c.timestamp), S(c.company), S(c.author) + (S(c.role) ? ` (${S(c.role)})` : '')]
       .filter(x => x && x !== ' ()').join(' · ');
     L.push(`### ${i + 1}. ${head || 'Comment'}`, '');
-    if (S(c.summary)) L.push(`> **Summary (engineer):** ${S(c.summary)}`, '');
+    const cSum = (enrich.commentSummaries || {})[c.id];
+    if (S(cSum)) L.push(`> **Summary (engineer):** ${S(cSum)}`, '');
     if (S(c.body)) L.push(S(c.body), '');
     for (const log of arr(c.analysisLog)) { if (S(log)) L.push('```', S(log), '```', ''); }
     const atts = arr(c.attachments).filter(a => a && (S(a.name) || S(a.href)));
@@ -83,7 +85,7 @@ function report() {
   const meta = [
     ['Status', data.status], ['Priority', data.priority], ['Severity', data.severity],
     ['Product', data.product], ['Customer', data.customer], ['Updated', data.updated],
-    ['Comments', comments.length], ['Synced', data.syncedAt],
+    ['Comments', comments.length], ['Synced', data.extractedAt],
   ].filter(([, v]) => S(v) !== '');
   L.push(meta.map(([k, v]) => `${k}: ${S(v)}`).join(' · '), '');
 
@@ -93,17 +95,17 @@ function report() {
     L.push(`> ⚠ **Completeness:** captured ${comments.length} of ${S(data.displayedCommentCount)} displayed comments — extraction may be incomplete.`, '');
   }
 
-  if (S(data.engineerSummary)) L.push('## Summary', '', S(data.engineerSummary), '');
-  if (S(data.rootCause))       L.push('## Root Cause', '', S(data.rootCause), '');
-  if (arr(data.recommendedActions).length) {
+  if (S(enrich.engineerSummary)) L.push('## Summary', '', S(enrich.engineerSummary), '');
+  if (S(enrich.rootCause))       L.push('## Root Cause', '', S(enrich.rootCause), '');
+  if (arr(enrich.recommendedActions).length) {
     L.push('## Recommended Actions', '');
-    data.recommendedActions.forEach((a, i) => L.push(`${i + 1}. ${S(a)}`));
+    enrich.recommendedActions.forEach((a, i) => L.push(`${i + 1}. ${S(a)}`));
     L.push('');
   }
-  if (arr(data.tags).length) L.push('**Tags:** ' + data.tags.map(t => `\`${S(t)}\``).join(' '), '');
-  if (arr(data.timeline).length) {
+  if (arr(enrich.tags).length) L.push('**Tags:** ' + enrich.tags.map(t => `\`${S(t)}\``).join(' '), '');
+  if (arr(enrich.timeline).length) {
     L.push('## Timeline', '');
-    for (const t of data.timeline) {
+    for (const t of enrich.timeline) {
       if (t && typeof t === 'object') L.push(`- ${S(t.date)} — ${S(t.event)}`);
       else L.push(`- ${S(t)}`);
     }
@@ -112,7 +114,7 @@ function report() {
   L.push('## Comments (one-line, newest first)', '');
   comments.forEach((c, i) => {
     const who = [S(c.timestamp), S(c.company), S(c.author)].filter(Boolean).join(' · ');
-    const oneline = S(c.summary) || S(c.body).replace(/\s+/g, ' ').slice(0, 160);
+    const oneline = S((enrich.commentSummaries || {})[c.id]) || S(c.body).replace(/\s+/g, ' ').slice(0, 160);
     L.push(`${i + 1}. **${who}** — ${oneline}`);
   });
   L.push('', `_Full data: ${stem}.json · Full review: ${stem}.html_`);
@@ -132,16 +134,16 @@ function html() {
     ? `<div class="warn">⚠ Completeness: captured ${comments.length} of ${esc(data.displayedCommentCount)} displayed comments — extraction may be incomplete.</div>`
     : '';
   const cards = [];
-  if (S(data.engineerSummary)) cards.push(`<div class="card"><h2>Engineer Summary</h2><p>${nl2br(data.engineerSummary)}</p></div>`);
-  if (S(data.rootCause))       cards.push(`<div class="card"><h2>Root Cause</h2><p>${nl2br(data.rootCause)}</p></div>`);
-  if (arr(data.recommendedActions).length)
-    cards.push(`<div class="card"><h2>Recommended Actions</h2><ul>${data.recommendedActions.map(a => `<li>${esc(a)}</li>`).join('')}</ul></div>`);
+  if (S(enrich.engineerSummary)) cards.push(`<div class="card"><h2>Engineer Summary</h2><p>${nl2br(enrich.engineerSummary)}</p></div>`);
+  if (S(enrich.rootCause))       cards.push(`<div class="card"><h2>Root Cause</h2><p>${nl2br(enrich.rootCause)}</p></div>`);
+  if (arr(enrich.recommendedActions).length)
+    cards.push(`<div class="card"><h2>Recommended Actions</h2><ul>${enrich.recommendedActions.map(a => `<li>${esc(a)}</li>`).join('')}</ul></div>`);
 
-  const tags = arr(data.tags).length
-    ? `<div class="tags">${data.tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : '';
+  const tags = arr(enrich.tags).length
+    ? `<div class="tags">${enrich.tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : '';
 
-  const timeline = arr(data.timeline).length
-    ? `<div class="card"><h2>Timeline</h2><ul class="tl">${data.timeline.map(t =>
+  const timeline = arr(enrich.timeline).length
+    ? `<div class="card"><h2>Timeline</h2><ul class="tl">${enrich.timeline.map(t =>
         (t && typeof t === 'object')
           ? `<li><span class="when">${esc(t.date)}</span> ${esc(t.event)}</li>`
           : `<li>${esc(t)}</li>`).join('')}</ul></div>` : '';
@@ -158,7 +160,7 @@ function html() {
       </details>` : '';
     return `<article class="comment">
       <div class="chead"><span class="cnum">#${i + 1}</span> ${head || 'Comment'}</div>
-      ${S(c.summary) ? `<div class="esum"><b>Summary (engineer):</b> ${nl2br(c.summary)}</div>` : ''}
+      ${(cSumH => S(cSumH) ? `<div class="esum"><b>Summary (engineer):</b> ${nl2br(cSumH)}</div>` : '')((enrich.commentSummaries || {})[c.id])}
       ${S(c.body) ? `<div class="body">${nl2br(c.body)}</div>` : ''}
       ${details}
     </article>`;
