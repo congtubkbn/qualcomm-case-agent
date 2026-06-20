@@ -1,0 +1,95 @@
+<svg width="100%" viewBox="0 0 680 732" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>Qualcomm case agent workflow</title>
+<desc>Vertical pipeline from one case code through intake, authentication, locate, extract, incremental check, enrichment and persist, producing JSON, report and HTML outputs. Amber guards stop early on no code, email unavailable, case not found, or no change.</desc>
+<style>
+  text{font-family:'Segoe UI',system-ui,Arial,sans-serif}
+  .t{font-size:14px;font-weight:500}
+  .ts{font-size:12px;font-weight:400;fill:#5f5e5a}
+  rect{stroke-width:1.5}
+  .b-gray{fill:#F1EFE8;stroke:#888780}.tt-gray{fill:#2C2C2A}
+  .b-teal{fill:#E1F5EE;stroke:#1D9E75}.tt-teal{fill:#04342C}
+  .b-amber{fill:#FAEEDA;stroke:#BA7517}.tt-amber{fill:#412402}
+  .b-green{fill:#EAF3DE;stroke:#639922}.tt-green{fill:#173404}
+  .t,.ts{text-anchor:middle}
+</style>
+<defs>
+<marker id="ah" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#888780"/></marker>
+<marker id="ahA" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#BA7517"/></marker>
+<marker id="ahT" markerWidth="9" markerHeight="9" refX="6.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#1D9E75"/></marker>
+</defs>
+
+<rect class="b-gray" x="40" y="9" width="13" height="13" rx="3"/>
+<text class="ts" x="58" y="20" text-anchor="start">input / neutral</text>
+<rect class="b-teal" x="160" y="9" width="13" height="13" rx="3"/>
+<text class="ts" x="178" y="20" text-anchor="start">process phase</text>
+<rect class="b-amber" x="300" y="9" width="13" height="13" rx="3"/>
+<text class="ts" x="318" y="20" text-anchor="start">guard · human · stop</text>
+<rect class="b-green" x="500" y="9" width="13" height="13" rx="3"/>
+<text class="ts" x="518" y="20" text-anchor="start">outputs</text>
+
+<rect class="b-gray" x="200" y="48" width="240" height="44" rx="8"/>
+<text class="t tt-gray" x="320" y="67">Input</text><text class="ts" x="320" y="83">1 Qualcomm case code</text>
+
+<line x1="320" y1="92" x2="320" y2="110" stroke="#888780" stroke-width="2" marker-end="url(#ah)"/>
+
+<rect class="b-teal" x="200" y="112" width="240" height="44" rx="8"/>
+<text class="t tt-teal" x="320" y="131">Phase 0 · intake</text><text class="ts" x="320" y="147">validate code, prep cache</text>
+
+<line x1="320" y1="156" x2="320" y2="174" stroke="#888780" stroke-width="2" marker-end="url(#ah)"/>
+
+<rect class="b-teal" x="200" y="176" width="240" height="44" rx="8"/>
+<text class="t tt-teal" x="320" y="195">Phase 1 · authenticate</text><text class="ts" x="320" y="211">reuse --profile session</text>
+<line x1="440" y1="198" x2="468" y2="198" stroke="#BA7517" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#ahA)"/>
+<rect class="b-amber" x="470" y="178" width="170" height="40" rx="8"/>
+<text class="t tt-amber" x="555" y="195">session expired</text><text class="ts" x="555" y="210">human login + OTP</text>
+
+<line x1="320" y1="220" x2="320" y2="238" stroke="#888780" stroke-width="2" marker-end="url(#ah)"/>
+
+<rect class="b-teal" x="200" y="240" width="240" height="44" rx="8"/>
+<text class="t tt-teal" x="320" y="259">Phase 2 · locate case</text><text class="ts" x="320" y="275">open case url / search</text>
+<line x1="440" y1="262" x2="468" y2="262" stroke="#BA7517" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#ahA)"/>
+<rect class="b-amber" x="470" y="242" width="170" height="40" rx="8"/>
+<text class="t tt-amber" x="555" y="259">not found</text><text class="ts" x="555" y="274">report → stop</text>
+
+<line x1="320" y1="284" x2="320" y2="302" stroke="#888780" stroke-width="2" marker-end="url(#ah)"/>
+
+<rect class="b-teal" x="200" y="304" width="240" height="44" rx="8"/>
+<text class="t tt-teal" x="320" y="323">Phase 3 · extract</text><text class="ts" x="320" y="339">expand-all · eval · assert count</text>
+<path d="M200,316 C172,316 172,340 198,340" fill="none" stroke="#1D9E75" stroke-width="2" marker-end="url(#ahT)"/>
+<text class="ts" x="190" y="313" text-anchor="end">expand loop</text>
+
+<line x1="320" y1="348" x2="320" y2="366" stroke="#888780" stroke-width="2" marker-end="url(#ah)"/>
+
+<rect class="b-amber" x="200" y="368" width="240" height="44" rx="8"/>
+<text class="t tt-amber" x="320" y="387">Phase 3.5 · changed?</text><text class="ts" x="320" y="403">hash vs _index.json</text>
+<line x1="440" y1="390" x2="468" y2="390" stroke="#BA7517" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#ahA)"/>
+<rect class="b-amber" x="470" y="370" width="170" height="40" rx="8"/>
+<text class="t tt-amber" x="555" y="387">no change</text><text class="ts" x="555" y="402">no update → stop</text>
+
+<line x1="320" y1="412" x2="320" y2="430" stroke="#888780" stroke-width="2" marker-end="url(#ah)"/>
+
+<rect class="b-teal" x="200" y="432" width="240" height="44" rx="8"/>
+<text class="t tt-teal" x="320" y="451">Phase 4 · enrich</text><text class="ts" x="320" y="467">engineer summaries</text>
+
+<line x1="320" y1="476" x2="320" y2="494" stroke="#888780" stroke-width="2" marker-end="url(#ah)"/>
+
+<rect class="b-teal" x="200" y="496" width="240" height="44" rx="8"/>
+<text class="t tt-teal" x="320" y="515">Phase 5 · persist</text><text class="ts" x="320" y="531">write json → render → index</text>
+
+<line x1="320" y1="540" x2="320" y2="562" stroke="#888780" stroke-width="2" marker-end="url(#ah)"/>
+
+<rect class="b-green" x="40" y="564" width="180" height="48" rx="8"/>
+<text class="t tt-green" x="130" y="585">&lt;CODE&gt;.json</text><text class="ts" x="130" y="601">complete data</text>
+<rect class="b-green" x="250" y="564" width="180" height="48" rx="8"/>
+<text class="t tt-green" x="340" y="585">&lt;CODE&gt;.report.md</text><text class="ts" x="340" y="601">summary</text>
+<rect class="b-green" x="460" y="564" width="180" height="48" rx="8"/>
+<text class="t tt-green" x="550" y="585">&lt;CODE&gt;.md / .html</text><text class="ts" x="550" y="601">human review</text>
+
+<line x1="320" y1="612" x2="320" y2="634" stroke="#888780" stroke-width="2" marker-end="url(#ah)"/>
+
+<rect class="b-gray" x="200" y="636" width="240" height="44" rx="8"/>
+<text class="t tt-gray" x="320" y="655">Phase 6 · report</text><text class="ts" x="320" y="671">counts, root cause, paths</text>
+
+<text class="ts" x="320" y="700">also kept: data/cases/_index.json (sync) · data/chrome-profile/ (auth profile)</text>
+<text class="ts" x="320" y="717">amber guards stop early: no code · email unavailable · case not found · no change</text>
+</svg>
