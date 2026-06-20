@@ -145,3 +145,172 @@ export function buildExtractCaseJs(selectors) {
   });
 })()`;
 }
+
+// ---- Paths ----
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = dirname(__filename);
+const SKILL_ROOT      = resolve(__dirname, '..');
+const WORKSPACE_ROOT  = resolve(SKILL_ROOT, '../../..');
+const DATA_DIR        = join(WORKSPACE_ROOT, 'data', 'cases');
+const SELECTORS_PATH  = join(SKILL_ROOT, 'config', 'selectors.json');
+const INDEX_PATH      = join(DATA_DIR, '_index.json');
+
+// ---- agent-browser CLI wrappers ----
+function abRun(args) {
+  return execSync(`agent-browser ${args}`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+}
+
+function browserOpen(url) {
+  abRun(`open ${JSON.stringify(url)}`);
+}
+
+function browserWait(ms) {
+  abRun(`wait ${ms}`);
+}
+
+function browserSnapshot() {
+  return abRun('snapshot -c');
+}
+
+function browserEval(js) {
+  const result = abRun(`eval ${JSON.stringify(js)}`);
+  return JSON.parse(result);
+}
+
+// ---- Fixpoint expand loop ----
+function runFixpointLoop(maxPasses = 25) {
+  let prev  = { clicked: -1, count: -1, h: -1 };
+  let stableRuns = 0;
+
+  for (let pass = 0; pass < maxPasses; pass++) {
+    const curr = browserEval(buildExpandPassJs());
+    browserWait(1500);
+
+    if (isFixpoint(prev, curr)) {
+      stableRuns++;
+      if (stableRuns >= 2) return curr;
+    } else {
+      stableRuns = 0;
+    }
+    prev = curr;
+  }
+  throw new Error(`Fixpoint not reached after ${maxPasses} passes`);
+}
+
+// ---- Progressive scroll fallback (for virtualized lists) ----
+function progressiveScrollExtract(selectors, expectedCount, stepPx = 600) {
+  const map = new Map();
+
+  let lastHeight = -1;
+  while (true) {
+    const scrollResult = browserEval(`(function() {
+      window.scrollBy(0, ${stepPx});
+      return { scrollY: window.scrollY, scrollHeight: document.body.scrollHeight };
+    })()`);
+    browserWait(800);
+
+    const partial = browserEval(buildExtractCaseJs(selectors));
+    for (const c of partial.comments) {
+      map.set(c.id, c);
+    }
+
+    if (map.size >= expectedCount) break;
+    if (scrollResult.scrollHeight === lastHeight) break;
+    lastHeight = scrollResult.scrollHeight;
+  }
+
+  return [...map.values()];
+}
+
+// ---- Main ----
+async function main(caseCode) {
+  // 1. Load selectors config
+  if (!existsSync(SELECTORS_PATH)) {
+    emit({ code: EXIT.CONFIG_MISSING, reason: 'selectors.json not found' });
+    process.exit(EXIT.CONFIG_MISSING);
+  }
+  const _selectorRaw = readFileSync(SELECTORS_PATH, 'utf8');
+  const selectors = JSON.parse(_selectorRaw.charCodeAt(0) === 0xFEFF ? _selectorRaw.slice(1) : _selectorRaw);
+  const { valid, missingKeys } = validateSelectors(selectors);
+  if (!valid) {
+    emit({ code: EXIT.CONFIG_MISSING, reason: 'selectors incomplete', missingKeys });
+    process.exit(EXIT.CONFIG_MISSING);
+  }
+
+  // 2. Open case page
+  const caseUrl = selectors.caseUrlPattern
+    ? selectors.caseUrlPattern.replace('<CODE>', caseCode)
+    : `${selectors.caseUrlBase}/case/${caseCode}`;
+  browserOpen(caseUrl);
+  browserWait(3000);
+
+  // 3. Detect auth redirect
+  const snap = browserSnapshot();
+  if (/account\.qualcomm\.com|okta\.com|sign.?in/i.test(snap)) {
+    emit({ code: EXIT.AUTH_NEEDED, reason: 'redirected to authentication', url: caseUrl });
+    process.exit(EXIT.AUTH_NEEDED);
+  }
+  if (/not found|403|access denied|no permission/i.test(snap)) {
+    emit({ code: EXIT.NOT_FOUND, reason: 'case not found or no access', caseCode });
+    process.exit(EXIT.NOT_FOUND);
+  }
+
+  // 4. Expand-all fixpoint loop
+  runFixpointLoop();
+
+  // 5. Extract
+  let raw = browserEval(buildExtractCaseJs(selectors));
+
+  // 6. Completeness assert; fallback to progressive scroll if needed
+  let assertion = countAssert(raw.comments.length, raw.displayedCommentCount);
+  if (!assertion.ok) {
+    const fallbackComments = progressiveScrollExtract(selectors, raw.displayedCommentCount);
+    raw = { ...raw, comments: fallbackComments };
+    assertion = countAssert(raw.comments.length, raw.displayedCommentCount);
+  }
+  if (!assertion.ok) {
+    emit({ code: EXIT.INCOMPLETE, ...assertion, caseCode });
+    process.exit(EXIT.INCOMPLETE);
+  }
+
+  // 7. Hash + timestamp
+  raw.hash = computeHash(raw);
+  raw.extractedAt = new Date().toISOString();
+
+  // 8. Write case JSON
+  mkdirSync(DATA_DIR, { recursive: true });
+  const outPath = join(DATA_DIR, `${caseCode}.json`);
+  writeFileSync(outPath, JSON.stringify(raw, null, 2), 'utf8');
+
+  // 9. Update _index.json
+  const index = existsSync(INDEX_PATH)
+    ? JSON.parse(readFileSync(INDEX_PATH, 'utf8'))
+    : {};
+  index[caseCode] = {
+    syncedAt: raw.extractedAt,
+    commentCount: raw.comments.length,
+    hash: raw.hash,
+  };
+  writeFileSync(INDEX_PATH, JSON.stringify(index, null, 2), 'utf8');
+
+  // 10. Success
+  emit({ code: EXIT.OK, caseCode, commentCount: raw.comments.length, hash: raw.hash, path: outPath });
+  process.exit(EXIT.OK);
+}
+
+function emit(obj) {
+  process.stdout.write(JSON.stringify(obj) + '\n');
+}
+
+// Entry point guard — prevents main() running when imported for tests
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const caseCode = process.argv[2]?.trim().toUpperCase();
+  if (!caseCode) {
+    emit({ code: EXIT.BAD_ARGS, reason: 'usage: node scrape_case.mjs <CASE_CODE>' });
+    process.exit(EXIT.BAD_ARGS);
+  }
+  main(caseCode).catch(err => {
+    process.stderr.write(err.message + '\n');
+    process.exit(1);
+  });
+}
