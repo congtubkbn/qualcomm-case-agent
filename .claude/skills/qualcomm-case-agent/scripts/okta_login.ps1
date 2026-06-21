@@ -15,7 +15,7 @@
     powershell -ExecutionPolicy Bypass -File .claude\skills\qualcomm-case-agent\scripts\connect_chrome.ps1
     agent-browser connect 9222
 
-  RUN from the workspace root (so data\.secrets\qid.bin resolves):
+  RUN from anywhere (paths resolve via _paths.ps1 from the script's own location):
     powershell -ExecutionPolicy Bypass -File .claude\skills\qualcomm-case-agent\scripts\okta_login.ps1
 
   EXIT CODES: 0 password submitted (do OTP) | 3 not attached / no Okta form |
@@ -23,15 +23,18 @@
 #>
 param(
   [string]$Username = "the.thoi@samsung.com",
-  [string]$SecretPath = "data\.secrets\qid.bin"
+  [string]$SecretPath   # default resolved below via _paths.ps1 (CWD-independent)
 )
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Security
+. "$PSScriptRoot\_paths.ps1"   # -> $QcSecretPath / $QcProjectRoot (location-derived, not CWD)
+if (-not $SecretPath)                              { $SecretPath = $QcSecretPath }
+elseif (-not [IO.Path]::IsPathRooted($SecretPath)) { $SecretPath = Join-Path $QcProjectRoot $SecretPath }
 
 function AB { agent-browser @args 2>&1 }
 
 if (-not (Test-Path $SecretPath)) {
-  Write-Host "ERROR: $SecretPath missing. Run the first-time capture snippet (references\login-flow.md)."
+  Write-Host "ERROR: $SecretPath missing. Run capture_password.ps1 first."
   exit 4
 }
 
@@ -63,7 +66,7 @@ if ($snap -notmatch 'Password') {
   Write-Host $snap
   exit 3
 }
-$enc = [IO.File]::ReadAllBytes((Join-Path (Get-Location) $SecretPath))
+$enc = [IO.File]::ReadAllBytes($SecretPath)
 $pw  = [Text.Encoding]::UTF8.GetString(
   [Security.Cryptography.ProtectedData]::Unprotect(
     $enc, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser))

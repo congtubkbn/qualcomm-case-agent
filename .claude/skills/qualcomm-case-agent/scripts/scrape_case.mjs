@@ -2,8 +2,9 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
-import { resolve, dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { SKILL_ROOT, DATA_DIR } from './_paths.mjs';
 
 // ---- Exit codes (exported so tests can import) ----
 export const EXIT = {
@@ -149,12 +150,7 @@ export function buildExtractCaseJs(selectors) {
 })()`;
 }
 
-// ---- Paths ----
-const __filename = fileURLToPath(import.meta.url);
-const __dirname  = dirname(__filename);
-const SKILL_ROOT      = resolve(__dirname, '..');
-const WORKSPACE_ROOT  = resolve(SKILL_ROOT, '../../..');
-const DATA_DIR        = join(WORKSPACE_ROOT, 'data', 'cases');
+// ---- Paths (SKILL_ROOT + DATA_DIR from _paths.mjs: location-derived, walk-up to root) ----
 const SELECTORS_PATH  = join(SKILL_ROOT, 'config', 'selectors.json');
 const INDEX_PATH      = join(DATA_DIR, '_index.json');
 

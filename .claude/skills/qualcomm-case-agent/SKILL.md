@@ -101,7 +101,8 @@ portable across PCs and agents.
      # NOTE the embedded quotes around the path: Start-Process does NOT quote -ArgumentList
      # array items, so an unquoted path with a space (e.g. "C:\Users\Win 11\...") splits the
      # token and the CDP port never opens. The connect_chrome.ps1 helper handles this (plus
-     # Chrome-path auto-detection) — prefer it over this inline form.
+     # Chrome-path auto-detection AND resolves the profile from the project root, not CWD via
+     # _paths.ps1) — prefer it. This inline form assumes you launch from the project root.
      Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" -ArgumentList @(
        '--remote-debugging-port=9222',
        "--user-data-dir=`"$((Get-Location).Path)\data\chrome-profile`"")

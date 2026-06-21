@@ -45,7 +45,9 @@ The helper runs (equivalent inline):
 # Separate --user-data-dir = separate instance; do NOT kill the user's personal Chrome.
 # Embedded quotes around the path are REQUIRED: Start-Process does not quote -ArgumentList
 # items, so a path with a space (e.g. "C:\Users\Win 11\...") would split and the CDP port
-# would never open. connect_chrome.ps1 is the source of truth and also auto-detects Chrome.
+# would never open. connect_chrome.ps1 is the source of truth: it auto-detects Chrome AND resolves
+# the profile from the project root (NOT CWD) via _paths.ps1 -> prefer it. This inline form assumes
+# you launch from the project root; run from elsewhere and you get a DIFFERENT empty profile.
 Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" -ArgumentList @(
   '--remote-debugging-port=9222',
   "--user-data-dir=`"$((Get-Location).Path)\data\chrome-profile`"")
@@ -63,6 +65,18 @@ Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" -ArgumentL
 
 True Windows DPAPI, `CurrentUser` scope — the ciphertext only decrypts for this Windows user on this
 machine. Built into .NET; no module install. Git-ignored.
+
+**Portability (copying the skill to another workspace or machine):**
+- **Path resolution is automatic.** All scripts resolve their paths through `scripts\_paths.ps1`
+  (PowerShell) / `scripts\_paths.mjs` (Node): derived from the script's own location, then walking UP
+  to the project root (`.git` or an existing `data\cases`). Works from any CWD and survives the skill
+  being re-nested. Escape hatches: `$env:QUALCOMM_ROOT` (pin the project root), `$env:QUALCOMM_SECRET`
+  (pin the `qid.bin` path).
+- **The DPAPI secret is NOT portable across machines/users — by design.** `qid.bin` is bound to the
+  Windows user + machine that ran the capture; it can never be decrypted elsewhere, and no path logic
+  changes that. On a new machine (or a different Windows user), **re-run `capture_password.ps1` once**
+  to regenerate `qid.bin` locally. `data\.secrets\` is git-ignored, so it never travels with a copy
+  anyway — you regenerate regardless.
 
 ### First-time capture — USER runs this in a REAL terminal (password never enters the chat)
 
@@ -82,8 +96,9 @@ PowerShell). Claude does NOT run it and never sees the value. Wait for the `Save
 The script (`scripts\capture_password.ps1`) is the source of truth; this is what it does:
 
 ```powershell
-$root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path  # auto-detect project root
-$dir  = Join-Path $root 'data\.secrets'
+. "$PSScriptRoot\_paths.ps1"      # shared resolver: walks UP to project root (.git / data\cases)
+$out = $QcSecretPath              # <project-root>\data\.secrets\qid.bin (or $env:QUALCOMM_SECRET)
+$dir = Split-Path $out -Parent
 Add-Type -AssemblyName System.Security                # REQUIRED on PS 5.1 or ProtectedData = TypeNotFound
 New-Item -ItemType Directory -Force $dir | Out-Null
 $sec  = Read-Host "Qualcomm ID password" -AsSecureString
@@ -93,16 +108,17 @@ $pw   = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
 $enc  = [Security.Cryptography.ProtectedData]::Protect(
   [Text.Encoding]::UTF8.GetBytes($pw), $null,
   [Security.Cryptography.DataProtectionScope]::CurrentUser)
-[IO.File]::WriteAllBytes((Join-Path $dir 'qid.bin'), $enc)
+[IO.File]::WriteAllBytes($out, $enc)
 ```
 
 Pitfalls this snippet defends against (all hit on first real capture):
 - **cmd.exe instead of PowerShell** → `'New-Item' is not recognized`. Open `powershell` first.
 - **Missing `Add-Type`** → `Unable to find type [Security.Cryptography.ProtectedData]`, `$enc` stays
   null, `WriteAllBytes` then throws `Value cannot be null` while the file looks "saved".
-- **Wrong working dir** (e.g. `C:\Users\<you>`) → qid.bin lands outside the project; the agent's
-  `Test-Path data\.secrets\qid.bin` then reports missing. `Set-Location` + `Join-Path (Get-Location)`
-  fix it.
+- **Wrong working dir** — no longer a failure mode: `_paths.ps1` derives paths from the script's own
+  location and walks UP to the project root (`.git` / `data\cases`), so capture and login agree from
+  ANY CWD and at any nesting depth. Override with `$env:QUALCOMM_ROOT` / `$env:QUALCOMM_SECRET` for
+  layouts the walk-up can't infer (e.g. secret stored outside the repo).
 - The `if … Length -gt 0` guard proves the bytes were actually written (don't trust a bare "Saved").
 
 ### Forced-login conduit — Claude runs this (Okta is identifier-first / two-step)
@@ -133,13 +149,16 @@ Confirmed screen sequence (refs are illustrative — re-snapshot each run):
 script: username `input[name='identifier']`, password `input[type='password']`, submit
 `input[type='submit']`.
 
-Manual equivalent (if the helper is unavailable) — decrypt and fill by selector, no echo:
+Manual equivalent (if the helper is unavailable) — decrypt and fill by selector, no echo. Prefer
+`okta_login.ps1`: it resolves `qid.bin` via `_paths.ps1` (CWD-independent). The `$QcSecretPath` line
+below does the same; the commented `Get-Location` fallback only works when CWD is the project root:
 
 ```powershell
 Add-Type -AssemblyName System.Security
+. "$PSScriptRoot\_paths.ps1"   # -> $QcSecretPath  (or set $secret manually if running ad-hoc)
 agent-browser click "input[type='submit']"          # Next (username -> password screen)
 Start-Sleep 2
-$enc = [IO.File]::ReadAllBytes((Join-Path (Get-Location) "data\.secrets\qid.bin"))
+$enc = [IO.File]::ReadAllBytes($QcSecretPath)        # was: Join-Path (Get-Location) "data\.secrets\qid.bin"
 $pw  = [Text.Encoding]::UTF8.GetString(
   [Security.Cryptography.ProtectedData]::Unprotect($enc, $null,
     [Security.Cryptography.DataProtectionScope]::CurrentUser))

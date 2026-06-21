@@ -19,10 +19,11 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# Project root = 4 levels up from this script (scripts -> qualcomm-case-agent -> skills -> .claude -> ROOT)
-$root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
-$dir  = Join-Path $root 'data\.secrets'
-$out  = Join-Path $dir  'qid.bin'
+# Resolve the secret path via the shared helper: walks UP to the project root
+# (not a fixed '..' count), so capture + login agree even if the skill is re-nested.
+. "$PSScriptRoot\_paths.ps1"
+$out = $QcSecretPath
+$dir = Split-Path $out -Parent
 
 Add-Type -AssemblyName System.Security   # REQUIRED on PS 5.1 or ProtectedData = TypeNotFound
 New-Item -ItemType Directory -Force $dir | Out-Null

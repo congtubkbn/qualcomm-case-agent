@@ -14,23 +14,24 @@
    - Idempotent: if the CDP port is already listening, it just reports OK and
      exits 0 - re-running is harmless.
 
-  Usage (from the workspace root):
+  Usage (run from anywhere - paths resolve from the script's own location):
      powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/connect_chrome.ps1"
      agent-browser connect 9222
   Optional args:
      -Port 9222            CDP/remote-debugging port (default 9222)
-     -Profile <dir>        user-data-dir (default data\chrome-profile, relative to CWD)
+     -Profile <dir>        user-data-dir (default: <project-root>\data\chrome-profile)
 
   NOTE: keep this file ASCII-only. PowerShell 5.1 reads a BOM-less file as the
   ANSI codepage, so non-ASCII chars (em-dashes, curly quotes) corrupt parsing.
 #>
 param(
   [int]$Port = 9222,
-  [string]$Profile = "data\chrome-profile",
+  [string]$Profile = "",   # default resolved below via _paths.ps1 (project-root, NOT CWD)
   [string]$ChromePath = ""
 )
 
 $ErrorActionPreference = "Stop"
+. "$PSScriptRoot\_paths.ps1"   # -> $QcProfileDir / $QcProjectRoot (location-derived)
 
 # Resolve Chrome executable across the common install locations so this script
 # is portable to any Windows machine (per-machine AND per-user installs), then
@@ -62,7 +63,11 @@ if ($ChromePath -and (Test-Path $ChromePath)) {
 }
 
 # Resolve the profile dir to an ABSOLUTE path (Chrome --user-data-dir prefers absolute).
-if (-not [System.IO.Path]::IsPathRooted($Profile)) { $Profile = Join-Path (Get-Location).Path $Profile }
+# Default = project-root data\chrome-profile (location-derived, NOT CWD) so the SAME session
+# profile is reused no matter which folder you launch from. A relative -Profile override is
+# resolved against the project root too.
+if (-not $Profile)                                 { $Profile = $QcProfileDir }
+elseif (-not [System.IO.Path]::IsPathRooted($Profile)) { $Profile = Join-Path $QcProjectRoot $Profile }
 New-Item -ItemType Directory -Force $Profile | Out-Null
 
 function Test-Cdp([int]$p) {
