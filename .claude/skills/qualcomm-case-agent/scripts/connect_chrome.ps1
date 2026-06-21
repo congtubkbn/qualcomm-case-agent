@@ -26,17 +26,39 @@
 #>
 param(
   [int]$Port = 9222,
-  [string]$Profile = "data\chrome-profile"
+  [string]$Profile = "data\chrome-profile",
+  [string]$ChromePath = ""
 )
 
 $ErrorActionPreference = "Stop"
 
-# Resolve Chrome executable (64-bit first, then 32-bit).
-$chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-if (-not (Test-Path $chrome)) { $chrome = "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" }
-if (-not (Test-Path $chrome)) {
-  Write-Error "Google Chrome not found. Install it, or edit this path."
-  exit 3
+# Resolve Chrome executable across the common install locations so this script
+# is portable to any Windows machine (per-machine AND per-user installs), then
+# fall back to the registry App Paths key for non-standard install dirs.
+# Pass -ChromePath to override entirely.
+if ($ChromePath -and (Test-Path $ChromePath)) {
+  $chrome = $ChromePath
+} else {
+  $candidates = @(
+    "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+    "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+    "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+  )
+  $chrome = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if (-not $chrome) {
+    foreach ($rk in @(
+      "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
+      "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe")) {
+      if (Test-Path $rk) {
+        $p = (Get-Item $rk).GetValue("")
+        if ($p -and (Test-Path $p)) { $chrome = $p; break }
+      }
+    }
+  }
+  if (-not $chrome) {
+    Write-Error "Google Chrome not found in Program Files, LocalAppData, or registry App Paths. Install Chrome or pass -ChromePath '<full path to chrome.exe>'."
+    exit 3
+  }
 }
 
 # Resolve the profile dir to an ABSOLUTE path (Chrome --user-data-dir prefers absolute).
@@ -71,7 +93,20 @@ if (Test-Cdp $Port) {
 # Launch detached. Start-Process (NOT the '&' call operator) so Chrome does NOT
 # inherit the automation shell's redirected stdin (that triggers Windows
 # "Input redirection is not supported" / a hung launch).
-Start-Process $chrome -ArgumentList @("--remote-debugging-port=$Port", "--user-data-dir=$Profile")
+#
+# CRITICAL portability detail: PowerShell 5.1 Start-Process -ArgumentList does
+# NOT quote array elements - it concatenates them with spaces. If $Profile
+# contains a space (e.g. "C:\Users\Win 11\...") the --user-data-dir token gets
+# split, Chrome silently uses a bogus data dir / forwards to an already-open
+# personal Chrome, and the CDP port never opens (exit 4). Embed literal quotes
+# around the path so the value survives spaces on ANY machine/folder.
+$chromeArgs = @(
+  "--remote-debugging-port=$Port",
+  "--no-first-run",
+  "--no-default-browser-check",
+  "--user-data-dir=`"$Profile`""
+)
+Start-Process -FilePath $chrome -ArgumentList $chromeArgs
 
 # Poll until the CDP port is up (Chrome can take a couple seconds cold).
 $deadline = (Get-Date).AddSeconds(20)

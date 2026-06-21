@@ -43,9 +43,12 @@ The helper runs (equivalent inline):
 
 ```powershell
 # Separate --user-data-dir = separate instance; do NOT kill the user's personal Chrome.
+# Embedded quotes around the path are REQUIRED: Start-Process does not quote -ArgumentList
+# items, so a path with a space (e.g. "C:\Users\Win 11\...") would split and the CDP port
+# would never open. connect_chrome.ps1 is the source of truth and also auto-detects Chrome.
 Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" -ArgumentList @(
   '--remote-debugging-port=9222',
-  "--user-data-dir=$((Get-Location).Path)\data\chrome-profile")
+  "--user-data-dir=`"$((Get-Location).Path)\data\chrome-profile`"")
 ```
 
 - `--user-data-dir` (a directory path) → persistent profile. Cookies/tokens live there and are reused

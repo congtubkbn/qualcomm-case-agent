@@ -98,9 +98,13 @@ portable across PCs and agents.
      is not supported"*):
      ```powershell
      # Separate --user-data-dir = separate instance; do NOT kill the user's personal Chrome.
+     # NOTE the embedded quotes around the path: Start-Process does NOT quote -ArgumentList
+     # array items, so an unquoted path with a space (e.g. "C:\Users\Win 11\...") splits the
+     # token and the CDP port never opens. The connect_chrome.ps1 helper handles this (plus
+     # Chrome-path auto-detection) — prefer it over this inline form.
      Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" -ArgumentList @(
        '--remote-debugging-port=9222',
-       "--user-data-dir=$((Get-Location).Path)\data\chrome-profile")
+       "--user-data-dir=`"$((Get-Location).Path)\data\chrome-profile`"")
      ```
      Why real Chrome and not the bundled Chromium: a freshly-downloaded bundled build can fail its
      CDP handshake → `os error 10060` on every `open`. Real Chrome is stable and OS-trusted. See
