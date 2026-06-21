@@ -38,9 +38,14 @@ the installed version differs, that reference is authoritative.
 
 ## Configuration
 
-All paths below are **relative to the workspace root** (the access-qualcomm project = the current
-working directory / VS Code workspace folder). No absolute or machine-specific paths — portable
-across PCs and agents.
+Data paths below (`data\...`) are **relative to the workspace root** (the access-qualcomm project =
+the current working directory / VS Code workspace folder). No absolute or machine-specific paths —
+portable across PCs and agents.
+
+> **`references\…` and the skill's own `scripts\…` live UNDER the skill base dir**, i.e.
+> `.claude\skills\qualcomm-case-agent\references\…` and `…\scripts\…` — NOT at the workspace root.
+> When this doc writes `references\login-flow.md` as shorthand, read it as
+> `.claude\skills\qualcomm-case-agent\references\login-flow.md` (use that full path with file tools).
 
 | Key | Value |
 |-----|-------|
@@ -56,7 +61,8 @@ across PCs and agents.
 | Case cache | `data\cases\<CODE>.json` (full) · `<CODE>.report.md` (summary) · `<CODE>.md` + `<CODE>.html` (full review) |
 | Sync index | `data\cases\_index.json` (`<CODE> → { syncedAt, commentCount, hash }`) |
 | Render script | `.claude\skills\qualcomm-case-agent\scripts\render_case.mjs` — `node <that> data\cases\<CODE>.json` writes `.report.md` + `.md` + `.html` |
-| References | `references\workflow.md` (+`workflow.svg`), `references\login-flow.md`, `references\extraction.md` |
+| References | under `.claude\skills\qualcomm-case-agent\references\`: `workflow.md` (+`workflow.svg`), `login-flow.md`, `extraction.md` |
+| Login helper | `.claude\skills\qualcomm-case-agent\scripts\okta_login.ps1` — drives Okta identifier-first username→Next→password→Verify, password from DPAPI; email OTP stays human |
 
 > Use forward slashes in agent-browser/Node args on Windows. Convert `<CODE>` to a safe filename
 > (uppercase alpha, strip path-illegal chars).
@@ -114,19 +120,28 @@ Full step-by-step + failure handling: **`references\login-flow.md`**. Summary:
 - **Decision:**
   - **Dashboard loads** (profile session valid) → continue to Phase 2. **No login, no OTP, no DPAPI
     read.** Normal path.
-  - **Redirected to `account.qualcomm.com` (Okta)** → forced re-login:
-    - `data\.secrets\qid.bin` exists → run the **forced-login conduit** (decrypt DPAPI → pipe via
-      `auth save … --password-stdin` → `auth login qualcomm` → `auth delete qualcomm`; exact
-      PowerShell in `references\login-flow.md`). The password field auto-fills.
+  - **Redirected to `account.qualcomm.com` (Okta)** → forced re-login. Okta is **identifier-first
+    (two-step)**: username→Next→password→Verify→email-OTP. Do NOT use the single-page `auth save/login`
+    vault conduit — it cannot span the two screens.
+    - `data\.secrets\qid.bin` exists → run the **two-step login helper** (decrypts DPAPI, fills
+      username→Next→password→Verify; password never echoed):
+      ```bash
+      powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/okta_login.ps1"
+      ```
+      Then drive the email-OTP screens by snapshot: click **"Send me an email"** → **"Enter a
+      verification code instead"** → the user pastes the 6-digit code → click **"Verify"**. Full
+      flow + selectors in `.claude\skills\qualcomm-case-agent\references\login-flow.md`.
     - `qid.bin` missing → **ask the user to run the one-time DPAPI capture snippet in their own
-      terminal** (`references\login-flow.md` → "First-time capture"). The password is typed into
-      their terminal, NEVER into the chat. Wait, then run the conduit.
-    - Then the user **pastes the 6-digit email OTP** into the page. Wait, re-`snapshot` to confirm the
-      dashboard. The profile stores the new session automatically. Re-login on expiry is expected.
-  - **Wrong password** (after submit, still on Okta with a credential error, or the form never
-    advanced to the OTP step) → delete `qid.bin` + any `qualcomm` vault entry, ask the user to re-run
-    the capture snippet, retry the conduit **once**. Fails again → report and STOP. Only path that
-    re-prompts for the password.
+      PowerShell terminal** (`references\login-flow.md` → "First-time capture"; must `Set-Location`
+      to the workspace root, run in PowerShell not cmd.exe, and `Add-Type -AssemblyName
+      System.Security`). The password is typed into their terminal, NEVER into the chat. Wait, then
+      run the helper.
+    - After OTP, re-`snapshot` to confirm the dashboard. The profile stores the new session
+      automatically. Re-login on expiry is expected.
+  - **Wrong password** (after Verify, still on the password screen with a credential error, or it
+    never advanced to the email-OTP step) → delete `qid.bin`, ask the user to re-run the capture
+    snippet, retry the helper **once**. Fails again → report and STOP. Only path that re-prompts for
+    the password.
   - **OTP rejected/expired** (form reached the OTP step but failed) → an OTP problem, not a password
     problem: do NOT delete `qid.bin`; user requests a fresh code and re-pastes.
   - **Email unavailable:** a fresh login REQUIRES the email OTP. If the profile session has expired

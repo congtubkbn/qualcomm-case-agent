@@ -1,0 +1,80 @@
+<#
+  okta_login.ps1 — drive Qualcomm Okta identifier-first login through the
+  password step using the DPAPI-stored credential. Email OTP stays human.
+
+  CONFIRMED Okta flow (support.qualcomm.com, observed 2026-06):
+    1. username screen : textbox "Username" (often prefilled) + button "Next"
+    2. password screen : textbox "Password"               + button "Verify"
+    3. email-OTP screen : "Get a verification email" -> "Send me an email"
+                          -> "Enter a verification code instead" -> 6-digit code
+  This script handles steps 1-2 only. The password is decrypted from
+  data\.secrets\qid.bin and passed straight to agent-browser; it is NEVER
+  printed. The human completes step 3 (Claude cannot read the mailbox).
+
+  PREREQS (Phase 0): real Chrome on CDP 9222 + agent-browser attached:
+    powershell -ExecutionPolicy Bypass -File .claude\skills\qualcomm-case-agent\scripts\connect_chrome.ps1
+    agent-browser connect 9222 < /dev/null
+
+  RUN from the workspace root (so data\.secrets\qid.bin resolves):
+    powershell -ExecutionPolicy Bypass -File .claude\skills\qualcomm-case-agent\scripts\okta_login.ps1
+
+  EXIT CODES: 0 password submitted (do OTP) | 3 not attached / no Okta form |
+              4 qid.bin missing (run capture snippet first)
+#>
+param(
+  [string]$Username = "the.thoi@samsung.com",
+  [string]$SecretPath = "data\.secrets\qid.bin"
+)
+$ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Security
+
+function AB { agent-browser @args 2>&1 }
+
+if (-not (Test-Path $SecretPath)) {
+  Write-Host "ERROR: $SecretPath missing. Run the first-time capture snippet (references\login-flow.md)."
+  exit 4
+}
+
+# --- Step 0: open portal, confirm we are attached + on Okta ---
+AB open "https://support.qualcomm.com" | Out-Host
+Start-Sleep -Seconds 2
+$snap = (AB snapshot -i | Out-String)
+if ($snap -match 'os error 10060' -or $snap -match 'Failed to read') {
+  Write-Host "ERROR: agent-browser not attached. Run connect_chrome.ps1 + 'agent-browser connect 9222' first."
+  exit 3
+}
+if ($snap -match 'dashboard' -or $snap -notmatch '(Username|Password|Sign In|Verify)') {
+  Write-Host "Session appears valid (no Okta form). Nothing to do."
+  exit 0
+}
+
+# --- Step 1: username screen -> Next ---
+if ($snap -match 'Username') {
+  # Prefill defends against a blank field; harmless if already populated.
+  AB fill "input[name='identifier']" $Username 2>&1 | Out-Null
+  AB click "input[type='submit']" | Out-Host
+  Start-Sleep -Seconds 2
+  $snap = (AB snapshot -i | Out-String)
+}
+
+# --- Step 2: password screen -> decrypt + fill + Verify ---
+if ($snap -notmatch 'Password') {
+  Write-Host "WARN: password field not found after Next. Live DOM:"
+  Write-Host $snap
+  exit 3
+}
+$enc = [IO.File]::ReadAllBytes((Join-Path (Get-Location) $SecretPath))
+$pw  = [Text.Encoding]::UTF8.GetString(
+  [Security.Cryptography.ProtectedData]::Unprotect(
+    $enc, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser))
+AB fill "input[type='password']" $pw 2>&1 | Out-Null   # never echo $pw
+$pw = $null; [GC]::Collect()
+AB click "input[type='submit']" | Out-Host
+Start-Sleep -Seconds 3
+
+# --- Hand off to human for email OTP ---
+Write-Host "`n--- post-password DOM ---"
+AB snapshot -i | Out-Host
+Write-Host "`n>>> Password submitted. Complete the email OTP in the Chrome window:"
+Write-Host ">>>   'Send me an email' -> 'Enter a verification code instead' -> paste 6-digit code -> Verify."
+exit 0

@@ -63,11 +63,14 @@ machine. Built into .NET; no module install. Git-ignored.
 
 ### First-time capture — USER runs this in a REAL terminal (password never enters the chat)
 
-Hand the user this snippet; they run it once in their own PowerShell window. Claude does NOT run it
-and never sees the value:
+Hand the user this snippet; they run it once in their own **PowerShell** window (NOT cmd.exe — the
+`Read-Host`/.NET calls are PowerShell). Claude does NOT run it and never sees the value. The first
+line `Set-Location` pins the workspace root so `data\.secrets\qid.bin` lands in the project, not the
+home dir — **set the path to YOUR clone**:
 
 ```powershell
-Add-Type -AssemblyName System.Security
+Set-Location "E:\the.thoi\Project\access-qualcomm"   # <-- your access-qualcomm clone
+Add-Type -AssemblyName System.Security                # REQUIRED on PS 5.1 or ProtectedData = TypeNotFound
 $dir = "data\.secrets"; New-Item -ItemType Directory -Force $dir | Out-Null
 $sec = Read-Host "Qualcomm ID password" -AsSecureString
 $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
@@ -76,44 +79,69 @@ $pw   = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
 $enc = [Security.Cryptography.ProtectedData]::Protect(
   [Text.Encoding]::UTF8.GetBytes($pw), $null,
   [Security.Cryptography.DataProtectionScope]::CurrentUser)
-[IO.File]::WriteAllBytes("$dir\qid.bin", $enc)
+[IO.File]::WriteAllBytes((Join-Path (Get-Location) "$dir\qid.bin"), $enc)
 $pw = $null
-Write-Host "Saved data\.secrets\qid.bin (DPAPI, CurrentUser)."
+if ((Get-Item "$dir\qid.bin").Length -gt 0) {
+  Write-Host "Saved data\.secrets\qid.bin (DPAPI, CurrentUser), $((Get-Item "$dir\qid.bin").Length) bytes."
+} else { Write-Host "FAIL - qid.bin is empty; re-run." }
 ```
 
-Run from the workspace root (the access-qualcomm folder) so `data\.secrets\qid.bin` lands correctly.
+Pitfalls this snippet defends against (all hit on first real capture):
+- **cmd.exe instead of PowerShell** → `'New-Item' is not recognized`. Open `powershell` first.
+- **Missing `Add-Type`** → `Unable to find type [Security.Cryptography.ProtectedData]`, `$enc` stays
+  null, `WriteAllBytes` then throws `Value cannot be null` while the file looks "saved".
+- **Wrong working dir** (e.g. `C:\Users\<you>`) → qid.bin lands outside the project; the agent's
+  `Test-Path data\.secrets\qid.bin` then reports missing. `Set-Location` + `Join-Path (Get-Location)`
+  fix it.
+- The `if … Length -gt 0` guard proves the bytes were actually written (don't trust a bare "Saved").
 
-### Forced-login conduit — Claude runs this (no echo, transient vault entry)
+### Forced-login conduit — Claude runs this (Okta is identifier-first / two-step)
 
-When Okta appears and `qid.bin` exists, decrypt and drive the agent-browser auth vault as a
-short-lived conduit. The plaintext stays inside the PowerShell→stdin pipe; the only visible output is
-agent-browser's status line:
+**CONFIRMED 2026-06:** Qualcomm Okta is **identifier-first** — username and password are on
+**separate screens**, so the single-page `agent-browser auth login` vault conduit does **not** work
+(it fills username + password on one page; the password field does not exist until after "Next").
+Use the helper script, which drives the two-step form and fills the password straight from DPAPI
+(plaintext only ever lives in a PowerShell variable + the child agent-browser argv — never the
+transcript):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/okta_login.ps1"
+```
+
+Confirmed screen sequence (refs are illustrative — re-snapshot each run):
+
+| Screen | Heading | Field | Action |
+|--------|---------|-------|--------|
+| 1 | "Sign In" | textbox "Username" (often prefilled) | click button "Next" |
+| 2 | "Verify with your password" | textbox "Password" | fill (DPAPI), click "Verify" |
+| 3 | "Get a verification email" | — | click "Send me an email" |
+| 3b | "Verify with your email" | — | click "Enter a verification code instead" |
+| 3c | "Verify with your email" | textbox "Enter Code" | **human pastes 6-digit OTP**, click "Verify" |
+
+`okta_login.ps1` handles screens 1–2 (the secret-bearing part) and exits 0. The agent then drives
+3 → 3b → 3c by snapshot refs; the **human pastes the email OTP**. Stable selectors used by the
+script: username `input[name='identifier']`, password `input[type='password']`, submit
+`input[type='submit']`.
+
+Manual equivalent (if the helper is unavailable) — decrypt and fill by selector, no echo:
 
 ```powershell
 Add-Type -AssemblyName System.Security
-$enc = [IO.File]::ReadAllBytes("data\.secrets\qid.bin")
+agent-browser click "input[type='submit']"          # Next (username -> password screen)
+Start-Sleep 2
+$enc = [IO.File]::ReadAllBytes((Join-Path (Get-Location) "data\.secrets\qid.bin"))
 $pw  = [Text.Encoding]::UTF8.GetString(
   [Security.Cryptography.ProtectedData]::Unprotect($enc, $null,
     [Security.Cryptography.DataProtectionScope]::CurrentUser))
-$pw | agent-browser auth save qualcomm `
-  --url "https://account.qualcomm.com/" `
-  --username "the.thoi@samsung.com" --password-stdin
-$pw = $null
-agent-browser auth login qualcomm      # waits for the form, fills, submits
-agent-browser auth delete qualcomm     # remove the transient entry immediately
+agent-browser fill "input[type='password']" $pw     # never print $pw
+$pw = $null; [GC]::Collect()
+agent-browser click "input[type='submit']"          # Verify
 ```
 
-- `--password-stdin` keeps the password off argv and out of the transcript.
-- `auth login` waits for the login form, fills username + password, and submits.
-- `auth delete` runs right after so no durable plaintext-keyed copy survives in
-  `~/.agent-browser/auth/`. The only durable secret is the DPAPI `qid.bin`.
-- Okta's selectors: confirm `--url` and, if Okta uses a two-step (username → Next → password) form,
-  add `--username-selector` / `--password-selector` (discover via `agent-browser snapshot -i`) or fall
-  back to a manual snapshot-driven fill. Record the confirmed values here on first real login.
-- **stdin caveat (verify on first login):** PowerShell `$pw | …` may append a newline and re-encode
-  (PS 5.1 native pipe is ASCII by default). If the password is rejected despite being correct, ensure
-  no trailing CR/LF and UTF-8: e.g. `[Console]::OutputEncoding=[Text.Encoding]::UTF8` and pipe with
-  `Write-Host -NoNewline`, or use `cmd /c "echo|set /p=$pw"`. Confirm the working form and record it.
+- The `auth save`/`login`/`delete` vault path is retired for Qualcomm — kept only for single-page
+  logins elsewhere. The only durable secret remains the DPAPI `qid.bin`.
+- `Add-Type -AssemblyName System.Security` is **required** on Windows PowerShell 5.1, or
+  `[Security.Cryptography.ProtectedData]` throws `TypeNotFound`. Run in **PowerShell**, not cmd.exe.
 
 ## Decision tree
 
