@@ -13,7 +13,7 @@
 
   PREREQS (Phase 0): real Chrome on CDP 9222 + agent-browser attached:
     powershell -ExecutionPolicy Bypass -File .claude\skills\qualcomm-case-agent\scripts\connect_chrome.ps1
-    agent-browser connect 9222 < /dev/null
+    agent-browser connect 9222
 
   RUN from the workspace root (so data\.secrets\qid.bin resolves):
     powershell -ExecutionPolicy Bypass -File .claude\skills\qualcomm-case-agent\scripts\okta_login.ps1

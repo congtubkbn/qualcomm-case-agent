@@ -32,11 +32,11 @@ Thereafter the agent decrypts and uses it without prompting, **unless the passwo
 ```bash
 # 1) Launch real Chrome detached on CDP 9222 with the persistent profile (idempotent helper).
 powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/connect_chrome.ps1"
-# 2) Attach agent-browser to it (empty stdin so it never waits on the keyboard).
-agent-browser connect 9222 < /dev/null
+# 2) Attach agent-browser to it (auto-denies prompts on non-TTY stdin; no redirect needed).
+agent-browser connect 9222
 # 3) Drive the tab.
-agent-browser open "https://support.qualcomm.com" < /dev/null
-agent-browser snapshot -c < /dev/null
+agent-browser open "https://support.qualcomm.com"
+agent-browser snapshot -c
 ```
 
 The helper runs (equivalent inline):
@@ -214,7 +214,8 @@ Remove-Item "$env:USERPROFILE\.agent-browser\default.pid","$env:USERPROFILE\.age
 
 Launch Chrome with `Start-Process` (NOT `&`) from a non-TTY shell so it does not inherit a redirected
 stdin. Once attached, non-launching commands (snapshot, fill, click, auth, file ops) are fine from
-the automation shell — feed `< /dev/null` if any command waits on stdin.
+the automation shell with no stdin redirect — agent-browser auto-denies prompts on non-TTY stdin.
+Do NOT use `< /dev/null`: it is bash-only and breaks in PowerShell/cmd (see below).
 
 ## Windows "Input redirection is not supported"
 
@@ -225,6 +226,9 @@ waiting for keyboard input.
   `--confirm-interactive` from the automation shell.
 - Run one-time interactive setup in a REAL terminal window: `agent-browser install`, the first SSO
   login, and the DPAPI capture snippet (`Read-Host` needs a real console).
-- If a specific command still waits on stdin, feed it empty input: `cmd < /dev/null` (bash) /
-  `cmd < NUL` (cmd.exe); in PowerShell launch GUI apps with `Start-Process`, not the `&` call
-  operator (which inherits the redirected handle).
+- agent-browser commands need NO stdin redirect (auto-deny on non-TTY). Do not add one by reflex:
+  `< /dev/null` is bash-only and fails in PowerShell/cmd with *"The system cannot find the path
+  specified"* (`/dev/null` parsed as a literal path). If a non-agent-browser command truly waits on
+  stdin, use the token for the actual shell: `< /dev/null` (bash) / `< $null` (PowerShell) /
+  `< NUL` (cmd.exe). In PowerShell launch GUI apps with `Start-Process`, not the `&` call operator
+  (which inherits the redirected handle).

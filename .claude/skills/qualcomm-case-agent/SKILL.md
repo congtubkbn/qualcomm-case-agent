@@ -87,8 +87,9 @@ portable across PCs and agents.
      # Attach via the IPv4 ws:// URL the helper prints, NOT bare `connect 9222`.
      # On Windows `connect 9222` -> http://localhost:9222 -> resolves IPv6 ::1 first,
      # but Chrome binds only IPv4 127.0.0.1 -> SYN timeout -> "os error 10060".
-     # The helper prints the exact command; run it (feed empty stdin):
-     #   agent-browser connect "ws://127.0.0.1:9222/devtools/browser/<id>" < /dev/null
+     # The helper prints the exact command; run it (no stdin redirect needed —
+     # agent-browser auto-denies prompts when stdin is not a TTY):
+     #   agent-browser connect "ws://127.0.0.1:9222/devtools/browser/<id>"
      ```
      To derive the URL yourself: `curl -s http://127.0.0.1:9222/json/version` → use its
      `webSocketDebuggerUrl` (already `ws://127.0.0.1:9222/...`).
@@ -119,8 +120,8 @@ Full step-by-step + failure handling: **`references\login-flow.md`**. Summary:
   That profile dir holds cookies/tokens and persists between runs automatically — no separate "save"
   step, no `--profile` flag (we attach, not launch a bundled browser). Now drive the attached tab:
   ```bash
-  agent-browser open "https://support.qualcomm.com" < /dev/null
-  agent-browser snapshot -c < /dev/null
+  agent-browser open "https://support.qualcomm.com"
+  agent-browser snapshot -c
   ```
   The Chrome window is visible (real Chrome), so the user can paste the OTP if the session lapsed.
 - **Decision:**
@@ -372,10 +373,13 @@ flow:
    (Phase 0). This avoids the bundled Chromium entirely.
 
 **"Input redirection is not supported"** (Windows). The skill ran in a non-interactive shell whose
-stdin is redirected; a console app waiting on stdin is blocked. Fixes: feed empty stdin to
-agent-browser commands (`agent-browser <cmd> < /dev/null`); launch Chrome with `Start-Process`, NOT
-the `&` call operator (it inherits the redirected handle); agent-browser auto-denies confirmation
-prompts when stdin is not a TTY — do not pass `--confirm-interactive`. Full notes in
+stdin is redirected; a console app waiting on stdin is blocked. Fixes: launch Chrome with
+`Start-Process`, NOT the `&` call operator (it inherits the redirected handle); agent-browser
+auto-denies confirmation prompts when stdin is not a TTY, so it does NOT block — do not pass
+`--confirm-interactive`. Do NOT bolt `< /dev/null` onto agent-browser commands: that is bash-only
+and fails in PowerShell/cmd with *"The system cannot find the path specified"* (`/dev/null` is read
+as a literal path). If a command truly needs empty stdin, use the right token for the shell —
+`< /dev/null` (bash), `< $null` (PowerShell), `< NUL` (cmd). Full notes in
 `references\login-flow.md`.
 
 **PowerShell syntax via the Bash tool.** `if (...) { ... }` is PowerShell, not POSIX sh — running it
