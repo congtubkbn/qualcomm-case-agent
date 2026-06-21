@@ -105,4 +105,4 @@ const comments  = caseData.comments;                       // newest-first
 
 ## Full schema reference
 
-See `docs/superpowers/specs/2026-06-20-qualcomm-case-agentic-pipeline-design.md` §6.
+See `docs/superpowers/specs/2026-06-20-qualcomm-case-agent-consumer-interface-design.md`.

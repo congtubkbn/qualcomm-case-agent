@@ -61,7 +61,7 @@ portable across PCs and agents.
 | Case cache | `data\cases\<CODE>.json` (full) · `<CODE>.report.md` (summary) · `<CODE>.md` + `<CODE>.html` (full review) |
 | Sync index | `data\cases\_index.json` (`<CODE> → { syncedAt, commentCount, hash }`) |
 | Render script | `.claude\skills\qualcomm-case-agent\scripts\render_case.mjs` — `node <that> data\cases\<CODE>.json` writes `.report.md` + `.md` + `.html` |
-| References | under `.claude\skills\qualcomm-case-agent\references\`: `workflow.md` (+`workflow.svg`), `login-flow.md`, `extraction.md` |
+| References | under `.claude\skills\qualcomm-case-agent\references\`: `workflow.md` (+`workflow.svg`), `login-flow.md`, `extraction.md`, `consumer-guide.md` (API contract for OTHER agents reading `data\cases\`) |
 | Login helper | `.claude\skills\qualcomm-case-agent\scripts\okta_login.ps1` — drives Okta identifier-first username→Next→password→Verify, password from DPAPI; email OTP stays human |
 
 > Use forward slashes in agent-browser/Node args on Windows. Convert `<CODE>` to a safe filename
