@@ -40,24 +40,31 @@ brainstorm if ever wanted.)
 - **`cmdkey` / Windows Credential Manager direct (v3's idea):** store-only. The
   secret cannot be read back in plaintext, so it cannot auto-fill a web form.
   Unusable for this purpose.
-- **agent-browser vault with no encryption key:** vault is plaintext on disk
-  unless `AGENT_BROWSER_ENCRYPTION_KEY` is set. Rejected on its own; used only
-  *with* the DPAPI key layer below.
+- **agent-browser vault as durable store + `AGENT_BROWSER_ENCRYPTION_KEY`
+  (original design):** verified during implementation to NOT work. The auth
+  vault ignores `AGENT_BROWSER_ENCRYPTION_KEY` (that env var only encrypts
+  `--session-name` state). The vault self-manages its key in a **plaintext** file
+  `~/.agent-browser/.encryption-key` sitting next to the AES-encrypted
+  `~/.agent-browser/auth/<name>.json`. Copying both files off the machine = full
+  compromise → not bound to the Windows user, fails the "real security"
+  requirement. So the vault is NOT used as the durable store.
 
 ## Chosen design
 
-### Storage model
+### Storage model (corrected)
 
-- Password lives in the **agent-browser auth vault** under profile name
-  `qualcomm`. It is entered exactly once via `--password-stdin` (never a CLI
-  argument, never echoed, never in the agent transcript).
-- The vault is encrypted at rest via `AGENT_BROWSER_ENCRYPTION_KEY`.
-- That encryption key is persisted as a **DPAPI-encrypted file**
-  `data/.secrets/abkey.bin`, using
-  `[System.Security.Cryptography.ProtectedData]::Protect(..., CurrentUser)` —
-  real Windows DPAPI, built into .NET (no module install), tied to the Windows
-  user. The skill decrypts it into the `AGENT_BROWSER_ENCRYPTION_KEY` env var at
-  the start of each run that may need login.
+- Durable secret = **DPAPI ProtectedData file** `data/.secrets/qid.bin`, written
+  with `[System.Security.Cryptography.ProtectedData]::Protect(bytes, null,
+  CurrentUser)` — real Windows DPAPI, built into .NET (no module install), bound
+  to the Windows user. Verified round-trip on this machine.
+- The agent-browser auth vault is used **only as a transient stdin→form
+  conduit**, never as durable storage. Per forced login: decrypt `qid.bin` in
+  PowerShell → pipe into `auth save qualcomm --password-stdin` → `auth login
+  qualcomm` (waits for form, fills, submits) → `auth delete qualcomm`. The vault
+  entry exists only for the seconds between save and delete.
+- Password never appears as a CLI argument or in the transcript: PowerShell holds
+  it in-memory and pipes it via stdin; the agent's visible commands reference a
+  `$pw` variable, not the value.
 - `data/.secrets/` is git-ignored. The DPAPI ciphertext does not decrypt on
   another Windows user/machine — matching the existing profile portability rule.
 
@@ -68,22 +75,22 @@ brainstorm if ever wanted.)
 2. **Dashboard loads** (session valid) → continue to Phase 2. **No key load, no
    ask, no OTP.** Normal path.
 3. **Redirected to `account.qualcomm.com` (Okta)** → session expired:
-   1. Load the DPAPI key: if `data/.secrets/abkey.bin` exists → decrypt → set
-      `AGENT_BROWSER_ENCRYPTION_KEY`. Else generate a random 32-byte hex key,
-      DPAPI-encrypt it to that file, set the env var.
-   2. If vault profile `qualcomm` exists (`agent-browser auth list`) →
-      `agent-browser auth login qualcomm` (auto-fills username + password,
-      submits).
-   3. If no `qualcomm` profile → **ask the user for the password once**, then
-      `<password> | agent-browser auth save qualcomm --url <okta-url>
-      --username the.thoi@samsung.com --password-stdin`, then
-      `agent-browser auth login qualcomm`.
+   1. If `data/.secrets/qid.bin` exists → decrypt in PowerShell to an in-memory
+      `$pw`. Else → **instruct the user to run the one-time capture snippet in
+      their own real terminal** (`Read-Host -AsSecureString` → DPAPI Protect →
+      `qid.bin`). The password is typed into their terminal, NEVER into the chat,
+      so it never enters the transcript. Wait for them, then decrypt `qid.bin`.
+   2. Drive the conduit (agent-side, no echo): decrypt `qid.bin` → pipe via
+      stdin to `auth save qualcomm --url <okta-url>
+      --username the.thoi@samsung.com --password-stdin` → `auth login qualcomm`
+      (auto-fills + submits) → `auth delete qualcomm`.
 4. **Human pastes the email OTP** in the open browser. Wait for the dashboard
    (`agent-browser wait --url` / re-snapshot).
 5. **Login failed** (still on Okta / invalid-credentials error after submit) →
-   treat as **wrong password**: `agent-browser auth delete qualcomm`, re-ask the
-   user, re-save, retry `auth login` **once**. This is the only path that
-   re-prompts. If it fails again → report and STOP (do not loop).
+   treat as **wrong password**: delete `data/.secrets/qid.bin` (and any stray
+   `qualcomm` vault entry), re-ask the user, re-encrypt, retry the conduit
+   **once**. This is the only path that re-prompts. If it fails again → report
+   and STOP (do not loop).
 6. Dashboard reached → profile cookies persist automatically → the next run hits
    step 2 and is silent.
 
@@ -99,24 +106,46 @@ After `auth login` + OTP wait, verify success by URL/snapshot:
 
 ## Security properties
 
-- Password never appears as a CLI argument or in the agent transcript (stdin
-  only; `auth list`/`auth show` hide it).
-- At rest: vault encrypted by a key that is itself DPAPI-protected to the Windows
-  user. Two layers; neither stores a readable plaintext password on disk.
+- Password never appears as a CLI argument, in the chat, or in the agent
+  transcript: first capture is a user-run terminal snippet; later use is a
+  decrypt→stdin pipe whose only visible output is agent-browser's status line.
+- At rest: the only durable copy is `data/.secrets/qid.bin`, DPAPI-bound to the
+  Windows user (`CurrentUser` scope). Useless if copied to another user/machine.
+- The agent-browser vault holds the password only transiently (save→login→delete
+  within one forced-login run); no durable plaintext-keyed copy survives.
 - Nothing secret is committed: `data/.secrets/`, `data/chrome-profile/`,
   `data/cases/` all git-ignored.
-- OTP and password never written to disk or output, per existing guardrails.
+- OTP and password never written to disk in plaintext or to output.
 
 ## Files touched
 
-- `SKILL.md` — rewrite **Phase 1**; update **Configuration** table (add vault
-  profile, DPAPI key file, encryption env var); update **Agent guardrails** and
-  **Troubleshooting** (remove "never type password"; add vault + DPAPI notes);
-  add `Bash(powershell:*)`/already present, confirm `allowed-tools` cover it.
-- `references/login-flow.md` — full step-by-step: DPAPI key load/generate
-  PowerShell, `auth save`/`auth login` commands, wrong-password vs wrong-OTP
-  decision, rotation (`auth delete` + re-save).
+- `SKILL.md` (both copies: global `~/.claude/skills/...` and project
+  `.claude/skills/...`) — rewrite **Phase 1**; update **Configuration** table
+  (add `qid.bin` DPAPI secret, transient vault profile); update **Agent
+  guardrails** (replace "never type password" with the vault/DPAPI model) and
+  **Troubleshooting**. `allowed-tools` already include `PowerShell` and
+  `Bash(agent-browser:*)`.
+- `references/login-flow.md` (both copies) — full step-by-step: DPAPI
+  encrypt/decrypt PowerShell helpers, the save→login→delete conduit,
+  wrong-password vs wrong-OTP decision, rotation.
 - New dir `data/.secrets/` + `.gitignore` entry.
+
+## Resolved during implementation
+
+- `AGENT_BROWSER_ENCRYPTION_KEY` does NOT encrypt the auth vault (only
+  `--session-name` state). Vault self-manages a plaintext `.encryption-key`.
+  → dropped that layer; durable secret is DPAPI `qid.bin` instead.
+- DPAPI `ProtectedData` round-trip verified on this machine (CurrentUser scope).
+- agent-browser vault confirmed AES-GCM encrypted at
+  `~/.agent-browser/auth/<name>.json`; used transiently only.
+
+## Open verification (first real login)
+
+- Confirm the exact Okta login-page URL + field selectors `auth save` needs
+  (`--url`, optional `--username-selector`/`--password-selector`); record them in
+  `references/login-flow.md`. Okta sometimes uses a two-step (username → next →
+  password) form; if so, `auth login` may need custom selectors or a manual
+  snapshot-driven fill via `eval --stdin`.
 
 ## Out of scope
 
@@ -124,12 +153,3 @@ After `auth login` + OTP wait, verify success by URL/snapshot:
 - Migrating the browser launch / TTY `Start-Process` fix (separate concern,
   separate spec).
 - Any change to Phases 0, 2–6 (scrape, enrich, persist, report).
-
-## Open verification (during implementation)
-
-- Confirm the exact Okta login-page URL + field selectors agent-browser
-  `auth save` needs (`--url`, optional `--username-selector`/`--password-selector`)
-  on first real run; record them in `references/login-flow.md`.
-- Confirm `AGENT_BROWSER_ENCRYPTION_KEY` covers the `auth` vault at rest (docs
-  state it for session state; validate it also encrypts auth profiles, else
-  fall back to DPAPI-encrypting the vault file directly).
