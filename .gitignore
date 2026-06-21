@@ -1,5 +1,6 @@
 # Live Qualcomm auth — never commit
 data/chrome-profile/
+data/.secrets/
 data/qualcomm-session.json
 *.session.json
 data/_proftest/

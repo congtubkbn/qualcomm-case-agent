@@ -47,8 +47,9 @@ across PCs and agents.
 | Project root | the workspace root / CWD (run from the access-qualcomm folder) |
 | Portal | `https://support.qualcomm.com` (formerly CreatePoint) |
 | SSO | `https://account.qualcomm.com/...` (Okta — user signs in manually) |
-| Qualcomm ID | `the.thoi@samsung.com` (login id only — NEVER the password) |
-| MFA | **Email OTP** — 6-digit code to the Samsung mailbox, expires ~5 min. User pastes it; Claude cannot read the mailbox |
+| Qualcomm ID | `the.thoi@samsung.com` (login id) |
+| Password store | `data\.secrets\qid.bin` — DPAPI ProtectedData (CurrentUser), git-ignored. Captured ONCE by the user in their terminal; auto-fills on forced re-login. See `references\login-flow.md` |
+| MFA | **Email OTP** — 6-digit code to the Samsung mailbox, expires ~5 min. Always human-pasted; Claude cannot read the mailbox. A stored password does NOT bypass it |
 | Session store | `data\chrome-profile\` (persistent Chrome profile via agent-browser `--profile`; git-ignored — sign in ONCE) |
 | Case cache | `data\cases\<CODE>.json` (full) · `<CODE>.report.md` (summary) · `<CODE>.md` + `<CODE>.html` (full review) |
 | Sync index | `data\cases\_index.json` (`<CODE> → { syncedAt, commentCount, hash }`) |
@@ -70,29 +71,44 @@ across PCs and agents.
   3. Ensure cache dirs exist: `data\cases\`. Create `data\cases\_index.json` = `{}` if absent.
 - **Guard:** no case code → ask the user and STOP.
 
-## PHASE 1 — Authenticate (session reused; email OTP is human-in-the-loop)
+## PHASE 1 — Authenticate (session reused; password auto-fills; email OTP human-in-the-loop)
 
 Full step-by-step + failure handling: **`references\login-flow.md`**. Summary:
 
-- **Goal:** an authenticated Qualcomm Support session by reusing the persistent Chrome profile.
+- **Goal:** an authenticated Qualcomm Support session. Two layers: (1) reuse the persistent Chrome
+  profile — silent, no login; (2) on forced re-login, auto-fill the DPAPI-stored password, human
+  pastes the OTP.
 - **Action (profile-first):** always launch with the SAME `--profile` directory. The profile holds
   cookies/tokens and persists between runs automatically — there is no separate "save" step.
   ```bash
   P="data/chrome-profile"     # relative to the workspace root
-  # Headed so the user can sign in if the profile session has lapsed.
+  # Headed so the user can paste the OTP if the profile session has lapsed.
   agent-browser --headed --profile "$P" open "https://support.qualcomm.com"
   agent-browser snapshot -c
   ```
 - **Decision:**
-  - Dashboard loads (profile session still valid) → continue to Phase 2. **No login, no OTP.** Normal path.
-  - Redirected to `account.qualcomm.com` (Okta) → **STOP and tell the user to sign in** in the open
-    browser: they enter the Qualcomm ID password, then **paste the 6-digit email OTP**. Wait, then
-    re-`snapshot` to confirm the dashboard. The profile stores the new session automatically — nothing
-    else to do. Re-login on expiry is expected and accepted (no notification).
+  - **Dashboard loads** (profile session valid) → continue to Phase 2. **No login, no OTP, no DPAPI
+    read.** Normal path.
+  - **Redirected to `account.qualcomm.com` (Okta)** → forced re-login:
+    - `data\.secrets\qid.bin` exists → run the **forced-login conduit** (decrypt DPAPI → pipe via
+      `auth save … --password-stdin` → `auth login qualcomm` → `auth delete qualcomm`; exact
+      PowerShell in `references\login-flow.md`). The password field auto-fills.
+    - `qid.bin` missing → **ask the user to run the one-time DPAPI capture snippet in their own
+      terminal** (`references\login-flow.md` → "First-time capture"). The password is typed into
+      their terminal, NEVER into the chat. Wait, then run the conduit.
+    - Then the user **pastes the 6-digit email OTP** into the page. Wait, re-`snapshot` to confirm the
+      dashboard. The profile stores the new session automatically. Re-login on expiry is expected.
+  - **Wrong password** (after submit, still on Okta with a credential error, or the form never
+    advanced to the OTP step) → delete `qid.bin` + any `qualcomm` vault entry, ask the user to re-run
+    the capture snippet, retry the conduit **once**. Fails again → report and STOP. Only path that
+    re-prompts for the password.
+  - **OTP rejected/expired** (form reached the OTP step but failed) → an OTP problem, not a password
+    problem: do NOT delete `qid.bin`; user requests a fresh code and re-pastes.
   - **Email unavailable:** a fresh login REQUIRES the email OTP. If the profile session has expired
     AND the user can't reach the mailbox, you cannot authenticate — report plainly and STOP. Do not
     loop. (A still-valid profile bypasses OTP entirely, so this only bites after expiry.)
-- **Never** type the Qualcomm ID password or the OTP. Never write either to disk or output.
+- **Never** echo the password or OTP to output or write either as plaintext. The only durable secret
+  is the DPAPI `qid.bin`; the agent-browser vault entry is transient (deleted right after login).
 
 ## PHASE 2 — Locate the case
 
@@ -227,12 +243,16 @@ root cause, top recommended actions, and the output file paths
 
 - **Load the agent-browser reference first** (`agent-browser skills get core --full`) before any
   browser action; follow its syntax.
-- **Auth:** never type the Qualcomm ID password or email OTP. Human signs in ONCE; the persistent
-  Chrome profile (`data\chrome-profile\`, used via `--profile`) keeps the session across runs so no
-  re-login/OTP until it expires. On expiry, the human simply signs in again in the same profile (no
-  notification). See `references\login-flow.md`.
-- **Secrets:** password/OTP never stored in this skill, in outputs, or any plaintext file. The
-  `data\chrome-profile\` directory (and any `*.session.json`) is git-ignored.
+- **Auth:** the persistent Chrome profile (`data\chrome-profile\`, used via `--profile`) keeps the
+  session across runs — the primary silent path, no re-login until it expires. On expiry, the password
+  auto-fills from the DPAPI store (`data\.secrets\qid.bin`); the human pastes the **email OTP** (always
+  human — Claude cannot read the mailbox; a stored password does NOT bypass MFA). Re-ask the password
+  ONLY when it is wrong. See `references\login-flow.md`.
+- **Secrets:** the password's only durable copy is `data\.secrets\qid.bin`, **DPAPI-encrypted**
+  (CurrentUser) — never in this skill, in outputs, in the chat/transcript, or any plaintext file.
+  First capture is a user-run terminal snippet; the agent-browser auth vault is used transiently
+  (`auth save`→`login`→`delete`) and never echoes the secret. OTP is never stored. `data\.secrets\`,
+  `data\chrome-profile\`, and any `*.session.json` are git-ignored.
 - **Confidentiality:** case content is Qualcomm NDA material. Keep it in `data\cases\` (git-ignored);
   never paste full customer logs to external services.
 - **Fidelity:** capture comment bodies and logs VERBATIM; never truncate. Expert summaries are a
@@ -259,11 +279,13 @@ root cause, top recommended actions, and the output file paths
 2. Copy the **whole project folder** to the new PC. The skill travels inside
    `.claude/skills/qualcomm-case-agent/`. (For Claude Code use outside this project, also copy the
    skill to `~/.claude/skills/`.)
-3. Do **not** copy `data/chrome-profile/` or `data/cases/` — the profile cookies are DPAPI-encrypted
-   to the old Windows user (won't decrypt → must re-login anyway); case content is NDA. Both are
-   git-ignored.
-4. First run: the headed SSO login + email OTP must be done in a **real terminal** (browser launch
-   hangs in a redirected/automation shell — see Troubleshooting). After that the profile persists.
+3. Do **not** copy `data/chrome-profile/`, `data/.secrets/`, or `data/cases/` — the profile cookies
+   AND the DPAPI `qid.bin` are encrypted to the old Windows user (won't decrypt → must re-capture +
+   re-login anyway); case content is NDA. All three are git-ignored.
+4. First run: the headed SSO login + email OTP, and the DPAPI password-capture snippet
+   (`references/login-flow.md` → "First-time capture"), must be done in a **real terminal**
+   (`Read-Host` needs a console; browser launch hangs in a redirected/automation shell — see
+   Troubleshooting). After that the profile + `qid.bin` persist.
 5. If the Qualcomm ID differs, update it in the Configuration table + `references/login-flow.md`.
 
 ## Troubleshooting
