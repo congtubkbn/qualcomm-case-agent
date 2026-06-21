@@ -15,11 +15,13 @@ workspace root.
 
 ## Environment
 
-- Windows. Node.js ≥18. `agent-browser` CLI (`npm i -g agent-browser` + `agent-browser install`).
-- `agent-browser` uses its own bundled Chromium (not system Chrome) with a persistent profile at
-  `data/chrome-profile/` so the Qualcomm/Okta session survives between runs.
-- Login uses **email OTP** (human-entered, in the browser). Browser-launching commands must run in a
-  **real terminal** (they hang in a piped/automation shell).
+- Windows. Node.js ≥18. `agent-browser` CLI (`npm i -g agent-browser`) + **real Google Chrome**.
+- `agent-browser` attaches to **real system Chrome over CDP** (`connect 9222`), launched detached with
+  a persistent `--user-data-dir` at `data/chrome-profile/` so the Qualcomm/Okta session survives
+  between runs. NOT the bundled Chromium (a broken bundled build caused `os error 10060`). Launch via
+  `.claude/skills/qualcomm-case-agent/scripts/connect_chrome.ps1`; it never closes personal Chrome.
+- Login uses **email OTP** (human-entered, in the visible Chrome window). Launch Chrome with
+  `Start-Process` (the helper does this) so it doesn't hang on a piped shell's redirected stdin.
 
 ## Do not commit / do not copy across machines
 

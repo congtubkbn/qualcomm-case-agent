@@ -10,7 +10,7 @@ How the Qualcomm Case Management Agent runs end to end. Companion to `SKILL.md` 
 flowchart TD
   IN(["Input — 1 Qualcomm case code"]) --> P0["Phase 0 · intake<br/>validate code · load agent-browser · mkdir data/cases"]
   P0 -->|no code| S0((stop))
-  P0 --> P1["Phase 1 · authenticate<br/>reuse Chrome --profile session"]
+  P0 --> P1["Phase 1 · authenticate<br/>attach real Chrome (CDP 9222) · reuse --user-data-dir session"]
   P1 -->|session valid| P2
   P1 -->|expired| LG["human: Okta login + email OTP<br/>(profile saves it, no notify)"]
   LG -->|email unavailable| S1((stop))
@@ -40,7 +40,7 @@ One Qualcomm case code (`CASE-01234567`, `00123456`, or the numeric url id). Mis
 | Phase | Does | Guard / branch |
 |-------|------|----------------|
 | 0 Intake | validate+normalize code, load `agent-browser` skill, ensure `data/cases/` | no code → STOP |
-| 1 Authenticate | reuse persistent Chrome `--profile` (`data/chrome-profile/`); valid → continue | expired → human Okta login + **email OTP** (profile saves it, no notify). **Email unreachable → STOP** |
+| 1 Authenticate | launch real Chrome (`connect_chrome.ps1`, CDP 9222) + attach; reuse persistent `--user-data-dir` (`data/chrome-profile/`); valid → continue | expired → human Okta login + **email OTP** (profile saves it, no notify). **Email unreachable → STOP** |
 | 2 Locate | open the case (url / dashboard search on `support.qualcomm.com`) | not found → STOP |
 | 3 Extract | **expand everything to a fixpoint** (loop click "show/load more", replies, scroll), `eval` extractor → JSON; **assert** `comments.length == displayedCommentCount` | count short → expand more / fix selectors |
 | 3.5 Incremental | SHA-256 the raw case; compare to `_index.json` | same hash → **no update → STOP** (skip enrich + writes) |
@@ -56,11 +56,11 @@ One Qualcomm case code (`CASE-01234567`, `00123456`, or the numeric url id). Mis
 | `<CODE>.report.md` | `render_case.mjs` | concise summary report |
 | `<CODE>.md` + `<CODE>.html` | `render_case.mjs` | full render for human review |
 | `_index.json` | model | `<CODE> → {syncedAt, commentCount, hash}` for incremental sync |
-| `chrome-profile/` | agent-browser | persistent auth profile (one-time login) |
+| `chrome-profile/` | real Chrome `--user-data-dir` | persistent auth profile (one-time login) |
 
 ## Logic backbone
 
-1. **Session > password** — log in once, reuse the Chrome `--profile`; OTP only when it expires.
+1. **Session > password** — log in once, reuse the Chrome `--user-data-dir` (real Chrome via CDP); OTP only when it expires.
 2. **Expand fixpoint + count assert** — guarantees every comment is captured, nothing truncated.
 3. **Incremental** — unchanged case is not re-enriched or rewritten.
 4. **Role split** — model owns data + judgement (JSON); the render script owns formatting

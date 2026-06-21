@@ -48,7 +48,7 @@ All paths in the runbook are relative to the workspace root — no machine-speci
 ## Layout
 
 ```
-data/chrome-profile/           # persistent browser auth profile (agent-browser --profile; git-ignored)
+data/chrome-profile/           # persistent Chrome --user-data-dir (real Chrome via CDP; git-ignored)
 data/cases/<CODE>.json         # complete per-case data (source of truth, machine-readable)
 data/cases/<CODE>.report.md    # concise SUMMARY report (engineer summary, root cause, actions)
 data/cases/<CODE>.md           # full readable snapshot (every comment verbatim)
@@ -61,8 +61,9 @@ data/cases/_index.json         # <CODE> -> { syncedAt, commentCount, hash } for 
 ## Requirements
 
 - Windows, Node.js ≥18
-- `agent-browser` CLI (`npm i -g agent-browser && agent-browser install`) — uses its own bundled
-  Chromium, not system Chrome
+- `agent-browser` CLI (`npm i -g agent-browser`) + **real Google Chrome** — the skill attaches to
+  system Chrome over CDP (`connect 9222`), not the bundled Chromium (a broken bundled build caused
+  `os error 10060`). Launch helper: `scripts/connect_chrome.ps1`
 - The render script `node .claude/skills/qualcomm-case-agent/scripts/render_case.mjs` (JSON → report
   + Markdown + HTML)
 

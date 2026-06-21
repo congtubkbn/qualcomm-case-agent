@@ -12,12 +12,14 @@ installed version differs.
 | Auth provider | Okta OAuth at `account.qualcomm.com` → redirects to `support.qualcomm.com` |
 | MFA | **Email OTP** — 6-digit code emailed to the Samsung mailbox. **Expires ~5 min.** Always human-pasted (Claude cannot read the mailbox). |
 | Password store | `data/.secrets/qid.bin` — DPAPI ProtectedData (CurrentUser). Git-ignored. |
-| Session store | `data/chrome-profile/` — persistent Chrome profile (cookies/tokens). Git-ignored. |
+| Browser | **real Google Chrome** on CDP `9222` (launched detached via `scripts/connect_chrome.ps1`), attached with `agent-browser connect 9222`. NOT the bundled Chromium. |
+| Session store | `data/chrome-profile/` — Chrome `--user-data-dir` (cookies/tokens). Git-ignored. Separate instance — the user's personal Chrome is never touched. |
 
 ## Two-layer auth model
 
-1. **Session reuse (primary, silent).** Launch with the SAME `--profile` every run. A valid profile
-   loads the dashboard with **no password and no OTP**. This is the real "don't ask again" mechanism.
+1. **Session reuse (primary, silent).** Launch real Chrome with the SAME `--user-data-dir` every run,
+   then attach (`agent-browser connect 9222`). A valid profile loads the dashboard with **no password
+   and no OTP**. This is the real "don't ask again" mechanism.
 2. **Password autofill (only on forced re-login).** When the session has expired and Okta appears,
    the stored DPAPI password auto-fills the password field via the agent-browser auth vault used as a
    transient conduit. The human still pastes the **email OTP** — a stored password cannot bypass MFA.
@@ -25,18 +27,34 @@ installed version differs.
 The password is captured ONCE by the user in their own terminal (never the chat) and DPAPI-encrypted.
 Thereafter the agent decrypts and uses it without prompting, **unless the password is wrong**.
 
-## Profile-first launch
+## Attach-to-real-Chrome launch
 
 ```bash
-P="data/chrome-profile"
-agent-browser --headed --profile "$P" open "https://support.qualcomm.com"
-agent-browser snapshot -c
+# 1) Launch real Chrome detached on CDP 9222 with the persistent profile (idempotent helper).
+powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/connect_chrome.ps1"
+# 2) Attach agent-browser to it (empty stdin so it never waits on the keyboard).
+agent-browser connect 9222 < /dev/null
+# 3) Drive the tab.
+agent-browser open "https://support.qualcomm.com" < /dev/null
+agent-browser snapshot -c < /dev/null
 ```
 
-- `--profile "$P"` (a directory path) → persistent custom profile. Cookies/tokens live in `$P` and
-  are reused on every run. Created automatically on first use.
-- `--headed` → the window is visible so the user can paste the OTP when the session has lapsed.
-- Always use the SAME `$P`. Do not use incognito or a fresh profile per run.
+The helper runs (equivalent inline):
+
+```powershell
+# Separate --user-data-dir = separate instance; do NOT kill the user's personal Chrome.
+Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" -ArgumentList @(
+  '--remote-debugging-port=9222',
+  "--user-data-dir=$((Get-Location).Path)\data\chrome-profile")
+```
+
+- `--user-data-dir` (a directory path) → persistent profile. Cookies/tokens live there and are reused
+  on every run. Created automatically on first use.
+- Real Chrome is OS-trusted and stable; the bundled Chromium can ship a broken build (`os error
+  10060`). The window is visible so the user can paste the OTP when the session has lapsed.
+- Always use the SAME `--user-data-dir`. Do not use incognito or a fresh dir per run.
+- `Start-Process` (NOT the `&` call operator) launches Chrome detached without inheriting the
+  automation shell's redirected stdin.
 
 ## DPAPI password store (`data/.secrets/qid.bin`)
 
@@ -140,22 +158,35 @@ rm -rf "data/chrome-profile"
 
 ## Single-instance note
 
-A persistent profile directory can be opened by only ONE browser at a time (Chrome locks the
-user-data-dir). Keep a single agent-browser instance using the profile; close it
-(`agent-browser close --all`) before launching another against the same `$P`.
+A persistent `--user-data-dir` can be opened by only ONE Chrome instance at a time (Chrome locks the
+dir). The helper is idempotent — if CDP `9222` is already up it reuses it instead of launching a
+second instance. If you need to restart, `agent-browser close` then re-run `connect_chrome.ps1`.
 
-## Browser launch hangs in a non-TTY / sandboxed shell (verified)
+## `os error 10060` / bundled-Chromium failure (root cause of the switch to real Chrome)
 
-agent-browser uses a **bundled Playwright Chromium** (`ms-playwright/chromium-*`, exe named
-`chrome.exe` but NOT system Google Chrome). Any command that starts the browser daemon — `open`,
-`doctor` — **blocks with no output** when run from a redirected/non-interactive automation shell
-(observed: the command never returns and must be killed). The headless renderer tree spawns but the
-driver never gets a usable handle.
+agent-browser can drive either its **bundled Playwright Chromium** (`~/.agent-browser/browsers/
+chrome-*`, exe named `chrome.exe` but NOT system Google Chrome) or, via `connect <port>`, a **real
+Chrome over CDP**. The bundled path broke: a freshly-downloaded bundled build (`chrome-150.x`, newer
+than the working `chrome-149.x`) failed its CDP handshake → `Could not configure browser: Failed to
+read … (os error 10060)` on every `open`. Each failure also left an orphaned bundled Chromium and a
+stale `~/.agent-browser/default.pid` / `default.port` (next launch then says *"daemon already
+running"* and times out).
 
-**Implication:** run the browser-launching steps (first headed SSO login, and ideally each
-`--profile open`) in a **real terminal window** with a TTY, not through a piped/automation shell.
-Once the daemon is up and a profile session exists, non-launching commands (snapshot, fill, click,
-auth, file ops) are fine from the automation shell.
+**Fix = attach to real Chrome (the current default flow).** `connect_chrome.ps1` launches system
+Chrome detached on `9222`; `agent-browser connect 9222` attaches. If a prior bundled run wedged the
+daemon, clear it first (path-filtered kill so personal Chrome survives):
+
+```powershell
+Get-CimInstance Win32_Process -Filter "name='chrome.exe'" |
+  Where-Object { $_.ExecutablePath -like "*\.agent-browser\*" } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+Get-Process agent-browser-win32-x64 -ErrorAction SilentlyContinue | Stop-Process -Force
+Remove-Item "$env:USERPROFILE\.agent-browser\default.pid","$env:USERPROFILE\.agent-browser\default.port","$env:USERPROFILE\.agent-browser\default.stream" -Force -ErrorAction SilentlyContinue
+```
+
+Launch Chrome with `Start-Process` (NOT `&`) from a non-TTY shell so it does not inherit a redirected
+stdin. Once attached, non-launching commands (snapshot, fill, click, auth, file ops) are fine from
+the automation shell — feed `< /dev/null` if any command waits on stdin.
 
 ## Windows "Input redirection is not supported"
 

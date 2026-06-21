@@ -50,7 +50,9 @@ across PCs and agents.
 | Qualcomm ID | `the.thoi@samsung.com` (login id) |
 | Password store | `data\.secrets\qid.bin` — DPAPI ProtectedData (CurrentUser), git-ignored. Captured ONCE by the user in their terminal; auto-fills on forced re-login. See `references\login-flow.md` |
 | MFA | **Email OTP** — 6-digit code to the Samsung mailbox, expires ~5 min. Always human-pasted; Claude cannot read the mailbox. A stored password does NOT bypass it |
-| Session store | `data\chrome-profile\` (persistent Chrome profile via agent-browser `--profile`; git-ignored — sign in ONCE) |
+| Browser | **real Google Chrome** launched detached with a CDP port, then `agent-browser connect 9222`. NOT agent-browser's bundled Chromium (a broken bundled build caused `os error 10060` — see Troubleshooting). Launch helper: `scripts\connect_chrome.ps1` |
+| CDP port | `9222` (real Chrome `--remote-debugging-port`) |
+| Session store | `data\chrome-profile\` (persistent Chrome `--user-data-dir`; git-ignored — sign in ONCE). A SEPARATE Chrome instance — the user's personal Chrome is never touched/closed |
 | Case cache | `data\cases\<CODE>.json` (full) · `<CODE>.report.md` (summary) · `<CODE>.md` + `<CODE>.html` (full review) |
 | Sync index | `data\cases\_index.json` (`<CODE> → { syncedAt, commentCount, hash }`) |
 | Render script | `.claude\skills\qualcomm-case-agent\scripts\render_case.mjs` — `node <that> data\cases\<CODE>.json` writes `.report.md` + `.md` + `.html` |
@@ -63,13 +65,35 @@ across PCs and agents.
 
 ## PHASE 0 — Intake & environment
 
-- **Goal:** validate input; prepare the workspace.
+- **Goal:** validate input; prepare the workspace; attach to a signed-in **real Chrome**.
 - **Action:**
-  1. Load the agent-browser reference: run `agent-browser skills get core --full` (mandatory).
+  1. **FIRST: invoke the `agent-browser` skill** (Claude Code: `Skill` tool → `agent-browser`).
+     Mandatory before any browser command. Then load its core guide:
+     `agent-browser skills get core --full`.
   2. Validate + normalize the case code (trim; uppercase alpha; reject if it contains path-illegal
      chars `\ / : * ? " < > |`).
   3. Ensure cache dirs exist: `data\cases\`. Create `data\cases\_index.json` = `{}` if absent.
-- **Guard:** no case code → ask the user and STOP.
+  4. **Launch real Chrome with a CDP port + dedicated profile, then attach agent-browser.** Use the
+     helper (idempotent — if `9222` is already up it just reuses it; it never kills the user's
+     personal Chrome):
+     ```bash
+     powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/connect_chrome.ps1"
+     agent-browser connect 9222 < /dev/null      # feed empty stdin so nothing waits on the keyboard
+     ```
+     Equivalent without the helper (real Chrome, detached — `Start-Process`, NOT the `&` call
+     operator, which inherits the automation shell's redirected stdin and throws *"Input redirection
+     is not supported"*):
+     ```powershell
+     # Separate --user-data-dir = separate instance; do NOT kill the user's personal Chrome.
+     Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" -ArgumentList @(
+       '--remote-debugging-port=9222',
+       "--user-data-dir=$((Get-Location).Path)\data\chrome-profile")
+     ```
+     Why real Chrome and not the bundled Chromium: a freshly-downloaded bundled build can fail its
+     CDP handshake → `os error 10060` on every `open`. Real Chrome is stable and OS-trusted. See
+     **Troubleshooting**.
+- **Guard:** no case code → ask the user and STOP. If `agent-browser connect 9222` fails, see
+  Troubleshooting (stale daemon / port not up).
 
 ## PHASE 1 — Authenticate (session reused; password auto-fills; email OTP human-in-the-loop)
 
@@ -78,14 +102,15 @@ Full step-by-step + failure handling: **`references\login-flow.md`**. Summary:
 - **Goal:** an authenticated Qualcomm Support session. Two layers: (1) reuse the persistent Chrome
   profile — silent, no login; (2) on forced re-login, auto-fill the DPAPI-stored password, human
   pastes the OTP.
-- **Action (profile-first):** always launch with the SAME `--profile` directory. The profile holds
-  cookies/tokens and persists between runs automatically — there is no separate "save" step.
+- **Action (attach-to-Chrome, profile-persistent):** Phase 0 already launched real Chrome on CDP
+  `9222` with the SAME `--user-data-dir` (`data\chrome-profile`) and ran `agent-browser connect 9222`.
+  That profile dir holds cookies/tokens and persists between runs automatically — no separate "save"
+  step, no `--profile` flag (we attach, not launch a bundled browser). Now drive the attached tab:
   ```bash
-  P="data/chrome-profile"     # relative to the workspace root
-  # Headed so the user can paste the OTP if the profile session has lapsed.
-  agent-browser --headed --profile "$P" open "https://support.qualcomm.com"
-  agent-browser snapshot -c
+  agent-browser open "https://support.qualcomm.com" < /dev/null
+  agent-browser snapshot -c < /dev/null
   ```
+  The Chrome window is visible (real Chrome), so the user can paste the OTP if the session lapsed.
 - **Decision:**
   - **Dashboard loads** (profile session valid) → continue to Phase 2. **No login, no OTP, no DPAPI
     read.** Normal path.
@@ -243,11 +268,14 @@ root cause, top recommended actions, and the output file paths
 
 - **Load the agent-browser reference first** (`agent-browser skills get core --full`) before any
   browser action; follow its syntax.
-- **Auth:** the persistent Chrome profile (`data\chrome-profile\`, used via `--profile`) keeps the
-  session across runs — the primary silent path, no re-login until it expires. On expiry, the password
-  auto-fills from the DPAPI store (`data\.secrets\qid.bin`); the human pastes the **email OTP** (always
-  human — Claude cannot read the mailbox; a stored password does NOT bypass MFA). Re-ask the password
-  ONLY when it is wrong. See `references\login-flow.md`.
+- **Auth:** attach to **real Chrome** over CDP `9222` (launched detached with `--user-data-dir
+  data\chrome-profile` via `scripts\connect_chrome.ps1`), then `agent-browser connect 9222`. NOT the
+  bundled Chromium (`--profile`) — a broken bundled build caused `os error 10060`. The persistent
+  `--user-data-dir` keeps the session across runs — the primary silent path, no re-login until it
+  expires. On expiry, the password auto-fills from the DPAPI store (`data\.secrets\qid.bin`); the human
+  pastes the **email OTP** (always human — Claude cannot read the mailbox; a stored password does NOT
+  bypass MFA). Re-ask the password ONLY when it is wrong. The launch never kills the user's personal
+  Chrome (separate `--user-data-dir` = separate instance). See `references\login-flow.md`.
 - **Secrets:** the password's only durable copy is `data\.secrets\qid.bin`, **DPAPI-encrypted**
   (CurrentUser) — never in this skill, in outputs, in the chat/transcript, or any plaintext file.
   First capture is a user-run terminal snippet; the agent-browser auth vault is used transiently
@@ -267,31 +295,58 @@ root cause, top recommended actions, and the output file paths
 - The VS Code workspace root = this project folder; every relative path above resolves from it.
 - Cline auto-reads `.clinerules/` — `.clinerules/qualcomm-case-agent.md` points it here. Trigger by
   asking e.g. "sync Qualcomm case CASE-12345"; Cline then follows this runbook.
-- Use Cline's **execute_command** for every `agent-browser` / `node` line, and its file tools for
-  read/write. Do **not** use Cline's built-in `browser_action` — this skill drives the standalone
-  `agent-browser` CLI (its own Chromium + persistent `--profile`), which `browser_action` cannot do.
+- Use Cline's **execute_command** for every `powershell` / `agent-browser` / `node` line, and its file
+  tools for read/write. Do **not** use Cline's built-in `browser_action` — this skill attaches the
+  standalone `agent-browser` CLI to **real Chrome over CDP** (`connect 9222`), which `browser_action`
+  cannot do.
 - `AGENTS.md` at the project root is a generic pointer for any other agent.
 
 ## Setup on a new Windows machine
 
-1. Install Node.js (≥18) + the CLI: `npm i -g agent-browser`, then `agent-browser install`
-   (downloads the bundled Chromium — NOT system Chrome).
+1. Install Node.js (≥18) + the CLI: `npm i -g agent-browser`. **Install real Google Chrome** (the
+   skill attaches to system Chrome over CDP; the bundled `agent-browser install` Chromium is NOT
+   required and a bad build can break it — see Troubleshooting).
 2. Copy the **whole project folder** to the new PC. The skill travels inside
    `.claude/skills/qualcomm-case-agent/`. (For Claude Code use outside this project, also copy the
    skill to `~/.claude/skills/`.)
 3. Do **not** copy `data/chrome-profile/`, `data/.secrets/`, or `data/cases/` — the profile cookies
    AND the DPAPI `qid.bin` are encrypted to the old Windows user (won't decrypt → must re-capture +
    re-login anyway); case content is NDA. All three are git-ignored.
-4. First run: the headed SSO login + email OTP, and the DPAPI password-capture snippet
-   (`references/login-flow.md` → "First-time capture"), must be done in a **real terminal**
-   (`Read-Host` needs a console; browser launch hangs in a redirected/automation shell — see
-   Troubleshooting). After that the profile + `qid.bin` persist.
-5. If the Qualcomm ID differs, update it in the Configuration table + `references/login-flow.md`.
+4. First run: launch Chrome via `scripts/connect_chrome.ps1` then `agent-browser connect 9222`; the
+   SSO login + email OTP, and the DPAPI password-capture snippet (`references/login-flow.md` →
+   "First-time capture"), are done in the visible Chrome window / a **real terminal** (`Read-Host`
+   needs a console). After that the profile + `qid.bin` persist.
+5. If Chrome is installed somewhere non-standard, edit the path in `scripts/connect_chrome.ps1`. If
+   the Qualcomm ID differs, update it in the Configuration table + `references/login-flow.md`.
 
 ## Troubleshooting
 
+**`Could not configure browser: Failed to read … (os error 10060)`** — the symptom that forced the
+move to real Chrome. Root cause observed: agent-browser's bundled Playwright Chromium had a
+freshly-downloaded build (`chrome-150.x`, dated newer than the working `chrome-149.x`) whose CDP
+handshake timed out; every failed `open` also left an **orphaned bundled Chromium** behind (they pile
+up) plus a **stale `~/.agent-browser/default.pid` / `default.port`** pointing at a dead daemon (which
+makes the next launch report *"daemon already running"* then time out). Fix that is now the default
+flow:
+1. Stop the dead daemon + orphaned bundled Chromium **only** (path-filtered so the user's real Chrome
+   is untouched):
+   ```powershell
+   Get-CimInstance Win32_Process -Filter "name='chrome.exe'" |
+     Where-Object { $_.ExecutablePath -like "*\.agent-browser\*" } |
+     ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+   Get-Process agent-browser-win32-x64 -ErrorAction SilentlyContinue | Stop-Process -Force
+   Remove-Item "$env:USERPROFILE\.agent-browser\default.pid","$env:USERPROFILE\.agent-browser\default.port","$env:USERPROFILE\.agent-browser\default.stream" -Force -ErrorAction SilentlyContinue
+   ```
+2. Launch real Chrome + attach: `scripts/connect_chrome.ps1` then `agent-browser connect 9222`
+   (Phase 0). This avoids the bundled Chromium entirely.
+
 **"Input redirection is not supported"** (Windows). The skill ran in a non-interactive shell whose
-stdin is redirected; a console app waiting on stdin is blocked. Fixes: run agent-browser
-non-interactively (it auto-denies confirmation prompts when stdin is not a TTY — do not pass
-`--confirm-interactive`); do one-time interactive setup (`agent-browser install`, first SSO login)
-in a REAL terminal. Full notes in `references\login-flow.md`.
+stdin is redirected; a console app waiting on stdin is blocked. Fixes: feed empty stdin to
+agent-browser commands (`agent-browser <cmd> < /dev/null`); launch Chrome with `Start-Process`, NOT
+the `&` call operator (it inherits the redirected handle); agent-browser auto-denies confirmation
+prompts when stdin is not a TTY — do not pass `--confirm-interactive`. Full notes in
+`references\login-flow.md`.
+
+**PowerShell syntax via the Bash tool.** `if (...) { ... }` is PowerShell, not POSIX sh — running it
+through a Git-Bash shell errors with `eval: syntax error near unexpected token '{'`. Run PowerShell
+snippets with the PowerShell tool (or `powershell -File …`), and POSIX one-liners with Bash.
