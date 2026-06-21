@@ -138,11 +138,16 @@ Full step-by-step + failure handling: **`references\login-flow.md`**. Summary:
       Then drive the email-OTP screens by snapshot: click **"Send me an email"** → **"Enter a
       verification code instead"** → the user pastes the 6-digit code → click **"Verify"**. Full
       flow + selectors in `.claude\skills\qualcomm-case-agent\references\login-flow.md`.
-    - `qid.bin` missing → **ask the user to run the one-time DPAPI capture snippet in their own
-      PowerShell terminal** (`references\login-flow.md` → "First-time capture"; must `Set-Location`
-      to the workspace root, run in PowerShell not cmd.exe, and `Add-Type -AssemblyName
-      System.Security`). The password is typed into their terminal, NEVER into the chat. Wait, then
-      run the helper.
+    - `qid.bin` missing → **ask the user to run the canonical capture script in their own
+      PowerShell terminal** — give them the exact command, do NOT hand-type or improvise an inline
+      snippet (a regenerated one-liner mis-nested the `ProtectedData` parens and silently wrote a
+      null file):
+      ```
+      powershell -ExecutionPolicy Bypass -File .claude\skills\qualcomm-case-agent\scripts\capture_password.ps1
+      ```
+      Must be PowerShell, not cmd.exe. The password is typed into their terminal, NEVER into the
+      chat. Wait for the "Saved … bytes" line, then run the helper. (Details:
+      `references\login-flow.md` → "First-time capture".)
     - After OTP, re-`snapshot` to confirm the dashboard. The profile stores the new session
       automatically. Re-login on expiry is expected.
   - **Wrong password** (after Verify, still on the password screen with a credential error, or it

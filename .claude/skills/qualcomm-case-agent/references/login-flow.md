@@ -63,27 +63,34 @@ machine. Built into .NET; no module install. Git-ignored.
 
 ### First-time capture — USER runs this in a REAL terminal (password never enters the chat)
 
-Hand the user this snippet; they run it once in their own **PowerShell** window (NOT cmd.exe — the
-`Read-Host`/.NET calls are PowerShell). Claude does NOT run it and never sees the value. The first
-line `Set-Location` pins the workspace root so `data\.secrets\qid.bin` lands in the project, not the
-home dir — **set the path to YOUR clone**:
+**Give the user the canonical script — do NOT hand-type or improvise an inline snippet.** The
+`ProtectedData.Protect` call nests five levels of parens; a regenerated one-liner mis-counted them
+(`...$pwd)))))` → `Unexpected token ')'`), `$enc` stayed null, and `WriteAllBytes` threw `Value
+cannot be null` while the run *looked* saved. The script removes that failure mode — it is never
+re-typed, and it auto-detects the project root (no `Set-Location`/path edit needed):
+
+```
+powershell -ExecutionPolicy Bypass -File .claude\skills\qualcomm-case-agent\scripts\capture_password.ps1
+```
+
+They run it once in their own **PowerShell** window (NOT cmd.exe — the `Read-Host`/.NET calls are
+PowerShell). Claude does NOT run it and never sees the value. Wait for the `Saved … bytes` line.
+
+The script (`scripts\capture_password.ps1`) is the source of truth; this is what it does:
 
 ```powershell
-Set-Location "E:\the.thoi\Project\access-qualcomm"   # <-- your access-qualcomm clone
+$root = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path  # auto-detect project root
+$dir  = Join-Path $root 'data\.secrets'
 Add-Type -AssemblyName System.Security                # REQUIRED on PS 5.1 or ProtectedData = TypeNotFound
-$dir = "data\.secrets"; New-Item -ItemType Directory -Force $dir | Out-Null
-$sec = Read-Host "Qualcomm ID password" -AsSecureString
+New-Item -ItemType Directory -Force $dir | Out-Null
+$sec  = Read-Host "Qualcomm ID password" -AsSecureString
 $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
 $pw   = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
 [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-$enc = [Security.Cryptography.ProtectedData]::Protect(
+$enc  = [Security.Cryptography.ProtectedData]::Protect(
   [Text.Encoding]::UTF8.GetBytes($pw), $null,
   [Security.Cryptography.DataProtectionScope]::CurrentUser)
-[IO.File]::WriteAllBytes((Join-Path (Get-Location) "$dir\qid.bin"), $enc)
-$pw = $null
-if ((Get-Item "$dir\qid.bin").Length -gt 0) {
-  Write-Host "Saved data\.secrets\qid.bin (DPAPI, CurrentUser), $((Get-Item "$dir\qid.bin").Length) bytes."
-} else { Write-Host "FAIL - qid.bin is empty; re-run." }
+[IO.File]::WriteAllBytes((Join-Path $dir 'qid.bin'), $enc)
 ```
 
 Pitfalls this snippet defends against (all hit on first real capture):
