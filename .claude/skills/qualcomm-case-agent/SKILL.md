@@ -84,8 +84,14 @@ portable across PCs and agents.
      personal Chrome):
      ```bash
      powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/connect_chrome.ps1"
-     agent-browser connect 9222 < /dev/null      # feed empty stdin so nothing waits on the keyboard
+     # Attach via the IPv4 ws:// URL the helper prints, NOT bare `connect 9222`.
+     # On Windows `connect 9222` -> http://localhost:9222 -> resolves IPv6 ::1 first,
+     # but Chrome binds only IPv4 127.0.0.1 -> SYN timeout -> "os error 10060".
+     # The helper prints the exact command; run it (feed empty stdin):
+     #   agent-browser connect "ws://127.0.0.1:9222/devtools/browser/<id>" < /dev/null
      ```
+     To derive the URL yourself: `curl -s http://127.0.0.1:9222/json/version` → use its
+     `webSocketDebuggerUrl` (already `ws://127.0.0.1:9222/...`).
      Equivalent without the helper (real Chrome, detached — `Start-Process`, NOT the `&` call
      operator, which inherits the automation shell's redirected stdin and throws *"Input redirection
      is not supported"*):
@@ -336,7 +342,17 @@ root cause, top recommended actions, and the output file paths
 
 ## Troubleshooting
 
-**`Could not configure browser: Failed to read … (os error 10060)`** — the symptom that forced the
+**`Failed to read … (os error 10060)` on `agent-browser connect 9222` — TWO distinct causes.**
+
+*Cause A (most common now, real Chrome): localhost → IPv6 mismatch.* `connect <port>` targets
+`http://localhost:<port>`. On Windows `localhost` resolves to IPv6 `::1` FIRST, but Chrome
+`--remote-debugging-port` binds ONLY IPv4 `127.0.0.1` — no `::1` listener → SYN timeout → 10060.
+Diagnose: `curl -s http://127.0.0.1:9222/json/version` returns HTTP 200 (Chrome is fine) yet
+`connect 9222` still times out. **Fix:** connect via the explicit IPv4 ws:// URL —
+`agent-browser connect "ws://127.0.0.1:9222/devtools/browser/<id>"` (the `webSocketDebuggerUrl`
+from `/json/version`). The patched `connect_chrome.ps1` prints this exact command.
+
+*Cause B (legacy, bundled Chromium):* — the symptom that forced the
 move to real Chrome. Root cause observed: agent-browser's bundled Playwright Chromium had a
 freshly-downloaded build (`chrome-150.x`, dated newer than the working `chrome-149.x`) whose CDP
 handshake timed out; every failed `open` also left an **orphaned bundled Chromium** behind (they pile

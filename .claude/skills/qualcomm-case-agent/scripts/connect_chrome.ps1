@@ -47,8 +47,24 @@ function Test-Cdp([int]$p) {
   return [bool](Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue)
 }
 
+# Return the IPv4 webSocketDebuggerUrl from the CDP /json/version endpoint.
+# Why 127.0.0.1 (not localhost): 'agent-browser connect <port>' connects to
+# http://localhost:<port>. On Windows 'localhost' resolves to IPv6 ::1 FIRST,
+# but Chrome --remote-debugging-port binds ONLY IPv4 127.0.0.1. The ::1 attempt
+# has no listener => SYN timeout => "os error 10060". Connecting via the explicit
+# ws://127.0.0.1 URL (connect also accepts a full ws:// URL) sidesteps that.
+function Get-WsUrl([int]$p) {
+  try {
+    $ver = Invoke-RestMethod -Uri "http://127.0.0.1:$p/json/version" -TimeoutSec 5
+    return $ver.webSocketDebuggerUrl
+  } catch { return $null }
+}
+
 if (Test-Cdp $Port) {
   Write-Host "Chrome CDP already listening on $Port - reusing it. Profile: $Profile"
+  $ws = Get-WsUrl $Port
+  if ($ws) { Write-Host "Next: agent-browser connect `"$ws`"" }
+  else     { Write-Host "Next: agent-browser connect $Port  (use ws://127.0.0.1 URL if this 10060-times-out)" }
   exit 0
 }
 
@@ -64,7 +80,9 @@ while ((Get-Date) -lt $deadline) {
   if (Test-Cdp $Port) {
     $own = (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess
     Write-Host "Chrome CDP listening on $Port (pid $own). Profile: $Profile"
-    Write-Host "Next: agent-browser connect $Port"
+    $ws = Get-WsUrl $Port
+    if ($ws) { Write-Host "Next: agent-browser connect `"$ws`"" }
+    else     { Write-Host "Next: agent-browser connect $Port  (use ws://127.0.0.1 URL if this 10060-times-out)" }
     exit 0
   }
 }
