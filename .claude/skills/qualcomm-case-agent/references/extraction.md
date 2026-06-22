@@ -33,8 +33,9 @@ confirmed Salesforce Lightning structure (lock-in table below). Run it with `--s
 JS reaches the browser intact, and redirect the result straight to the raw file:
 
 ```bash
+mkdir -p data/cases/<CODE>
 agent-browser eval --stdin < .claude/skills/qualcomm-case-agent/scripts/extract_case.js \
-  > data/cases/<CODE>.raw.json
+  > data/cases/<CODE>/case.raw.json
 ```
 
 Three hard-won rules baked into that script — keep them if you hand-edit the extractor for a DOM that
@@ -53,15 +54,15 @@ differs:
 Sanity-check the raw file, then finalize:
 
 ```bash
-node -e "const j=JSON.parse(require('fs').readFileSync('data/cases/<CODE>.raw.json','utf8')); console.log(j.caseNumber, j.comments.length, j.displayedCommentCount)"
-node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CODE> "data/cases/<CODE>.raw.json"
-# on exit 0, delete the .raw.json scratch file
+node -e "const j=JSON.parse(require('fs').readFileSync('data/cases/<CODE>/case.raw.json','utf8')); console.log(j.caseNumber, j.comments.length, j.displayedCommentCount)"
+node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CODE> "data/cases/<CODE>/case.raw.json"
+# on exit 0, delete the case.raw.json scratch file
 ```
 
 `scrape_case.mjs` rejects a 0-comment capture (wrong page / failed pull — never overwrites a good cache),
 asserts `comments.length >= displayedCommentCount` (short → exit 5, expand more and re-extract), stamps
-the SHA-256 `hash` + `extractedAt`, writes `data/cases/<CODE>.json`, and updates `_index.json`. It never
-drives the browser and never mutates your raw fields.
+the SHA-256 `hash` + `extractedAt`, writes `data/cases/<CODE>/case.json`, and updates the root
+`_index.json`. It never drives the browser and never mutates your raw fields.
 
 **Header metadata (title/status/priority/customer) is NOT on the Feed view** — it lives on the case
 **Detail tab** and the **PHASE 1 search-results row** (which exposes Subject, Status, Priority, Customer
@@ -113,7 +114,7 @@ comments.length >= displayedCommentCount   // else exit 5 — expand more / fix 
 ```
 
 Store `displayedCommentCount` even when it matches — the renderer shows a ⚠ banner in
-`<CODE>.report.md` / `.html` if a future run captures fewer than displayed.
+`case.report.md` / `case.html` if a future run captures fewer than displayed.
 
 ## Validation (before trusting the JSON)
 

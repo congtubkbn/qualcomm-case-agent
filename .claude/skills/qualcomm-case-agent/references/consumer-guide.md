@@ -5,21 +5,22 @@ qualcomm-case-agent. Read this before writing any code that accesses `data/cases
 
 ## Quick start (3 steps)
 
-1. Check if `data/cases/<CODE>.json` exists in the workspace.
+1. Check if `data/cases/<CODE>/case.json` exists in the workspace.
 2. If missing → invoke qualcomm-case-agent with the case code (see "Invoke pattern" below).
-3. Read `data/cases/<CODE>.json` and pick the fields you need.
+3. Read `data/cases/<CODE>/case.json` and pick the fields you need.
 
 ## File paths
 
-All paths are relative to the workspace root.
+All paths are relative to the workspace root. Each case has its own folder `data/cases/<CODE>/`;
+only `_index.json` sits at the `data/cases/` root.
 
 | File | Contents |
 |------|----------|
-| `data/cases/_index.json` | Registry: `{ "<CODE>": { syncedAt, commentCount, hash, enrichedAt? } }` |
-| `data/cases/<CODE>.json` | Full case data — raw + enrichment (see schema below) |
-| `data/cases/<CODE>.report.md` | Human-readable summary (quick context; no structured parsing needed) |
-| `data/cases/<CODE>.md` / `.html` / `.txt` | Full human review — every comment verbatim + per-comment analysis (`.html` richest, `.txt` grep-friendly) |
-| `data/cases/<CODE>.pdf` | Optional — PDF printed from the HTML report |
+| `data/cases/_index.json` | Registry (root): `{ "<CODE>": { syncedAt, commentCount, hash, enrichedAt? } }` |
+| `data/cases/<CODE>/case.json` | Full case data — raw + enrichment (see schema below) |
+| `data/cases/<CODE>/case.report.md` | Human-readable summary (quick context; no structured parsing needed) |
+| `data/cases/<CODE>/case.md` / `.html` / `.txt` | Full human review — every comment verbatim + per-comment analysis (`.html` richest, `.txt` grep-friendly) |
+| `data/cases/<CODE>/case.pdf` | Optional — PDF printed from the HTML report |
 
 ## Key schema fields
 
@@ -88,7 +89,7 @@ All paths are relative to the workspace root.
 
 ## Invoke pattern
 
-When `data/cases/<CODE>.json` is missing:
+When `data/cases/<CODE>/case.json` is missing:
 
 **Claude Code (Skill tool):**
 ```
@@ -102,7 +103,7 @@ Cline auto-loads the skill from `.clinerules/qualcomm-case-agent.md`.
 ## Pseudocode
 
 ```javascript
-const casePath = `data/cases/${CODE}.json`;
+const casePath = `data/cases/${CODE}/case.json`;
 if (!fileExists(casePath)) {
   invoke('qualcomm-case-agent', `sync case ${CODE}`);
   // wait for completion
@@ -115,7 +116,7 @@ const comments  = caseData.comments;                       // newest-first
 
 ## Rules for consumers
 
-- **Read-only.** Never write to `data/cases/<CODE>.json` or `data/cases/_index.json`.
+- **Read-only.** Never write to `data/cases/<CODE>/case.json` or `data/cases/_index.json`.
   Both are owned by qualcomm-case-agent.
 - **NDA content.** Never pass `comments[].body` or `comments[].analysisLog` verbatim to
   external services. These contain Qualcomm NDA material.

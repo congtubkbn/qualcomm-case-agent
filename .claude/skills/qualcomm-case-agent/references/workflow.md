@@ -45,17 +45,18 @@ One Qualcomm case code (`CASE-01234567`, `00123456`, or the numeric url id). Mis
 | 3 Extract | **expand via `agent-browser snapshot → click`** ("View More Posts", every "Expand Post", "Description") to no-expanders-left; then ONE `eval` extractor → raw JSON → `scrape_case.mjs` finalizes (assert `comments.length >= displayedCommentCount`, hash, write) | count short → expand more / fix extractor / progressive scroll |
 | 3.5 Incremental | SHA-256 the raw case; compare to `_index.json` | same hash → **no update → STOP** (skip enrich + writes) |
 | 4 Enrich | per-comment `summary`; case `engineerSummary`, `rootCause`, `recommendedActions`, `tags`, `timeline` | — |
-| 5 Persist | write `<CODE>.json` → `node render_case.mjs` → emit report/md/html → update `_index.json` | — |
+| 5 Persist | write `<CODE>/case.json` → `node render_case.mjs` → emit report/md/html/txt in the folder → update root `_index.json` | — |
 | 6 Report | tell user: counts (captured vs displayed), root cause, paths | — |
 
-## Output (`data/cases/`)
+## Output (per-case folder `data/cases/<CODE>/`)
 
 | File | Producer | Purpose |
 |------|----------|---------|
-| `<CODE>.json` | model | complete verbatim data + enrichment — **source of truth** |
-| `<CODE>.report.md` | `render_case.mjs` | concise summary report |
-| `<CODE>.md` + `<CODE>.html` | `render_case.mjs` | full render for human review |
-| `_index.json` | model | `<CODE> → {syncedAt, commentCount, hash}` for incremental sync |
+| `<CODE>/case.json` | model | complete verbatim data + enrichment — **source of truth** |
+| `<CODE>/case.report.md` | `render_case.mjs` | concise summary report |
+| `<CODE>/case.md` + `case.html` + `case.txt` | `render_case.mjs` | full render for human review |
+| `<CODE>/case.pdf` | agent-browser `pdf` (optional) | print archive of the HTML |
+| `_index.json` (root) | model | `<CODE> → {syncedAt, commentCount, hash}` for incremental sync |
 | `chrome-profile/` | real Chrome `--user-data-dir` | persistent auth profile (one-time login) |
 
 ## Logic backbone

@@ -11,7 +11,7 @@
 //     node scrape_case.mjs <CASE_CODE> <rawJsonPath>
 //
 // Finalize = completeness assert -> stamp hash + extractedAt -> write the
-// canonical data/cases/<CODE>.json -> update _index.json.
+// canonical data/cases/<CODE>/case.json -> update root _index.json.
 //
 // Why a script at all (vs the agent writing JSON directly): the SHA-256 hash
 // (incremental "no update" detection) and the _index.json merge must be
@@ -99,8 +99,11 @@ function finalize(caseCode, rawPath) {
   raw.hash = computeHash(raw);
   raw.extractedAt = new Date().toISOString();
 
-  mkdirSync(DATA_DIR, { recursive: true });
-  const outPath = join(DATA_DIR, `${caseCode}.json`);
+  // Per-case folder: data/cases/<CODE>/case.json — keeps all artifacts (render
+  // md/html/txt, pdf) together. _index.json stays at DATA_DIR root (cross-case).
+  const caseDir = join(DATA_DIR, caseCode);
+  mkdirSync(caseDir, { recursive: true });
+  const outPath = join(caseDir, 'case.json');
   writeFileSync(outPath, JSON.stringify(raw, null, 2), 'utf8');
 
   // Merge into _index.json.

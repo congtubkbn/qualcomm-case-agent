@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // render_case.mjs — deterministic renderer for the Qualcomm Case Management Agent.
-// Reads a case.json and writes sibling <CODE>.md and <CODE>.html (single-file, inline CSS).
+// Reads a case.json and writes siblings <stem>.report.md / .md / .html / .txt in the SAME
+// folder (single-file, inline CSS). Output dir + stem are derived from the input path, so
+// pointing it at data/cases/<CODE>/case.json keeps every artifact in that case folder.
 //
-//   node render_case.mjs "data/cases/CASE-01234567.json"
+//   node render_case.mjs "data/cases/08550063/case.json"
 //
 // Input shape (see SKILL.md PHASE 5). Comments are expected newest-first already; this script
 // does not reorder, summarize, or invent — it only formats what is in the JSON.
