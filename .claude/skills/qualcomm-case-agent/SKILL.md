@@ -1,6 +1,6 @@
 ---
 name: qualcomm-case-agent
-description: "Qualcomm Case Management Agent. Given ONE Qualcomm case code, drive agent-browser to sign in (Qualcomm ID SSO + email OTP) and extract the COMPLETE case from the Qualcomm Support portal (support.qualcomm.com) — full metadata plus every comment (timestamp, company, author, comment text + full detail, analysis logs/attachments). Enrich each comment with an expert summary written as a Qualcomm / Protocol / 3GPP engineer, then persist to the access-qualcomm project cache newest-first in three formats: JSON (machine), Markdown (review), and a single-file HTML (easiest human reading). Incremental: unchanged cases report 'no update'. Triggers: 'qualcomm case <code>', 'pull qualcomm case', 'access qualcomm case', 'lấy case qualcomm', 'phân tích case qualcomm', 'qualcomm case agent', 'extract qualcomm case code'. Use whenever the user provides a Qualcomm case code/number and wants the full case captured and summarized."
+description: "Qualcomm Case Management Agent. Given ONE Qualcomm case code, drive agent-browser to sign in (Qualcomm ID SSO + email OTP) and extract the COMPLETE case from the Qualcomm Support portal (support.qualcomm.com) — full metadata plus every comment (timestamp, company, author, comment text + full detail, analysis logs/attachments). Enrich as a Qualcomm / Protocol / 3GPP / RF expert engineer: per-comment analysis (role + key points + 3GPP citations + answered/unanswered) plus a case-level overview, analysis flow, root cause, current status, and open questions. Persist to the access-qualcomm project cache newest-first in JSON (machine), Markdown + single-file HTML + TXT (human review), and optional PDF. Deep analysis can also be run/redone standalone via the sibling `qualcomm-enrich` skill (no re-scrape). Incremental: unchanged cases report 'no update'. Triggers: 'qualcomm case <code>', 'pull qualcomm case', 'access qualcomm case', 'lấy case qualcomm', 'phân tích case qualcomm', 'qualcomm case agent', 'extract qualcomm case code'. Use whenever the user provides a Qualcomm case code/number and wants the full case captured and summarized."
 allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(node:*), Bash(powershell:*), PowerShell, Read, Write, Glob
 ---
 
@@ -14,280 +14,436 @@ engineer-grade artifacts in the local project cache.
 **Input contract.** One Qualcomm case code (e.g. `CASE-01234567`, `00123456`, or the numeric
 id in the case URL). If missing → ask the user, then STOP.
 
-**Operating principle.** Each PHASE has a goal, action, and guard. Surface to the user only on:
-auth (SSO / email OTP), case-not-found, or ambiguous input. Never guess credentials or fabricate data.
+**Operating principle.** Agent loop: each PHASE has a goal, an action, and a decision/guard.
+Stop and surface to the user only on auth (SSO / email OTP), case-not-found, or ambiguous
+input — never guess credentials or fabricate data.
 
-**MANDATORY prerequisite — load agent-browser reference FIRST.** Before ANY browser action:
+**Harness-agnostic.** This is a plain runbook — it works under Claude Code, Cline (VS Code), or any
+agent that can run a terminal and read/write files. Wherever it says "run", use your terminal /
+execute-command tool; "write/read" = your file tools. The YAML frontmatter above is Claude-Code
+metadata, ignored elsewhere. See **Running under other agents** below.
+
+**MANDATORY prerequisite — load the agent-browser command reference FIRST.** Before ANY browser
+action, run in the terminal:
 
 ```bash
 agent-browser skills get core --full
 ```
 
+(In Claude Code you may additionally invoke the `agent-browser` Skill; under Cline/others the CLI
+command above is the portable equivalent.) The verbs used below are confirmed for **v0.27.x**; if
+the installed version differs, that reference is authoritative.
+
 ---
 
 ## Configuration
 
-All paths are **relative to the workspace root** (access-qualcomm project = CWD).
-Scripts and references live under `.claude\skills\qualcomm-case-agent\` (abbreviated as skill dir below).
+Data paths below (`data\...`) are **relative to the workspace root** (the access-qualcomm project =
+the current working directory / VS Code workspace folder). No absolute or machine-specific paths —
+portable across PCs and agents.
+
+> **`references\…` and the skill's own `scripts\…` live UNDER the skill base dir**, i.e.
+> `.claude\skills\qualcomm-case-agent\references\…` and `…\scripts\…` — NOT at the workspace root.
+> When this doc writes `references\login-flow.md` as shorthand, read it as
+> `.claude\skills\qualcomm-case-agent\references\login-flow.md` (use that full path with file tools).
 
 | Key | Value |
 |-----|-------|
-| Portal | `https://support.qualcomm.com` |
-| SSO | `https://account.qualcomm.com/...` (Okta — identifier-first two-step) |
-| Qualcomm ID | `the.thoi@samsung.com` |
-| Password store | `data\.secrets\qid.bin` — DPAPI ProtectedData (CurrentUser), git-ignored |
-| MFA | **Email OTP** — 6-digit code to Samsung mailbox, expires ~5 min. Always human-pasted |
-| Browser | **real Google Chrome** on CDP port `9222` via `scripts\connect_chrome.ps1` |
-| CDP port | `9222` |
-| Session store | `data\chrome-profile\` — persistent `--user-data-dir`; git-ignored |
-| Case cache | `data\cases\<CODE>.json` · `<CODE>.report.md` · `<CODE>.md` · `<CODE>.html` |
-| Sync index | `data\cases\_index.json` |
-| Scripts | skill dir `scripts\`: `connect_chrome.ps1`, `okta_login.ps1`, `capture_password.ps1`, `scrape_case.mjs`, `render_case.mjs` |
-| References | skill dir `references\`: `login-flow.md`, `extraction.md`, `workflow.md`, `consumer-guide.md` |
+| Project root | the workspace root / CWD (run from the access-qualcomm folder) |
+| Portal | `https://support.qualcomm.com` (formerly CreatePoint) |
+| SSO | `https://account.qualcomm.com/...` (Okta — user signs in manually) |
+| Qualcomm ID | `the.thoi@samsung.com` (login id) |
+| Password store | `data\.secrets\qid.bin` — DPAPI ProtectedData (CurrentUser), git-ignored. Captured ONCE by the user in their terminal; auto-fills on forced re-login. See `references\login-flow.md` |
+| MFA | **Email OTP** — 6-digit code to the Samsung mailbox, expires ~5 min. Always human-pasted; Claude cannot read the mailbox. A stored password does NOT bypass it |
+| Browser | **real Google Chrome** launched detached with a CDP port, then `agent-browser connect 9222`. NOT agent-browser's bundled Chromium (a broken bundled build caused `os error 10060` — see Troubleshooting). Launch helper: `scripts\connect_chrome.ps1` |
+| CDP port | `9222` (real Chrome `--remote-debugging-port`) |
+| Session store | `data\chrome-profile\` (persistent Chrome `--user-data-dir`; git-ignored — sign in ONCE). A SEPARATE Chrome instance — the user's personal Chrome is never touched/closed |
+| Case cache | `data\cases\<CODE>.json` (full) · `<CODE>.report.md` (summary) · `<CODE>.md` + `<CODE>.html` + `<CODE>.txt` (full review) · `<CODE>.pdf` (optional, printed from HTML) |
+| Sync index | `data\cases\_index.json` (`<CODE> → { syncedAt, commentCount, hash }`) |
+| Render script | `.claude\skills\qualcomm-case-agent\scripts\render_case.mjs` — `node <that> data\cases\<CODE>.json` writes `.report.md` + `.md` + `.html` + `.txt` |
+| Enrich skill | `qualcomm-enrich` (sibling skill) — standalone analyst pass over an existing `<CODE>.json` (no browser). PHASE 4 below may delegate to it; same `enrichment` schema + same renderer |
+| References | under `.claude\skills\qualcomm-case-agent\references\`: `workflow.md` (+`workflow.svg`), `login-flow.md`, `extraction.md`, `consumer-guide.md` (API contract for OTHER agents reading `data\cases\`) |
+| Login helper | `.claude\skills\qualcomm-case-agent\scripts\okta_login.ps1` — drives Okta identifier-first username→Next→password→Verify, password from DPAPI; email OTP stays human |
+
+> Use forward slashes in agent-browser/Node args on Windows. Convert `<CODE>` to a safe filename
+> (uppercase alpha, strip path-illegal chars).
 
 ---
 
 ## Session Health Check
 
-**Run this before any browser action in every phase:**
+**Run before any browser action in every phase:**
 
 ```bash
 agent-browser eval "return document.title + ' | ' + location.href"
 ```
 
-If the result shows `account.qualcomm.com` in the URL → session expired, go back to **PHASE 1** re-auth flow immediately. Do NOT proceed with browser actions on a logged-out session.
+If the result shows `account.qualcomm.com` in the URL → session expired. Go back to **PHASE 1**
+re-auth flow immediately. Do NOT proceed with browser actions on a logged-out session.
+
+The `data\chrome-profile\` directory IS the session — never close/restart Chrome between phases
+unless there is an explicit error. The persistent profile carries cookies across all phases and runs.
 
 ---
 
-## PHASE 0 — Intake & Environment
+## PHASE 0 — Intake & environment
 
-**Goal:** validate input; prepare workspace; attach to real Chrome.
+- **Goal:** validate input; prepare the workspace; attach to a signed-in **real Chrome**.
+- **Action:**
+  1. **FIRST: invoke the `agent-browser` skill** (Claude Code: `Skill` tool → `agent-browser`).
+     Mandatory before any browser command. Then load its core guide:
+     `agent-browser skills get core --full`.
+  2. Validate + normalize the case code (trim; uppercase alpha; reject if it contains path-illegal
+     chars `\ / : * ? " < > |`).
+  3. Ensure cache dirs exist: `data\cases\`. Create `data\cases\_index.json` = `{}` if absent.
+  4. **Launch real Chrome with a CDP port + dedicated profile, then attach agent-browser.** Use the
+     helper (idempotent — if `9222` is already up it just reuses it; it never kills the user's
+     personal Chrome):
+     ```bash
+     powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/connect_chrome.ps1"
+     # Attach via the IPv4 ws:// URL the helper prints, NOT bare `connect 9222`.
+     # On Windows `connect 9222` -> http://localhost:9222 -> resolves IPv6 ::1 first,
+     # but Chrome binds only IPv4 127.0.0.1 -> SYN timeout -> "os error 10060".
+     # The helper prints the exact command; run it (no stdin redirect needed —
+     # agent-browser auto-denies prompts when stdin is not a TTY):
+     #   agent-browser connect "ws://127.0.0.1:9222/devtools/browser/<id>"
+     ```
+     To derive the URL yourself: `curl -s http://127.0.0.1:9222/json/version` → use its
+     `webSocketDebuggerUrl` (already `ws://127.0.0.1:9222/...`).
+     Equivalent without the helper (real Chrome, detached — `Start-Process`, NOT the `&` call
+     operator, which inherits the automation shell's redirected stdin and throws *"Input redirection
+     is not supported"*):
+     ```powershell
+     # Separate --user-data-dir = separate instance; do NOT kill the user's personal Chrome.
+     # NOTE the embedded quotes around the path: Start-Process does NOT quote -ArgumentList
+     # array items, so an unquoted path with a space (e.g. "C:\Users\Win 11\...") splits the
+     # token and the CDP port never opens. The connect_chrome.ps1 helper handles this (plus
+     # Chrome-path auto-detection AND resolves the profile from the project root, not CWD via
+     # _paths.ps1) — prefer it. This inline form assumes you launch from the project root.
+     Start-Process "C:\Program Files\Google\Chrome\Application\chrome.exe" -ArgumentList @(
+       '--remote-debugging-port=9222',
+       "--user-data-dir=`"$((Get-Location).Path)\data\chrome-profile`"")
+     ```
+     Why real Chrome and not the bundled Chromium: a freshly-downloaded bundled build can fail its
+     CDP handshake → `os error 10060` on every `open`. Real Chrome is stable and OS-trusted. See
+     **Troubleshooting**.
+- **Guard:** no case code → ask the user and STOP. If `agent-browser connect 9222` fails, see
+  Troubleshooting (stale daemon / port not up).
 
-1. Invoke the `agent-browser` skill (Claude Code `Skill` tool). Then: `agent-browser skills get core --full`.
-2. Validate + normalize the case code: trim, uppercase alpha, reject path-illegal chars `\ / : * ? " < > |`.
-3. Ensure `data\cases\` exists. Create `data\cases\_index.json = {}` if absent.
-4. Launch Chrome + attach:
+## PHASE 1 — Authenticate (session reused; password auto-fills; email OTP human-in-the-loop)
 
-   ```bash
-   powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/connect_chrome.ps1"
-   # Helper prints the exact ws:// URL — run that command:
-   #   agent-browser connect "ws://127.0.0.1:9222/devtools/browser/<id>"
-   ```
+Full step-by-step + failure handling: **`references\login-flow.md`**. Summary:
 
-   Why real Chrome: bundled Chromium can fail CDP handshake → `os error 10060`. Real Chrome is stable.
-   Why `connect_chrome.ps1`: auto-detects Chrome path, resolves profile from project root (not CWD), handles IPv4 vs IPv6 mismatch. Never use `Start-Process` inline unless debugging.
-
-**Guard:** no case code → ask user, STOP. Connect fails → see Troubleshooting.
-
----
-
-## PHASE 1 — Authenticate
-
-**Full reference: `references\login-flow.md`**
-
-**Goal:** authenticated Qualcomm Support session. Primary path is silent (persistent profile). Fallback is re-login with DPAPI password + human OTP.
-
-**Action:**
-
-```bash
-agent-browser open "https://support.qualcomm.com"
-agent-browser snapshot -c
-```
-
-**Decision:**
-
-| Result | Action |
-|--------|--------|
-| Dashboard loads | Session valid. Continue to PHASE 2. No login/OTP/DPAPI needed. |
-| Redirected to `account.qualcomm.com` | Forced re-login (session lapsed). See below. |
-| Wrong password (stayed on password screen) | Delete `qid.bin`, ask user to re-capture, retry ONCE. |
-| OTP rejected/expired | OTP problem — do NOT delete `qid.bin`. User requests fresh code and re-pastes. |
-| Email unavailable + session expired | Cannot authenticate. Report and STOP. |
-
-**Forced re-login flow:**
-
-- `qid.bin` exists → run two-step helper (fills username→Next→password→Verify; email OTP stays human):
+- **Goal:** an authenticated Qualcomm Support session. Two layers: (1) reuse the persistent Chrome
+  profile — silent, no login; (2) on forced re-login, auto-fill the DPAPI-stored password, human
+  pastes the OTP.
+- **Action (attach-to-Chrome, profile-persistent):** Phase 0 already launched real Chrome on CDP
+  `9222` with the SAME `--user-data-dir` (`data\chrome-profile`) and ran `agent-browser connect 9222`.
+  That profile dir holds cookies/tokens and persists between runs automatically — no separate "save"
+  step, no `--profile` flag (we attach, not launch a bundled browser). Now drive the attached tab:
   ```bash
-  powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/okta_login.ps1"
+  agent-browser open "https://support.qualcomm.com"
+  agent-browser snapshot -c
   ```
-  Then drive OTP screens by snapshot: click **"Send me an email"** → **"Enter a verification code instead"** → user pastes 6-digit code → click **"Verify"**.
+  The Chrome window is visible (real Chrome), so the user can paste the OTP if the session lapsed.
+- **Decision:**
+  - **Dashboard loads** (profile session valid) → continue to Phase 2. **No login, no OTP, no DPAPI
+    read.** Normal path.
+  - **Redirected to `account.qualcomm.com` (Okta)** → forced re-login. Okta is **identifier-first
+    (two-step)**: username→Next→password→Verify→email-OTP. Do NOT use the single-page `auth save/login`
+    vault conduit — it cannot span the two screens.
+    - `data\.secrets\qid.bin` exists → run the **two-step login helper** (decrypts DPAPI, fills
+      username→Next→password→Verify; password never echoed):
+      ```bash
+      powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/okta_login.ps1"
+      ```
+      Then drive the email-OTP screens by snapshot: click **"Send me an email"** → **"Enter a
+      verification code instead"** → the user pastes the 6-digit code → click **"Verify"**. Full
+      flow + selectors in `.claude\skills\qualcomm-case-agent\references\login-flow.md`.
+    - `qid.bin` missing → **ask the user to run the canonical capture script in their own
+      PowerShell terminal** — give them the exact command, do NOT hand-type or improvise an inline
+      snippet (a regenerated one-liner mis-nested the `ProtectedData` parens and silently wrote a
+      null file):
+      ```
+      powershell -ExecutionPolicy Bypass -File .claude\skills\qualcomm-case-agent\scripts\capture_password.ps1
+      ```
+      Must be PowerShell, not cmd.exe. The password is typed into their terminal, NEVER into the
+      chat. Wait for the "Saved … bytes" line, then run the helper. (Details:
+      `references\login-flow.md` → "First-time capture".)
+    - After OTP, re-`snapshot` to confirm the dashboard. The profile stores the new session
+      automatically. Re-login on expiry is expected.
+  - **Wrong password** (after Verify, still on the password screen with a credential error, or it
+    never advanced to the email-OTP step) → delete `qid.bin`, ask the user to re-run the capture
+    snippet, retry the helper **once**. Fails again → report and STOP. Only path that re-prompts for
+    the password.
+  - **OTP rejected/expired** (form reached the OTP step but failed) → an OTP problem, not a password
+    problem: do NOT delete `qid.bin`; user requests a fresh code and re-pastes.
+  - **Email unavailable:** a fresh login REQUIRES the email OTP. If the profile session has expired
+    AND the user can't reach the mailbox, you cannot authenticate — report plainly and STOP. Do not
+    loop. (A still-valid profile bypasses OTP entirely, so this only bites after expiry.)
+- **Never** echo the password or OTP to output or write either as plaintext. The only durable secret
+  is the DPAPI `qid.bin`; the agent-browser vault entry is transient (deleted right after login).
 
-- `qid.bin` missing → tell user to run this in a **real PowerShell terminal** (NOT chat, NOT cmd.exe):
+## PHASE 2 — Locate the case
+
+- **Goal:** open the exact case page for `<CODE>` and capture its real URL.
+- **Action:** always navigate directly to the global-search URL for this case code:
+  ```bash
+  agent-browser open "https://support.qualcomm.com/s/global-search/<CODE>"
+  agent-browser wait 2000
+  agent-browser snapshot -c
   ```
-  powershell -ExecutionPolicy Bypass -File .claude\skills\qualcomm-case-agent\scripts\capture_password.ps1
+  From the search results snapshot: identify the case entry matching `<CODE>` (look for the case
+  code in the result text) and click it (use the @ref from snapshot). Then capture the actual URL
+  after navigation completes:
+  ```bash
+  agent-browser wait 2000
+  agent-browser eval "return location.href"
   ```
-  Wait for "Saved … bytes". Then run the login helper.
+  Store this exact URL as the `url` field in the case JSON — it resolves to the real case page path,
+  not the search URL.
+- **Session check:** before clicking, run the Session Health Check above to verify the snapshot is
+  not the Okta login page. If it is, go to PHASE 1 re-auth.
+- **Guard:** search returns no results for `<CODE>` → the code may be wrong or not visible to this
+  account. Report and STOP.
 
-After OTP: re-snapshot to confirm dashboard. The persistent profile stores the new session automatically.
+## PHASE 3 — Scrape (Stage 1 — deterministic)
 
-**Session rule:** the `data\chrome-profile\` directory IS the session. Never close/restart Chrome between phases unless there's an explicit error. The profile persists across all phases and across runs.
+- **Goal:** Capture all raw case data; write `data/cases/<CODE>.json` and update `_index.json`.
+- **Action:**
+  1. (Optional) Read existing `data/cases/_index.json` to capture the old hash for `<CODE>` (needed for incremental check in step 2).
+  2. Run Stage 1:
+     ```bash
+     node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CASE_CODE>
+     ```
+     The script emits a machine-readable JSON line on stdout and exits with a code.
 
----
+- **Exit code handling:**
 
-## PHASE 2 — Locate Case
+  | Code | Meaning | Agent action |
+  |------|---------|--------------|
+  | 0 | ok | Read the emitted JSON (contains new `hash`). Compare with old hash from `_index.json`. If identical → "No update since `<syncedAt>`", STOP. Else → Phase 4. |
+  | 2 | bad args | Fix invocation. |
+  | 3 | auth-needed | Ask user to sign in + paste email OTP in the browser, then retry. |
+  | 4 | case not found / no access | Report to user, STOP. |
+  | 5 | incomplete — count < displayed after all fallbacks | Run LLM selector re-discovery (below), retry. STOP if still exit 5. |
+  | 6 | selectors.json missing or incomplete | Run LLM selector discovery (below), retry. |
 
-**Goal:** open the exact case page for `<CODE>` and capture its real URL.
+### Selector Discovery (run on exit 5 or 6)
 
-**Action — always use the global-search URL:**
+1. `agent-browser snapshot -c` — inspect the live case page DOM.
+2. Identify CSS selectors for all fields in `config/selectors.json` (`fields.*`, `comments.*`, `displayedCommentCount`, `expanders.selector`).
+3. Write discovered selectors to `config/selectors.json` (update `_discoveredAt`, keep `_version`).
+4. Retry `node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CASE_CODE>`.
 
-```bash
-# Navigate directly to search results for this case code
-agent-browser open "https://support.qualcomm.com/s/global-search/<CODE>"
-agent-browser wait 2000
-agent-browser snapshot -c
-```
+## PHASE 3.5 — (merged into Phase 3 exit-0 handling above)
 
-From the search results snapshot: identify the case entry matching `<CODE>` and click it (use the @ref from snapshot). Then immediately capture the actual URL after navigation:
+The incremental skip is now automatic: compare the `hash` emitted by `scrape_case.mjs` (exit 0) with the old hash stored in `_index.json` before the run. Identical → STOP and report "no update". Changed → continue to Phase 4.
 
-```bash
-agent-browser wait 2000   # let the case page load
-agent-browser eval "return location.href"
-```
+## PHASE 4 — Enrich (Stage 2 — LLM, incremental)
 
-Store this exact URL as the `url` field in the case JSON. The URL will differ from the search URL (it resolves to the actual case page path).
+- **Trigger:** Phase 3 exit 0 AND hash changed (new or updated case data).
+- **Skip:** If the user/orchestrator requested raw-only sync, skip this phase.
+- **Delegation:** This phase is the same work the standalone **`qualcomm-enrich`** skill does
+  (richer schema, full runbook). You may either run the steps below inline, or hand off to
+  `qualcomm-enrich` — both write the SAME `enrichment` schema and call the SAME `render_case.mjs`.
+  Use `qualcomm-enrich` when the user only wants (re)analysis without re-scraping.
 
-**Session check:** before clicking, verify the snapshot is not the Okta login page. If it is, go to PHASE 1 re-auth.
+- **Goal:** Produce engineer-grade per-comment analysis + case-level synthesis, written into
+  `data.enrichment` in `data/cases/<CODE>.json`, so a reviewer can read the OVERVIEW → follow the
+  ANALYSIS FLOW → see OPEN QUESTIONS → drill into any comment. Raw fields and `hash` are NEVER
+  mutated by enrichment.
 
-**Guard:** search returns no results for `<CODE>` → the code may be wrong or not visible to this account. Report and STOP.
+### Incremental logic (preserve existing analyses, re-synthesize case level)
 
----
-
-## PHASE 3 — Scrape
-
-**Goal:** capture all raw case data; write `data/cases/<CODE>.json`; update `_index.json`.
-
-**Full reference: `references\extraction.md`**
-
-1. Read existing `data/cases/_index.json` to get the old hash for `<CODE>` (for incremental check).
-2. Run Stage 1 scraper:
-   ```bash
-   node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CASE_CODE>
-   ```
-
-**Exit codes:**
-
-| Code | Meaning | Action |
-|------|---------|--------|
-| 0 | OK | Compare new hash with old. If identical → "No update since `<syncedAt>`", STOP. Else → PHASE 4. |
-| 2 | Bad args | Fix invocation. |
-| 3 | Auth needed | User signs in + pastes OTP in browser, then retry. |
-| 4 | Case not found / no access | Report, STOP. |
-| 5 | Incomplete — count < displayed | Run LLM selector re-discovery (below), retry. STOP if still exit 5. |
-| 6 | selectors.json missing | Run LLM selector discovery (below), retry. |
-
-**Selector Discovery (exit 5 or 6):**
-1. `agent-browser snapshot -c` — inspect live case DOM.
-2. Identify CSS selectors for all fields in `config/selectors.json`.
-3. Write discovered selectors (update `_discoveredAt`, keep `_version`).
-4. Retry scraper.
-
----
-
-## PHASE 4 — Enrich
-
-**Trigger:** PHASE 3 exit 0 AND hash changed.
-
-**Goal:** per-comment summaries + case-level synthesis in `data.enrichment` of `<CODE>.json`. Raw fields never mutated.
-
-**Incremental logic:**
 1. Read `data/cases/<CODE>.json`.
-2. New comment ids = those in `raw.comments[].id` NOT yet in `enrichment.commentSummaries`.
-3. Per new comment → `summary` (2–4 sentences): technical point, root-cause/hypothesis, band/RAT/feature, action. Cite 3GPP clause if referenced. Include key numbers. Thin comment → `"Insufficient detail"`.
-4. Re-generate case-level fields from ALL comments:
-   - `engineerSummary` (5–8 sentences)
-   - `rootCause` (best hypothesis or `"Unresolved"`)
-   - `recommendedActions[]`
-   - `tags[]` (e.g. `["NR","n78","desense","RRC reestablishment","TS 38.331"]`)
-   - `timeline[]` newest-first
-5. Write back to JSON under `enrichment` key. Raw fields unchanged.
-6. Update `_index.json["<CODE>"].enrichedAt`.
+2. Identify new comment ids: those in `raw.comments[].id` NOT already in
+   `enrichment.commentAnalyses` (keyed by comment id).
+3. For EACH NEW comment, produce an analysis object: `summary` (2–4 sentences), `role`
+   (Symptom/Question/Hypothesis/Data-Log/Analysis/Request/Resolution/Info — its role in the debug),
+   `keyPoints[]` (band/EARFCN, dBm, ms, QXDM/error codes), `citations[]` (exact 3GPP clause, e.g.
+   `TS 38.331 §5.3.7`), and `answered` (false if a Question/Request has no later resolving comment).
+   Thin comment → `summary: "Insufficient detail"`.
+4. Re-generate case-level fields from ALL comments (new comments may change the full picture):
+   - `engineerSummary` (5–8 sentences): end-to-end overview + current conclusion.
+   - `currentStatus` (1–2 sentences): where the case stands now, who owes what.
+   - `rootCause` (best current hypothesis with reasoning, or `"Unresolved"`).
+   - `caseFlow[]` — the debug NARRATIVE oldest→newest: `{ step, phase, date, by, what, refComments[] }`.
+   - `openQuestions[]` — unanswered questions / awaiting-feedback (derive from `answered:false`).
+   - `recommendedActions[]` — concrete next steps.
+   - `tags[]` — e.g. `["NR","n78","desense","RRC reestablishment","TS 38.331"]`.
+   - `timeline[]` — date → key event, newest-first.
+5. Merge and write back to `data/cases/<CODE>.json`:
+   ```json
+   {
+     "enrichment": {
+       "engineerSummary": "...",
+       "currentStatus": "...",
+       "rootCause": "...",
+       "caseFlow": [{ "step": 1, "phase": "Symptom", "date": "...", "by": "...", "what": "...", "refComments": ["<id>"] }],
+       "openQuestions": ["..."],
+       "recommendedActions": ["..."],
+       "tags": ["..."],
+       "timeline": [{ "date": "...", "event": "..." }],
+       "commentAnalyses": { "<id>": { "summary": "...", "role": "...", "keyPoints": ["..."], "citations": ["..."], "answered": false } },
+       "enrichedAt": "<ISO-8601>"
+     }
+   }
+   ```
+   Raw fields (`caseNumber`, `comments[].body`, `hash`, `extractedAt`, etc.) are NEVER changed.
+   (Older caches may have a flat `commentSummaries: { <id>: string }` — the renderer still reads it;
+   new runs write `commentAnalyses`.)
+6. Update `data/cases/_index.json["<CODE>"].enrichedAt`.
 
-**Re-enrich intent** (keywords: "re-enrich", "redo analysis", "improve summary"): ask for optional custom prompt, then re-run Stage 2. Case-level fields always re-generated; only NEW comment ids added to `commentSummaries`.
+### Re-enrich flow (user requests improved analysis — no re-scrape)
 
-**Rule:** summaries interpret source data only — never add technical facts absent from the case.
+- Detect intent from user message keywords: "re-enrich", "redo analysis", "improve summary",
+  "update enrichment", "re-run enrichment" (or hand off to the `qualcomm-enrich` skill).
+- Ask: `"Do you want to customize the enrichment prompt? (Enter to keep default)"`
+- If user provides custom instructions → use for this run only (not persisted).
+- Read existing `data/cases/<CODE>.json` (raw is already cached). Run incremental Stage 2.
+  Case-level fields are always re-generated; only new comment ids are added to `commentAnalyses`.
 
----
+**Rule:** Analyses interpret source data — they NEVER add technical facts not present in the case.
 
-## PHASE 5 — Persist
+## PHASE 5 — Persist (4 formats + optional PDF, newest-first)
 
-1. **`data\cases\<CODE>.json`** — full object (source of truth). Comments newest-first.
+1. Write **`data\cases\<CODE>.json`** — full object (source of truth):
    ```
    { caseNumber, title, status, priority, severity, product, customer, created, updated,
      description, url, displayedCommentCount, commentCount, hash, extractedAt,
      comments: [ { id, timestamp, company, author, role, body, analysisLog[], attachments[] } ],
-     enrichment?: { engineerSummary, rootCause, recommendedActions[], tags[], timeline[],
-                    commentSummaries: { <id>: string }, enrichedAt } }
+     enrichment?: { engineerSummary, currentStatus, rootCause, caseFlow[], openQuestions[],
+                    recommendedActions[], tags[], timeline[],
+                    commentAnalyses: { <id>: { summary, role, keyPoints[], citations[], answered } },
+                    enrichedAt } }
    ```
-2. **Render human-review files:**
+   Comments newest-first. `displayedCommentCount` = the case's own "N comments" total (completeness).
+2. Render the human-review + summary files deterministically (no hand-built HTML/report):
    ```bash
    node ".claude/skills/qualcomm-case-agent/scripts/render_case.mjs" "data/cases/<CODE>.json"
    ```
-   Writes: `<CODE>.report.md` (concise summary), `<CODE>.md` + `<CODE>.html` (full, every comment verbatim).
-3. **Update `data\cases\_index.json`:** `"<CODE>": { "syncedAt": "<ISO>", "commentCount": N, "hash": "<sha256>" }`.
-
----
+   (Both paths are relative to the workspace root — run from the project folder. No username/drive.)
+   Writes four siblings next to the JSON:
+   - **`<CODE>.report.md`** — concise SUMMARY (engineerSummary, currentStatus, rootCause, open
+     questions, actions, tags, timeline, one line per comment). The "report". Shows a ⚠ banner if
+     captured < displayed.
+   - **`<CODE>.md`** + **`<CODE>.html`** + **`<CODE>.txt`** — FULL render, every comment verbatim
+     with collapsible logs/attachments (HTML), plus a plain-text `.txt` for grep/diff/terminal.
+3. **Optional PDF** — print the rendered HTML (our engineer report, NOT the portal page) using the
+   Chrome already attached in PHASE 0:
+   ```bash
+   agent-browser open "file://$(pwd)/data/cases/<CODE>.html"
+   agent-browser pdf "data/cases/<CODE>.pdf"
+   ```
+   Skip if no Chrome session is attached (HTML stays the canonical human format).
+4. Update **`data\cases\_index.json`**: `"<CODE>": { "syncedAt": "<ISO>", "commentCount": N, "hash": "<sha256>" }`.
 
 ## PHASE 6 — Report
 
-Tell the user: case number + title + status, comments captured **vs displayed** (or **"no update"**),
-root cause, top recommended actions, output paths (`<CODE>.json` · `<CODE>.report.md` · `<CODE>.html`).
-Attach `<CODE>.report.md` and `<CODE>.html`.
+Tell the user: case number + title + status, #comments captured **vs displayed** (or **"no update"**),
+current status, root cause, # open questions, top recommended actions, and the output file paths
+(`<CODE>.json` · `<CODE>.report.md` · `<CODE>.html` · `<CODE>.txt`). Attach `<CODE>.report.md` and
+`<CODE>.html`.
 
 ---
 
-## Agent Guardrails
+## Agent guardrails
 
-- **Load agent-browser reference first** before any browser action.
-- **Session = persistent Chrome profile** at `data\chrome-profile`. Never close between phases. Check session health before each phase's browser actions.
-- **Secrets:** password's only durable copy is `data\.secrets\qid.bin` (DPAPI, CurrentUser). Never in chat, never plaintext. OTP never stored.
-- **Confidentiality:** case content is Qualcomm NDA. Keep in `data\cases\` (git-ignored). Never paste to external services.
-- **Fidelity:** capture comment bodies and logs VERBATIM. Never truncate. Expert summaries are a separate field.
-- **No fabrication:** absent field/URL/log → say so.
+- **Load the agent-browser reference first** (`agent-browser skills get core --full`) before any
+  browser action; follow its syntax.
+- **Auth:** attach to **real Chrome** over CDP `9222` (launched detached with `--user-data-dir
+  data\chrome-profile` via `scripts\connect_chrome.ps1`), then `agent-browser connect 9222`. NOT the
+  bundled Chromium (`--profile`) — a broken bundled build caused `os error 10060`. The persistent
+  `--user-data-dir` keeps the session across runs — the primary silent path, no re-login until it
+  expires. On expiry, the password auto-fills from the DPAPI store (`data\.secrets\qid.bin`); the human
+  pastes the **email OTP** (always human — Claude cannot read the mailbox; a stored password does NOT
+  bypass MFA). Re-ask the password ONLY when it is wrong. The launch never kills the user's personal
+  Chrome (separate `--user-data-dir` = separate instance). See `references\login-flow.md`.
+- **Secrets:** the password's only durable copy is `data\.secrets\qid.bin`, **DPAPI-encrypted**
+  (CurrentUser) — never in this skill, in outputs, in the chat/transcript, or any plaintext file.
+  First capture is a user-run terminal snippet; the agent-browser auth vault is used transiently
+  (`auth save`→`login`→`delete`) and never echoes the secret. OTP is never stored. `data\.secrets\`,
+  `data\chrome-profile\`, and any `*.session.json` are git-ignored.
+- **Confidentiality:** case content is Qualcomm NDA material. Keep it in `data\cases\` (git-ignored);
+  never paste full customer logs to external services.
+- **Fidelity:** capture comment bodies and logs VERBATIM; never truncate. Expert summaries are a
+  separate field and never replace source text.
+- **No fabrication:** if a field/URL/log is absent, say so.
 - **Incremental:** unchanged case → "no update"; do not rewrite or re-enrich.
-- **Scope:** one case per invocation.
-- **ToS:** extract only cases the signed-in account is authorized to view.
+- **Scope:** one case per invocation. For many cases, the orchestrator calls this per code.
+- **ToS:** only extract cases the signed-in account is authorized to view.
 
----
+## Running under other agents (Cline / VS Code)
 
-## Running Under Other Agents (Cline / VS Code)
+- The VS Code workspace root = this project folder; every relative path above resolves from it.
+- Cline auto-reads `.clinerules/` — `.clinerules/qualcomm-case-agent.md` points it here. Trigger by
+  asking e.g. "sync Qualcomm case CASE-12345"; Cline then follows this runbook.
+- Use Cline's **execute_command** for every `powershell` / `agent-browser` / `node` line, and its file
+  tools for read/write. Do **not** use Cline's built-in `browser_action` — this skill attaches the
+  standalone `agent-browser` CLI to **real Chrome over CDP** (`connect 9222`), which `browser_action`
+  cannot do.
+- `AGENTS.md` at the project root is a generic pointer for any other agent.
 
-Cline auto-reads `.clinerules/qualcomm-case-agent.md`. Use `execute_command` for every `powershell`/`agent-browser`/`node` line. Do NOT use Cline's built-in `browser_action` — this skill attaches to real Chrome over CDP.
+## Setup on a new Windows machine
 
----
-
-## Setup on New Windows Machine
-
-1. Install Node.js (≥18) + CLI: `npm i -g agent-browser`. Install real Google Chrome (bundled Chromium not needed, can break).
-2. Copy the project folder — skill travels in `.claude/skills/qualcomm-case-agent/`.
-3. Do NOT copy `data/chrome-profile/`, `data/.secrets/`, or `data/cases/` — DPAPI `qid.bin` is machine/user-bound. All three are git-ignored.
-4. First run: `scripts/connect_chrome.ps1` → login + email OTP + DPAPI capture (`references/login-flow.md` → "First-time capture") in a real terminal.
-
----
+1. Install Node.js (≥18) + the CLI: `npm i -g agent-browser`. **Install real Google Chrome** (the
+   skill attaches to system Chrome over CDP; the bundled `agent-browser install` Chromium is NOT
+   required and a bad build can break it — see Troubleshooting).
+2. Copy the **whole project folder** to the new PC. The skill travels inside
+   `.claude/skills/qualcomm-case-agent/`. (For Claude Code use outside this project, also copy the
+   skill to `~/.claude/skills/`.)
+3. Do **not** copy `data/chrome-profile/`, `data/.secrets/`, or `data/cases/` — the profile cookies
+   AND the DPAPI `qid.bin` are encrypted to the old Windows user (won't decrypt → must re-capture +
+   re-login anyway); case content is NDA. All three are git-ignored.
+4. First run: launch Chrome via `scripts/connect_chrome.ps1` then `agent-browser connect 9222`; the
+   SSO login + email OTP, and the DPAPI password-capture snippet (`references/login-flow.md` →
+   "First-time capture"), are done in the visible Chrome window / a **real terminal** (`Read-Host`
+   needs a console). After that the profile + `qid.bin` persist.
+5. If Chrome is installed somewhere non-standard, edit the path in `scripts/connect_chrome.ps1`. If
+   the Qualcomm ID differs, update it in the Configuration table + `references/login-flow.md`.
 
 ## Troubleshooting
 
-### `os error 10060` on `agent-browser connect 9222`
+**`Failed to read … (os error 10060)` on `agent-browser connect 9222` — TWO distinct causes.**
 
-**Cause A (most common) — localhost → IPv6 mismatch.** `connect 9222` targets `http://localhost:9222`. Windows resolves `localhost` to IPv6 `::1` first, but Chrome `--remote-debugging-port` binds only IPv4 `127.0.0.1`. Fix: use the explicit IPv4 ws:// URL that `connect_chrome.ps1` prints:
-```bash
-agent-browser connect "ws://127.0.0.1:9222/devtools/browser/<id>"
-```
-Diagnose: `curl -s http://127.0.0.1:9222/json/version` returns 200 → Chrome is fine; 10060 is the IPv6 issue.
+*Cause A (most common now, real Chrome): localhost → IPv6 mismatch.* `connect <port>` targets
+`http://localhost:<port>`. On Windows `localhost` resolves to IPv6 `::1` FIRST, but Chrome
+`--remote-debugging-port` binds ONLY IPv4 `127.0.0.1` — no `::1` listener → SYN timeout → 10060.
+Diagnose: `curl -s http://127.0.0.1:9222/json/version` returns HTTP 200 (Chrome is fine) yet
+`connect 9222` still times out. **Fix:** connect via the explicit IPv4 ws:// URL —
+`agent-browser connect "ws://127.0.0.1:9222/devtools/browser/<id>"` (the `webSocketDebuggerUrl`
+from `/json/version`). The patched `connect_chrome.ps1` prints this exact command.
 
-**Cause B (legacy) — stale bundled Chromium daemon.** Clear it:
-```powershell
-Get-CimInstance Win32_Process -Filter "name='chrome.exe'" |
-  Where-Object { $_.ExecutablePath -like "*\.agent-browser\*" } |
-  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-Get-Process agent-browser-win32-x64 -ErrorAction SilentlyContinue | Stop-Process -Force
-Remove-Item "$env:USERPROFILE\.agent-browser\default.pid","$env:USERPROFILE\.agent-browser\default.port","$env:USERPROFILE\.agent-browser\default.stream" -Force -ErrorAction SilentlyContinue
-```
-Then `connect_chrome.ps1` + attach.
+*Cause B (legacy, bundled Chromium):* — the symptom that forced the
+move to real Chrome. Root cause observed: agent-browser's bundled Playwright Chromium had a
+freshly-downloaded build (`chrome-150.x`, dated newer than the working `chrome-149.x`) whose CDP
+handshake timed out; every failed `open` also left an **orphaned bundled Chromium** behind (they pile
+up) plus a **stale `~/.agent-browser/default.pid` / `default.port`** pointing at a dead daemon (which
+makes the next launch report *"daemon already running"* then time out). Fix that is now the default
+flow:
+1. Stop the dead daemon + orphaned bundled Chromium **only** (path-filtered so the user's real Chrome
+   is untouched):
+   ```powershell
+   Get-CimInstance Win32_Process -Filter "name='chrome.exe'" |
+     Where-Object { $_.ExecutablePath -like "*\.agent-browser\*" } |
+     ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+   Get-Process agent-browser-win32-x64 -ErrorAction SilentlyContinue | Stop-Process -Force
+   Remove-Item "$env:USERPROFILE\.agent-browser\default.pid","$env:USERPROFILE\.agent-browser\default.port","$env:USERPROFILE\.agent-browser\default.stream" -Force -ErrorAction SilentlyContinue
+   ```
+2. Launch real Chrome + attach: `scripts/connect_chrome.ps1` then `agent-browser connect 9222`
+   (Phase 0). This avoids the bundled Chromium entirely.
 
-### "Input redirection is not supported"
+**"Input redirection is not supported"** (Windows). The skill ran in a non-interactive shell whose
+stdin is redirected; a console app waiting on stdin is blocked. Fixes: launch Chrome with
+`Start-Process`, NOT the `&` call operator (it inherits the redirected handle); agent-browser
+auto-denies confirmation prompts when stdin is not a TTY, so it does NOT block — do not pass
+`--confirm-interactive`. Do NOT bolt `< /dev/null` onto agent-browser commands: that is bash-only
+and fails in PowerShell/cmd with *"The system cannot find the path specified"* (`/dev/null` is read
+as a literal path). If a command truly needs empty stdin, use the right token for the shell —
+`< /dev/null` (bash), `< $null` (PowerShell), `< NUL` (cmd). Full notes in
+`references\login-flow.md`.
 
-Chrome must launch via `Start-Process` (NOT `&` operator) — avoids inheriting redirected stdin. `connect_chrome.ps1` handles this. agent-browser auto-denies prompts on non-TTY stdin — do NOT add `< /dev/null` (bash-only; fails in PowerShell/cmd). Full notes in `references\login-flow.md`.
-
-### PowerShell syntax in Bash tool
-
-`if (...) { ... }` is PowerShell — errors in Git-Bash. Run PowerShell snippets via PowerShell tool or `powershell -File …`. POSIX one-liners via Bash tool.
+**PowerShell syntax via the Bash tool.** `if (...) { ... }` is PowerShell, not POSIX sh — running it
+through a Git-Bash shell errors with `eval: syntax error near unexpected token '{'`. Run PowerShell
+snippets with the PowerShell tool (or `powershell -File …`), and POSIX one-liners with Bash.
