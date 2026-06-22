@@ -163,6 +163,61 @@ login or OTP is needed at all. This recovery only triggers when it has actually 
 
 ---
 
+## PHASE 1.5 — DOM Expansion *(run before every scrape)*
+
+**Goal:** ensure full DOM content is visible before extraction. The Salesforce Chatter feed hides data
+behind pagination and collapsed bodies. These are `agent-browser click` steps — the accessibility tree
+exposes them as named controls, no JS eval needed.
+
+**Step A — Pagination: click "View More Posts" until gone**
+
+```bash
+agent-browser snapshot -i   # look for button/link with text matching "View More"
+# while visible:
+agent-browser click @<ref>  # click it
+agent-browser wait 2000
+agent-browser snapshot -i   # re-check; stop when button absent
+```
+
+The button appears as `button "View More Posts"` or `button "View More"` near the bottom of the Feed
+region. Repeat until it no longer appears in the snapshot.
+
+**Step B — Expand all "Expand Post" links**
+
+After all posts are loaded, collect every `link "Expand Post"` ref and click each:
+
+```bash
+agent-browser snapshot -c | grep "Expand Post"  # identify refs (e.g. e107, e110, e115, e118, e128)
+agent-browser click @<ref1> && agent-browser wait 1000
+agent-browser click @<ref2> && agent-browser wait 1000
+# ... repeat for all refs
+agent-browser snapshot -c | grep "Expand Post"  # confirm: no remaining "Expand Post" links
+```
+
+Note: nested Chatter comments (sub-articles inside a listitem) also have their own "Expand Post" — include them.
+
+**Step C — Expand "Description" section if collapsed**
+
+```bash
+# In the snapshot look for: button "Description" [expanded=false]
+# If found:
+agent-browser click @<description-ref>
+agent-browser wait 1000
+```
+
+**Confirm DOM complete:**
+
+```bash
+agent-browser snapshot -c | grep -E "Expand Post|View More"
+# Expected output: (empty) — proceed to PHASE 2
+```
+
+> **Lesson from case 08550063 (2026-06-22):** 8 posts initially visible, "View More Posts" clicked once
+> to reveal 9th post. 6 "Expand Post" links across posts + 1 nested comment. Description was
+> collapsed. All resolved by sequential click → wait → verify.
+
+---
+
 ## PHASE 2 — Scrape
 
 **Goal:** capture all raw case data; write `data/cases/<CODE>.json`; update `_index.json`.

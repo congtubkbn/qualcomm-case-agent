@@ -16,6 +16,12 @@ For **PHASE 3** of the Qualcomm Case Management Agent. agent-browser verb for ru
 
 ## Step 1 — Expand EVERYTHING to a fixpoint (critical for full capture)
 
+> **Pre-condition:** PHASE 1.5 in SKILL.md must run BEFORE this step. It uses `agent-browser click`
+> (snapshot → ref → click → wait) to handle the Qualcomm portal's named controls:
+> "View More Posts" pagination, "Expand Post" links, and the "Description" collapse button.
+> Only after PHASE 1.5 confirms no remaining expanders should you proceed to the `eval expandPass()`
+> loop below for any residual dynamic/shadow-DOM content.
+
 A case can hide data behind many stacked controls: **"Show more" / "Read more"** on long bodies,
 **"Load more comments" / "More"** pagination, **"Expand post"**, **"Show N replies"**, collapsed
 **"View detail"** log/attachment sections, and lazy-load on scroll. Clicking one ("load more") often
@@ -100,28 +106,33 @@ extracted.comments.length === displayedCommentCount   // must hold; else expand 
 Store `displayedCommentCount` in the JSON even when it matches — the renderer shows a ⚠ banner in
 `<CODE>.report.md` / `.html` if a future run captures fewer than displayed.
 
-## Selector lock-in (fill in on the first successful run)
+## Selector lock-in (confirmed from case 08550063 — 2026-06-22)
 
-Once you have a confirming snapshot of a real case page, record the actual selectors here so future
-runs skip re-discovery. **TODO — not yet captured (DOM only visible after login).**
+Selectors confirmed from live accessibility-tree snapshots of the Qualcomm Support portal (Salesforce
+Lightning). DOM verified after login with a real Chrome session.
 
-| Field | Confirmed selector | Notes |
-|-------|--------------------|-------|
-| Case URL pattern | `https://support.qualcomm.com/.../case/<CODE>` | capture real path on first run |
-| Case title | _TODO_ | |
-| Status / Priority / Severity | _TODO_ | |
-| Product / Chipset | _TODO_ | |
-| Customer / Account | _TODO_ | |
-| Created / Updated | _TODO_ | |
-| Description | _TODO_ | |
-| Comment container (repeats) | _TODO_ | one per comment/post |
-| → timestamp | _TODO_ | parse to Date for sorting |
-| → company / org | _TODO_ | |
-| → author / role | _TODO_ | |
-| → body (full, expanded) | _TODO_ | verbatim |
-| → analysis logs | _TODO_ | `pre`/`code`/attachment blocks |
-| → attachments (download links) | _TODO_ | `a[href*=download]` etc. |
-| Expander controls | _TODO_ | "load more", "show N replies", "see more" |
+| Field | Confirmed selector / pattern | Notes |
+|-------|-----------------------------|-------|
+| Case URL pattern | `https://support.qualcomm.com/s/case/<SFID>/<slug>` | real URL captured via `agent-browser eval "location.href"` after clicking search result |
+| Case number | `heading "Case <CODE>"` → h1 text | e.g. "Case 08550063" |
+| Subject (title) | `button "Subject" [expanded=true]` → sibling `paragraph` | section collapses; check `expanded` attr |
+| Status | not in case page DOM header; available from search results table `cell` | fallback: Detail tab |
+| Priority | same — search results table `cell "1 - Critical"` | |
+| Chipset | `paragraph` following `paragraph "Chipset"` in case header generic block | e.g. "SM8850" |
+| Problem Area 1/2/3 | `paragraph` after `paragraph "Problem Area N"` in header block | up to 3 |
+| Customer Project | `link` inside `paragraph` after `paragraph "Customer Project"` | link text = project code |
+| Account Name | `link` inside `paragraph` after `paragraph "Account Name"` | |
+| Description | `button "Description" [expanded=true/false]` → sibling `paragraph` | **must expand first**: click button if `expanded=false` |
+| Feed / comment container | `region "Feed"` → `list` → `listitem` → `article` | each top-level post is an `article` |
+| → author | `link` (first) inside `article` header | e.g. `link "Mai Ngoc"` |
+| → timestamp | `link "June 16, 2026 at 8:08 PM"` or `link "13h ago"` | second link in article header |
+| → body (full) | `paragraph` / `StaticText` nodes inside article `generic` | **must click "Expand Post" first** |
+| Nested comments (Chatter replies) | `list` immediately after article → `listitem` → inner `article` | same structure; have own "Expand Post" |
+| Pagination control | `button "View More Posts"` or `button "View More"` | near Feed bottom; click until absent |
+| Expand post control | `link "Expand Post"` | appears on truncated articles AND nested comments |
+| Description expand | `button "Description" [expanded=false]` | in the Subject/Description list section |
+| Feed item count | `status "N Chatter Feed Items"` inside Feed region | use as displayedCommentCount |
+| Attachments | `image "successcase"` / `image "failurecase"` etc. as `clickable [cursor:pointer]` inside article | screenshot attachments; no `a[href]` — inline images |
 
 ## Starting template (adapt every selector to the live DOM)
 
