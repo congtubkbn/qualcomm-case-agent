@@ -75,9 +75,26 @@ $pw = $null; [GC]::Collect()
 AB click "input[type='submit']" | Out-Host
 Start-Sleep -Seconds 3
 
+# --- Verify the password actually advanced us past the credential step ---
+# Okta identifier-first bounces a WRONG/EMPTY password BACK to the username screen
+# (it will NOT say "wrong password" on the password page). Detect that bounce so we
+# don't falsely tell the user to look for an OTP that never appears.
+$post = (AB snapshot -i | Out-String)
+$looksOtp  = $post -match '(verification code|Send me an email|Get a verification|Enter a code|Verify)'
+$looksUser = $post -match "(name=.?identifier|Username|Sign In)"
+if ($looksUser -and -not $looksOtp) {
+  Write-Host "`nERROR: bounced back to the USERNAME screen after submitting the password."
+  Write-Host "       This is Okta's signature for a WRONG or EMPTY password in qid.bin."
+  Write-Host "       Fix (do once):"
+  Write-Host "         Remove-Item `"$SecretPath`" -Force"
+  Write-Host "         powershell -ExecutionPolicy Bypass -File .claude\skills\qualcomm-case-agent\scripts\capture_password.ps1"
+  Write-Host "         powershell -ExecutionPolicy Bypass -File .claude\skills\qualcomm-case-agent\scripts\okta_login.ps1"
+  exit 3
+}
+
 # --- Hand off to human for email OTP ---
 Write-Host "`n--- post-password DOM ---"
-AB snapshot -i | Out-Host
-Write-Host "`n>>> Password submitted. Complete the email OTP in the Chrome window:"
+Write-Host $post
+Write-Host "`n>>> Password accepted. Complete the email OTP in the Chrome window:"
 Write-Host ">>>   'Send me an email' -> 'Enter a verification code instead' -> paste 6-digit code -> Verify."
 exit 0
