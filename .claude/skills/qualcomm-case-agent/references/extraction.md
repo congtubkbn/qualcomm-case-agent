@@ -1,10 +1,11 @@
-# Qualcomm Support portal extraction — selectors + extractor template — reference
+# Qualcomm Support portal extraction — extractor script + selectors — reference
 
-For **PHASE 2** of the Qualcomm Case Management Agent. Extraction is **agent-driven**: the agent runs
-ONE `agent-browser eval "<js>"` against the **already-expanded live DOM** and the JS `return`s a
-`JSON.stringify(...)` of the whole case object. There is no Node-side browser driving and no selector
-config file — the agent reads the live DOM, writes the extractor to match it, evals, validates against
-the snapshot, then hands the raw JSON to `scrape_case.mjs` to finalize.
+For **PHASE 2** of the Qualcomm Case Management Agent. Extraction is **agent-driven**: the agent runs the
+bundled `scripts/extract_case.js` (or an edited copy) via `agent-browser eval --stdin` against the
+**already-expanded live DOM**. The script's final expression is the case OBJECT (agent-browser serializes
+it once). There is no Node-side browser driving and no selector config file — the agent reads the live
+DOM, adapts the extractor if needed, evals, validates against the snapshot, then hands the raw JSON to
+`scrape_case.mjs` to finalize.
 
 > **Pre-condition — expansion is already done.** SKILL.md PHASE 1.5 fully expands the page via
 > `agent-browser snapshot → ref → click` (the proven flow): it clicks **"View More Posts"** to a
@@ -27,24 +28,45 @@ agent-browser snapshot -c | grep -E "Expand Post|View More"
 
 ## Step 2 — Extract the whole case in ONE eval
 
-The portal is a Salesforce Lightning SPA. The accessibility tree (what `snapshot -c` shows) pierces
-shadow DOM for you, so the structure you see there maps directly onto the live DOM your `eval` queries.
-Write the extractor from the **selector lock-in table** below, adapting every selector to the live DOM.
+A ready-made extractor is bundled at **`scripts/extract_case.js`** — a clean default keyed on the
+confirmed Salesforce Lightning structure (lock-in table below). Run it with `--stdin` so the multi-line
+JS reaches the browser intact, and redirect the result straight to the raw file:
 
 ```bash
-agent-browser eval "<extractCase JS that returns JSON.stringify(...)>"
+agent-browser eval --stdin < .claude/skills/qualcomm-case-agent/scripts/extract_case.js \
+  > data/cases/<CODE>.raw.json
 ```
 
-Capture the eval's stdout to a raw JSON file, then finalize:
+Three hard-won rules baked into that script — keep them if you hand-edit the extractor for a DOM that
+differs:
+
+1. **Wrap in an IIFE; do NOT use a bare top-level `return`.** `agent-browser eval` runs in EXPRESSION
+   context (like a REPL) — `return extractCase();` at the top level throws `SyntaxError: Illegal return
+   statement`. Put the logic in a function and let the IIFE call be the final expression.
+2. **Return the OBJECT, not `JSON.stringify(object)`.** agent-browser serializes the result for you.
+   Returning a pre-stringified string double-encodes it — you get `"{\"a\":1}"` on disk, which the
+   finalizer rejects. (Verify: `eval "(function(){return {a:1}})()"` prints `{"a":1}`; the `JSON.stringify`
+   form prints `"{\"a\":1}"`.)
+3. **Redirect with the shell (`>`), not PowerShell `Out-File`** — the latter adds a UTF-16 BOM that
+   breaks `JSON.parse`. If you must use PowerShell, `Out-File -Encoding utf8` and strip the BOM.
+
+Sanity-check the raw file, then finalize:
 
 ```bash
-# agent writes the eval result to data/cases/<CODE>.raw.json (verbatim, no edits)
+node -e "const j=JSON.parse(require('fs').readFileSync('data/cases/<CODE>.raw.json','utf8')); console.log(j.caseNumber, j.comments.length, j.displayedCommentCount)"
 node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CODE> "data/cases/<CODE>.raw.json"
+# on exit 0, delete the .raw.json scratch file
 ```
 
-`scrape_case.mjs` asserts `comments.length >= displayedCommentCount` (short → exit 5, fix expansion and
-re-extract), stamps the SHA-256 `hash` + `extractedAt`, writes `data/cases/<CODE>.json`, and updates
-`_index.json`. It never drives the browser and never mutates your raw fields.
+`scrape_case.mjs` rejects a 0-comment capture (wrong page / failed pull — never overwrites a good cache),
+asserts `comments.length >= displayedCommentCount` (short → exit 5, expand more and re-extract), stamps
+the SHA-256 `hash` + `extractedAt`, writes `data/cases/<CODE>.json`, and updates `_index.json`. It never
+drives the browser and never mutates your raw fields.
+
+**Header metadata (title/status/priority/customer) is NOT on the Feed view** — it lives on the case
+**Detail tab** and the **PHASE 1 search-results row** (which exposes Subject, Status, Priority, Customer
+Project). `extract_case.js` leaves those fields `""`; fill them by editing the raw JSON from what PHASE 1
+already captured, or click the "Detail" tab and re-read before finalizing.
 
 ## Selector lock-in (confirmed from case 08550063 — 2026-06-22)
 
@@ -54,67 +76,31 @@ DOM verified after login with a real Chrome session. These are the structures th
 | Field | Confirmed structure / pattern | Notes |
 |-------|------------------------------|-------|
 | Case URL pattern | `https://support.qualcomm.com/s/case/<SFID>/<slug>` | real URL captured via `agent-browser eval "location.href"` after clicking the search result |
-| Case number | `heading "Case <CODE>"` → h1 text | e.g. "Case 08550063" |
-| Subject (title) | `button "Subject" [expanded=true]` → sibling `paragraph` | section collapses; check `expanded` attr |
-| Status | not in case page DOM header; from search-results table `cell` | fallback: Detail tab |
-| Priority | same — search-results table `cell "1 - Critical"` | |
-| Chipset | `paragraph` following `paragraph "Chipset"` in case header generic block | e.g. "SM8850" |
-| Problem Area 1/2/3 | `paragraph` after `paragraph "Problem Area N"` in header block | up to 3 |
-| Customer Project | `link` inside `paragraph` after `paragraph "Customer Project"` | link text = project code |
-| Account Name | `link` inside `paragraph` after `paragraph "Account Name"` | |
-| Description | `button "Description" [expanded=true]` → sibling `paragraph` | already expanded by PHASE 1.5 |
-| Feed / comment container | `region "Feed"` → `list` → `listitem` → `article` | each top-level post is an `article` |
-| → author | `link` (first) inside `article` header | e.g. `link "Mai Ngoc"` |
-| → timestamp | `link "June 16, 2026 at 8:08 PM"` or `link "13h ago"` | second link in article header |
-| → body (full) | `paragraph` / `StaticText` nodes inside article `generic` | already "Expand Post"-ed by PHASE 1.5 |
-| Nested comments (Chatter replies) | `list` immediately after article → `listitem` → inner `article` | same structure; expanded by PHASE 1.5 |
-| Feed item count | `status "N Chatter Feed Items"` inside Feed region | use as `displayedCommentCount` |
-| Attachments | `image "successcase"` / `image "failurecase"` as `clickable [cursor:pointer]` inside article | inline screenshot images; no `a[href]` |
+| Case number | `document.title` → `"Case: <CODE>"` | **most reliable.** Match `/Case:\s*(\d[\w-]*)/` — require the colon+digit so the Cases LIST view (title "Cases") can't false-match to junk like "s" |
+| Subject (title) | NOT on the Feed view — Detail tab + PHASE 1 search row | search results row exposes Subject; fill from there |
+| Status | NOT on case page — search-results table `cell` | from PHASE 1 row; or Detail tab |
+| Priority | same — search-results table `cell "1 - Critical"` | from PHASE 1 row |
+| Chipset / Problem Area / Customer Project / Account | Detail tab fields (not the Feed view) | click "Detail" tab to read, or leave for enrichment |
+| Description | Detail tab (the original problem is also the oldest Feed post) | often `""` on Feed; oldest comment carries the same text |
+| Feed / comment container | `article` elements (top-level posts AND nested replies are both `<article>`) | `document.querySelectorAll("article")` catches all |
+| → author | first `<a>` inside the article | e.g. "Mai Ngoc" |
+| → timestamp | second named `<a>` (skip if it is "Expand Post") | e.g. "June 16, 2026 at 8:08 PM" / "13h ago" |
+| → body (clean) | **`.feedBodyInner`** (alias `.cuf-feedBodyText`) | gives JUST the post text — excludes the author/timestamp header and the Like/Comment/views footer. Far cleaner than whole-article `innerText` |
+| Feed item count | `status "N Chatter Feed Items"` (role=status) inside Feed region | use as `displayedCommentCount`. Note: counts top-level items; nested replies are extra `article`s, so captured count can exceed it (assert is `>=`) |
+| Attachments | inline `image "successcase"`/`"failurecase"` as `clickable` inside article | screenshot images; no `a[href]` |
 
-## Starting template (adapt every selector to the live DOM)
+## The extractor script
 
-Extracts from the already-expanded DOM — **no expansion logic inside**. The eval returns the full object.
+The canonical extractor is **`scripts/extract_case.js`** (run via `--stdin`, see Step 2). It already
+encodes the three rules above (IIFE / return-object / shell-redirect) and the lock-in selectors, and it
+extracts from the already-expanded DOM with no expansion logic inside. Open it to see the exact logic;
+edit it in place when the live DOM differs rather than writing a throwaway extractor — fixes there help
+every future run. Key shape it returns:
 
-```javascript
-function extractCase() {
-  const txt = el => (el?.innerText || el?.textContent || '').trim();
-  const field = label => {
-    const el = [...document.querySelectorAll('*')]
-      .find(n => n.children.length === 0 && n.innerText?.trim() === label);
-    return txt(el?.parentElement)?.replace(label, '').trim() || '';
-  };
-  const comments = [...document.querySelectorAll(
-      '.comment, .activity-item, [class*="comment"], [class*="thread"], [role="listitem"], article')]
-    .map((c, i) => ({
-      id:          c.id || c.querySelector('[id]')?.id || `c${i + 1}`,   // permalink/anchor if any
-      timestamp:   txt(c.querySelector('time, [class*="date"], [class*="time"]')),
-      company:     txt(c.querySelector('[class*="company"], [class*="org"], [class*="account"]')),
-      author:      txt(c.querySelector('[class*="author"], [class*="user"], .name')),
-      role:        txt(c.querySelector('[class*="role"], [class*="title"]')),
-      body:        txt(c.querySelector('[class*="body"], [class*="text"], p')) || txt(c),
-      analysisLog: [...c.querySelectorAll('pre, code, [class*="log"], [class*="attach"]')]
-                     .map(x => txt(x)).filter(Boolean),
-      attachments: [...c.querySelectorAll('a[href*="download"], a[href*="attach"]')]
-                     .map(a => ({ name: txt(a), href: a.href }))
-    }))
-    .filter(c => c.body || c.analysisLog.length);
-  // Displayed total for the completeness assert — replace with the REAL header/badge selector.
-  const displayed = (txt(document.querySelector('[class*="commentCount"], [class*="feedItemCount"]'))
-    .match(/\d+/) || [])[0];
-  return JSON.stringify({
-    caseNumber:  field('Case Number') || field('Case ID') || location.href.split('/').pop(),
-    title:       txt(document.querySelector('h1, [class*="title"]')),
-    status:      field('Status'),   priority: field('Priority'),
-    severity:    field('Severity'), product:  field('Product') || field('Chipset'),
-    customer:    field('Account')  || field('Company'),
-    created:     field('Created')  || field('Opened'),
-    updated:     field('Last Updated') || field('Modified'),
-    description: txt(document.querySelector('[class*="description"], [class*="detail"]')),
-    displayedCommentCount: displayed != null ? Number(displayed) : null,
-    comments, url: location.href
-  });
-}
-return extractCase();
+```js
+{ caseNumber, title, status, priority, severity, product, customer, created, updated,
+  description, url, displayedCommentCount,
+  comments: [ { id, timestamp, company, author, role, body, analysisLog, attachments } ] }
 ```
 
 ## Completeness cross-check (the strongest "got everything" signal)

@@ -80,6 +80,14 @@ function finalize(caseCode, rawPath) {
     process.exit(EXIT.BAD_ARGS);
   }
 
+  // A real Qualcomm case always has at least the opening post. Zero comments means
+  // the extractor ran on the wrong view (Feed not loaded, drifted to the Cases list,
+  // session expired) — reject so a failed pull never OVERWRITES a good cached case.
+  if (raw.comments.length === 0) {
+    emit({ code: EXIT.INCOMPLETE, reason: 'extracted 0 comments — likely wrong page / failed capture; not persisting', caseCode });
+    process.exit(EXIT.INCOMPLETE);
+  }
+
   // Completeness gate BEFORE any write — a short capture is not persisted.
   const assertion = countAssert(raw.comments.length, raw.displayedCommentCount);
   if (!assertion.ok) {

@@ -42,7 +42,7 @@ Scripts and references live under `.claude\skills\qualcomm-case-agent\` (skill d
 | Session store | `data\chrome-profile\` — persistent `--user-data-dir`; git-ignored |
 | Case cache | `data\cases\<CODE>.json` · `<CODE>.report.md` · `<CODE>.md` · `<CODE>.html` · `<CODE>.txt` · `<CODE>.pdf` (optional) |
 | Sync index | `data\cases\_index.json` |
-| Scripts | skill dir `scripts\`: `connect_chrome.ps1`, `okta_login.ps1`, `capture_password.ps1`, `scrape_case.mjs`, `render_case.mjs` |
+| Scripts | skill dir `scripts\`: `connect_chrome.ps1`, `okta_login.ps1`, `capture_password.ps1`, `extract_case.js` (PHASE 2 extractor, run via `eval --stdin`), `scrape_case.mjs` (finalizer), `render_case.mjs` |
 | Enrich skill | `qualcomm-enrich` — standalone analyst pass (no browser, no re-scrape) |
 | References | skill dir `references\`: `login-flow.md`, `extraction.md`, `workflow.md`, `consumer-guide.md` |
 
@@ -298,19 +298,23 @@ agent-browser snapshot -c | grep -E "Expand Post|View More"
 **Goal:** extract all raw case data from the **already-expanded live DOM** (no re-open, no re-expand),
 then finalize to `data/cases/<CODE>.json` + `_index.json`.
 
-Full reference: **`references\extraction.md`** (selector lock-in table + extractor template).
+Full reference: **`references\extraction.md`** (the three eval rules + selector lock-in table).
 
 1. Read existing `_index.json` to get the old hash for `<CODE>` (incremental check).
 2. Confirm PHASE 1.5 done: `agent-browser snapshot -c | grep -E "Expand Post|View More"` → empty.
-3. Write ONE `extractCase()` eval **from the live DOM** (adapt the extraction.md template to what the
-   snapshot shows), then run it. The JS must `return JSON.stringify(...)` of the full case object —
-   metadata + every comment (verbatim body + logs) + `displayedCommentCount` + `url`:
+3. Run the bundled extractor via `--stdin` (multi-line JS reaches the browser intact) and redirect the
+   result straight to the raw file. The script returns the OBJECT (agent-browser serializes it once —
+   do NOT `JSON.stringify` inside, that double-encodes; and the shell `>` avoids the PowerShell BOM):
    ```bash
-   agent-browser eval "<extractCase JS>"
+   agent-browser eval --stdin < .claude/skills/qualcomm-case-agent/scripts/extract_case.js \
+     > data/cases/<CODE>.raw.json
    ```
-4. Save the eval's **verbatim** JSON to `data/cases/<CODE>.raw.json` (no edits, no truncation).
-5. Finalize (assert count → SHA-256 hash → write canonical JSON + update index):
+   If the live DOM differs and fields come back empty, edit `extract_case.js` in place (it is the
+   canonical extractor, not a throwaway). Header fields (title/status/priority) aren't on the Feed view —
+   fill them from the PHASE 1 search row before finalizing.
+4. Sanity-check, then finalize (rejects 0 comments → assert count → SHA-256 hash → write JSON + index):
    ```bash
+   node -e "const j=JSON.parse(require('fs').readFileSync('data/cases/<CODE>.raw.json','utf8')); console.log(j.caseNumber, j.comments.length, j.displayedCommentCount)"
    node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CASE_CODE> "data/cases/<CODE>.raw.json"
    ```
    On exit 0, delete the `.raw.json` scratch file.
@@ -320,8 +324,8 @@ Full reference: **`references\extraction.md`** (selector lock-in table + extract
 | Code | Meaning | Action |
 |------|---------|--------|
 | 0 | OK | Compare new hash vs old. Identical → "No update since `<syncedAt>`", STOP. Changed → PHASE 3. |
-| 2 | Bad args / bad raw JSON | Fix invocation; ensure `raw.comments` is an array, then re-extract. |
-| 5 | Incomplete — `comments.length < displayedCommentCount` | Finish PHASE 1.5 expansion or fix the extractor; if the Feed is virtualized, use progressive extraction (extraction.md). Re-extract, retry. STOP if still 5. |
+| 2 | Bad args / bad raw JSON | Fix invocation; ensure `raw.comments` is an array (clean single-encoded JSON, no BOM), then re-extract. |
+| 5 | Incomplete — 0 comments, or `comments.length < displayedCommentCount` | 0 comments = wrong page / session lapsed / Feed not loaded → re-check you're on the case page, finish PHASE 1.5, re-extract. Short = expand more or, if virtualized, progressive extraction (extraction.md). STOP if still 5. |
 
 Auth redirect / "case not found" are caught earlier by the PHASE 1 hostname guard — PHASE 2 no longer
 navigates, so it never re-triggers them.
