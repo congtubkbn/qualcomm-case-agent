@@ -1,6 +1,6 @@
 ---
 name: qualcomm-case-agent
-description: "Qualcomm Case Management Agent. Given ONE Qualcomm case code, drive agent-browser to sign in (Qualcomm ID SSO + email OTP) and extract the COMPLETE case from the Qualcomm Support portal (support.qualcomm.com) — full metadata plus every comment (timestamp, company, author, comment text + full detail, analysis logs/attachments). Enrich each comment with an expert summary written as a Qualcomm / Protocol / 3GPP engineer, then persist to the access-qualcomm project cache newest-first in three formats: JSON (machine), Markdown (review), and a single-file HTML (easiest human reading). Incremental: unchanged cases report 'no update'. Triggers: 'qualcomm case <code>', 'pull qualcomm case', 'access qualcomm case', 'lấy case qualcomm', 'phân tích case qualcomm', 'qualcomm case agent', 'extract qualcomm case code'. Use whenever the user provides a Qualcomm case code/number and wants the full case captured and summarized."
+description: "Qualcomm Case Management Agent. Given ONE Qualcomm case code, drive agent-browser to sign in (Qualcomm ID SSO + email OTP) and extract the COMPLETE case from the Qualcomm Support portal (support.qualcomm.com) — full metadata plus every comment (timestamp, company, author, comment text + full detail, analysis logs/attachments). Enrich as a Qualcomm / Protocol / 3GPP / RF expert engineer: per-comment analysis (role + key points + 3GPP citations + answered/unanswered) plus a case-level overview, analysis flow, root cause, current status, and open questions. Persist to the access-qualcomm project cache newest-first in JSON (machine), Markdown + single-file HTML + TXT (human review), and optional PDF. Deep analysis can also be run/redone standalone via the sibling `qualcomm-enrich` skill (no re-scrape). Incremental: unchanged cases report 'no update'. Triggers: 'qualcomm case <code>', 'pull qualcomm case', 'access qualcomm case', 'lấy case qualcomm', 'phân tích case qualcomm', 'qualcomm case agent', 'extract qualcomm case code'. Use whenever the user provides a Qualcomm case code/number and wants the full case captured and summarized."
 allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(node:*), Bash(powershell:*), PowerShell, Read, Write, Glob
 ---
 
@@ -58,9 +58,10 @@ portable across PCs and agents.
 | Browser | **real Google Chrome** launched detached with a CDP port, then `agent-browser connect 9222`. NOT agent-browser's bundled Chromium (a broken bundled build caused `os error 10060` — see Troubleshooting). Launch helper: `scripts\connect_chrome.ps1` |
 | CDP port | `9222` (real Chrome `--remote-debugging-port`) |
 | Session store | `data\chrome-profile\` (persistent Chrome `--user-data-dir`; git-ignored — sign in ONCE). A SEPARATE Chrome instance — the user's personal Chrome is never touched/closed |
-| Case cache | `data\cases\<CODE>.json` (full) · `<CODE>.report.md` (summary) · `<CODE>.md` + `<CODE>.html` (full review) |
+| Case cache | `data\cases\<CODE>.json` (full) · `<CODE>.report.md` (summary) · `<CODE>.md` + `<CODE>.html` + `<CODE>.txt` (full review) · `<CODE>.pdf` (optional, printed from HTML) |
 | Sync index | `data\cases\_index.json` (`<CODE> → { syncedAt, commentCount, hash }`) |
-| Render script | `.claude\skills\qualcomm-case-agent\scripts\render_case.mjs` — `node <that> data\cases\<CODE>.json` writes `.report.md` + `.md` + `.html` |
+| Render script | `.claude\skills\qualcomm-case-agent\scripts\render_case.mjs` — `node <that> data\cases\<CODE>.json` writes `.report.md` + `.md` + `.html` + `.txt` |
+| Enrich skill | `qualcomm-enrich` (sibling skill) — standalone analyst pass over an existing `<CODE>.json` (no browser). PHASE 4 below may delegate to it; same `enrichment` schema + same renderer |
 | References | under `.claude\skills\qualcomm-case-agent\references\`: `workflow.md` (+`workflow.svg`), `login-flow.md`, `extraction.md`, `consumer-guide.md` (API contract for OTHER agents reading `data\cases\`) |
 | Login helper | `.claude\skills\qualcomm-case-agent\scripts\okta_login.ps1` — drives Okta identifier-first username→Next→password→Verify, password from DPAPI; email OTP stays human |
 
@@ -218,22 +219,32 @@ The incremental skip is now automatic: compare the `hash` emitted by `scrape_cas
 
 - **Trigger:** Phase 3 exit 0 AND hash changed (new or updated case data).
 - **Skip:** If the user/orchestrator requested raw-only sync, skip this phase.
+- **Delegation:** This phase is the same work the standalone **`qualcomm-enrich`** skill does
+  (richer schema, full runbook). You may either run the steps below inline, or hand off to
+  `qualcomm-enrich` — both write the SAME `enrichment` schema and call the SAME `render_case.mjs`.
+  Use `qualcomm-enrich` when the user only wants (re)analysis without re-scraping.
 
-- **Goal:** Produce per-comment summaries + case-level synthesis, written into `data.enrichment`
-  in `data/cases/<CODE>.json`. Raw fields and `hash` are NEVER mutated by enrichment.
+- **Goal:** Produce engineer-grade per-comment analysis + case-level synthesis, written into
+  `data.enrichment` in `data/cases/<CODE>.json`, so a reviewer can read the OVERVIEW → follow the
+  ANALYSIS FLOW → see OPEN QUESTIONS → drill into any comment. Raw fields and `hash` are NEVER
+  mutated by enrichment.
 
-### Incremental logic (preserve existing summaries, re-synthesize case level)
+### Incremental logic (preserve existing analyses, re-synthesize case level)
 
 1. Read `data/cases/<CODE>.json`.
 2. Identify new comment ids: those in `raw.comments[].id` NOT already in
-   `enrichment.commentSummaries` (keyed by comment id).
-3. For EACH NEW comment, produce:
-   - `summary` (2–4 sentences): technical point, root-cause/hypothesis, band/RAT/feature, action.
-     Cite the exact 3GPP clause (TS 36./38.xxx, RAN1–4, CT) if referenced. Include key numbers
-     (band/EARFCN, dBm, ms, error/QXDM codes). Thin comment → `"Insufficient detail"`.
+   `enrichment.commentAnalyses` (keyed by comment id).
+3. For EACH NEW comment, produce an analysis object: `summary` (2–4 sentences), `role`
+   (Symptom/Question/Hypothesis/Data-Log/Analysis/Request/Resolution/Info — its role in the debug),
+   `keyPoints[]` (band/EARFCN, dBm, ms, QXDM/error codes), `citations[]` (exact 3GPP clause, e.g.
+   `TS 38.331 §5.3.7`), and `answered` (false if a Question/Request has no later resolving comment).
+   Thin comment → `summary: "Insufficient detail"`.
 4. Re-generate case-level fields from ALL comments (new comments may change the full picture):
-   - `engineerSummary` (5–8 sentences): end-to-end debug narrative + current conclusion.
-   - `rootCause` (best current hypothesis, or `"Unresolved"`).
+   - `engineerSummary` (5–8 sentences): end-to-end overview + current conclusion.
+   - `currentStatus` (1–2 sentences): where the case stands now, who owes what.
+   - `rootCause` (best current hypothesis with reasoning, or `"Unresolved"`).
+   - `caseFlow[]` — the debug NARRATIVE oldest→newest: `{ step, phase, date, by, what, refComments[] }`.
+   - `openQuestions[]` — unanswered questions / awaiting-feedback (derive from `answered:false`).
    - `recommendedActions[]` — concrete next steps.
    - `tags[]` — e.g. `["NR","n78","desense","RRC reestablishment","TS 38.331"]`.
    - `timeline[]` — date → key event, newest-first.
@@ -242,38 +253,45 @@ The incremental skip is now automatic: compare the `hash` emitted by `scrape_cas
    {
      "enrichment": {
        "engineerSummary": "...",
+       "currentStatus": "...",
        "rootCause": "...",
+       "caseFlow": [{ "step": 1, "phase": "Symptom", "date": "...", "by": "...", "what": "...", "refComments": ["<id>"] }],
+       "openQuestions": ["..."],
        "recommendedActions": ["..."],
        "tags": ["..."],
        "timeline": [{ "date": "...", "event": "..." }],
-       "commentSummaries": { "<comment id>": "summary text" },
+       "commentAnalyses": { "<id>": { "summary": "...", "role": "...", "keyPoints": ["..."], "citations": ["..."], "answered": false } },
        "enrichedAt": "<ISO-8601>"
      }
    }
    ```
    Raw fields (`caseNumber`, `comments[].body`, `hash`, `extractedAt`, etc.) are NEVER changed.
+   (Older caches may have a flat `commentSummaries: { <id>: string }` — the renderer still reads it;
+   new runs write `commentAnalyses`.)
 6. Update `data/cases/_index.json["<CODE>"].enrichedAt`.
 
 ### Re-enrich flow (user requests improved analysis — no re-scrape)
 
 - Detect intent from user message keywords: "re-enrich", "redo analysis", "improve summary",
-  "update enrichment", "re-run enrichment".
+  "update enrichment", "re-run enrichment" (or hand off to the `qualcomm-enrich` skill).
 - Ask: `"Do you want to customize the enrichment prompt? (Enter to keep default)"`
 - If user provides custom instructions → use for this run only (not persisted).
 - Read existing `data/cases/<CODE>.json` (raw is already cached). Run incremental Stage 2.
-  Case-level fields are always re-generated; only new comment ids are added to `commentSummaries`.
+  Case-level fields are always re-generated; only new comment ids are added to `commentAnalyses`.
 
-**Rule:** Summaries interpret source data — they NEVER add technical facts not present in the case.
+**Rule:** Analyses interpret source data — they NEVER add technical facts not present in the case.
 
-## PHASE 5 — Persist (3 formats, newest-first)
+## PHASE 5 — Persist (4 formats + optional PDF, newest-first)
 
 1. Write **`data\cases\<CODE>.json`** — full object (source of truth):
    ```
    { caseNumber, title, status, priority, severity, product, customer, created, updated,
      description, url, displayedCommentCount, commentCount, hash, extractedAt,
      comments: [ { id, timestamp, company, author, role, body, analysisLog[], attachments[] } ],
-     enrichment?: { engineerSummary, rootCause, recommendedActions[], tags[], timeline[],
-                    commentSummaries: { <id>: string }, enrichedAt } }
+     enrichment?: { engineerSummary, currentStatus, rootCause, caseFlow[], openQuestions[],
+                    recommendedActions[], tags[], timeline[],
+                    commentAnalyses: { <id>: { summary, role, keyPoints[], citations[], answered } },
+                    enrichedAt } }
    ```
    Comments newest-first. `displayedCommentCount` = the case's own "N comments" total (completeness).
 2. Render the human-review + summary files deterministically (no hand-built HTML/report):
@@ -281,18 +299,27 @@ The incremental skip is now automatic: compare the `hash` emitted by `scrape_cas
    node ".claude/skills/qualcomm-case-agent/scripts/render_case.mjs" "data/cases/<CODE>.json"
    ```
    (Both paths are relative to the workspace root — run from the project folder. No username/drive.)
-   Writes three siblings next to the JSON:
-   - **`<CODE>.report.md`** — concise SUMMARY (engineerSummary, rootCause, actions, tags, timeline,
-     one line per comment). The "report". Shows a ⚠ banner if captured < displayed.
-   - **`<CODE>.md`** + **`<CODE>.html`** — FULL render, every comment verbatim with collapsible
-     logs/attachments. For deep human review.
-3. Update **`data\cases\_index.json`**: `"<CODE>": { "syncedAt": "<ISO>", "commentCount": N, "hash": "<sha256>" }`.
+   Writes four siblings next to the JSON:
+   - **`<CODE>.report.md`** — concise SUMMARY (engineerSummary, currentStatus, rootCause, open
+     questions, actions, tags, timeline, one line per comment). The "report". Shows a ⚠ banner if
+     captured < displayed.
+   - **`<CODE>.md`** + **`<CODE>.html`** + **`<CODE>.txt`** — FULL render, every comment verbatim
+     with collapsible logs/attachments (HTML), plus a plain-text `.txt` for grep/diff/terminal.
+3. **Optional PDF** — print the rendered HTML (our engineer report, NOT the portal page) using the
+   Chrome already attached in PHASE 0:
+   ```bash
+   agent-browser open "file://$(pwd)/data/cases/<CODE>.html"
+   agent-browser pdf "data/cases/<CODE>.pdf"
+   ```
+   Skip if no Chrome session is attached (HTML stays the canonical human format).
+4. Update **`data\cases\_index.json`**: `"<CODE>": { "syncedAt": "<ISO>", "commentCount": N, "hash": "<sha256>" }`.
 
 ## PHASE 6 — Report
 
 Tell the user: case number + title + status, #comments captured **vs displayed** (or **"no update"**),
-root cause, top recommended actions, and the output file paths
-(`<CODE>.json` · `<CODE>.report.md` · `<CODE>.html`). Attach `<CODE>.report.md` and `<CODE>.html`.
+current status, root cause, # open questions, top recommended actions, and the output file paths
+(`<CODE>.json` · `<CODE>.report.md` · `<CODE>.html` · `<CODE>.txt`). Attach `<CODE>.report.md` and
+`<CODE>.html`.
 
 ---
 
