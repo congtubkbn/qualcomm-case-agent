@@ -54,7 +54,7 @@
 <line x1="320" y1="284" x2="320" y2="302" stroke="#888780" stroke-width="2" marker-end="url(#ah)"/>
 
 <rect class="b-teal" x="200" y="304" width="240" height="44" rx="8"/>
-<text class="t tt-teal" x="320" y="323">Phase 3 · extract</text><text class="ts" x="320" y="339">expand-all · eval · assert count</text>
+<text class="t tt-teal" x="320" y="323">Phase 3 · extract</text><text class="ts" x="320" y="339">snapshot→click expand · eval · assert</text>
 <path d="M200,316 C172,316 172,340 198,340" fill="none" stroke="#1D9E75" stroke-width="2" marker-end="url(#ahT)"/>
 <text class="ts" x="190" y="313" text-anchor="end">expand loop</text>
 
