@@ -136,9 +136,14 @@ function report() {
   L.push(meta.map(([k, v]) => `${k}: ${S(v)}`).join(' · '), '');
 
   // Completeness flag: captured vs displayed (set during extraction).
+  // displayed = top-level Chatter post count; captured may exceed it because
+  // nested replies are extracted too. Only under-capture is a real problem.
   if (data.displayedCommentCount != null &&
       Number(data.displayedCommentCount) !== comments.length) {
-    L.push(`> ⚠ **Completeness:** captured ${comments.length} of ${S(data.displayedCommentCount)} displayed comments — extraction may be incomplete.`, '');
+    const disp = Number(data.displayedCommentCount);
+    L.push(comments.length < disp
+      ? `> ⚠ **Completeness:** captured ${comments.length} of ${S(data.displayedCommentCount)} displayed comments — extraction may be incomplete.`
+      : `> ℹ **Completeness:** captured ${comments.length} comments (incl. nested replies) vs ${S(data.displayedCommentCount)} top-level posts — OK.`, '');
   }
 
   if (S(enrich.engineerSummary)) L.push('## Summary', '', S(enrich.engineerSummary), '');
@@ -182,11 +187,14 @@ const nl2br = s => esc(s).replace(/\n/g, '<br>');
 
 function html() {
   const badge = (label, v) => S(v) ? `<span class="badge"><b>${esc(label)}</b> ${esc(v)}</span>` : '';
-  const incomplete = data.displayedCommentCount != null &&
+  const mismatch = data.displayedCommentCount != null &&
     Number(data.displayedCommentCount) !== comments.length;
-  const completeness = incomplete
-    ? `<div class="warn">⚠ Completeness: captured ${comments.length} of ${esc(data.displayedCommentCount)} displayed comments — extraction may be incomplete.</div>`
-    : '';
+  const underCaptured = mismatch && comments.length < Number(data.displayedCommentCount);
+  const completeness = !mismatch
+    ? ''
+    : underCaptured
+      ? `<div class="warn">⚠ Completeness: captured ${comments.length} of ${esc(data.displayedCommentCount)} displayed comments — extraction may be incomplete.</div>`
+      : `<div class="info">ℹ Completeness: captured ${comments.length} comments (incl. nested replies) vs ${esc(data.displayedCommentCount)} top-level posts — OK.</div>`;
   const cards = [];
   if (S(enrich.engineerSummary)) cards.push(`<div class="card"><h2>Engineer Summary (overview)</h2><p>${nl2br(enrich.engineerSummary)}</p></div>`);
   if (S(enrich.currentStatus))   cards.push(`<div class="card"><h2>Current Status</h2><p>${nl2br(enrich.currentStatus)}</p></div>`);
@@ -265,6 +273,7 @@ main{max-width:980px;margin:0 auto;padding:22px}
 pre{background:#0b0f14;border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;font:12px/1.45 ui-monospace,Consolas,monospace}
 details{margin-top:8px}summary{cursor:pointer;color:var(--mut)}
 .warn{background:#3a2a12;border:1px solid #6b4f1d;color:#f0c674;border-radius:8px;padding:10px 14px;margin:0 0 16px}
+.info{background:#12283a;border:1px solid #1d4f6b;color:#74b9f0;border-radius:8px;padding:10px 14px;margin:0 0 16px}
 a{color:#6ea8fe}
 </style></head><body>
 <header>
