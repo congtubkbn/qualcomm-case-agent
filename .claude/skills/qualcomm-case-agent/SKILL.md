@@ -133,33 +133,68 @@ times out on every `open`. Real Chrome is stable and OS-trusted. See Troubleshoo
 Run when PHASE 1 `open` or a post-click navigation shows `account.qualcomm.com`. Full flow +
 failure handling: **`references\login-flow.md`**.
 
-The session is stored in `data\chrome-profile\` (persistent `--user-data-dir`). When it's valid, no
-login or OTP is needed at all. This recovery only triggers when it has actually lapsed.
+The session is stored in `data\chrome-profile\` (persistent `--user-data-dir`). When valid, no
+login or OTP is needed. This recovery only triggers when the Okta session token has lapsed.
 
-**Forced re-login (Okta identifier-first — two screens, not one):**
+**Step 1 — Try profile auto-fill first (preferred, no script needed)**
 
-- `data\.secrets\qid.bin` exists → run the two-step helper (fills username→Next→password→Verify; DPAPI-decrypted, never echoed):
-  ```bash
-  powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/okta_login.ps1"
-  ```
-  Then drive OTP screens by snapshot: **"Send me an email"** → **"Enter a verification code instead"** → user pastes 6-digit code → **"Verify"**. Selectors in `references\login-flow.md`.
+Chrome password manager pre-fills credentials when the profile is intact. Just click through:
 
-- `qid.bin` missing → ask user to run this in a **real PowerShell terminal** (NOT cmd, NOT chat):
-  ```
-  powershell -ExecutionPolicy Bypass -File .claude\skills\qualcomm-case-agent\scripts\capture_password.ps1
-  ```
-  Wait for "Saved … bytes", then run `okta_login.ps1`.
+```bash
+agent-browser snapshot -i
+# Expected: textbox "Username" pre-filled with the.thoi@samsung.com
+# Check "Keep me signed in" to extend session duration (~30 days):
+agent-browser check @<keep-me-signed-in-ref>
+agent-browser click @<next-ref>
+agent-browser wait 3000
+agent-browser snapshot -i
+# Expected: textbox "Password" pre-filled (shown as ••••••••)
+agent-browser click @<verify-ref>
+agent-browser wait 5000
+agent-browser snapshot -i
+```
 
-**Decision table:**
+**Decision after Verify click:**
+
+| Outcome | Signal | Action |
+|---------|--------|--------|
+| Dashboard loads | nav shows Cases/Projects links | session established → retry PHASE 1 |
+| OTP screen appears | heading "Enter a verification code" | go to Step 3 (OTP) |
+| Still on password screen / error | password field still visible, error text | → Step 2 (okta_login.ps1) |
+| Username NOT pre-filled | blank textbox | → Step 2 (okta_login.ps1) |
+
+**Step 2 — Fallback: okta_login.ps1 (only if Step 1 failed)**
+
+`data\.secrets\qid.bin` exists → run the DPAPI-decrypted two-step helper:
+```bash
+powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/okta_login.ps1"
+```
+
+`qid.bin` missing → ask user to run in a **real PowerShell terminal** (NOT cmd, NOT chat):
+```
+powershell -ExecutionPolicy Bypass -File .claude\skills\qualcomm-case-agent\scripts\capture_password.ps1
+```
+Wait for "Saved … bytes", then run `okta_login.ps1`.
+
+After okta_login.ps1, check snapshot again with the same decision table above.
+
+**Step 3 — OTP (only if presented)**
+
+Drive OTP screens by snapshot: **"Send me an email"** → **"Enter a verification code instead"** →
+user pastes 6-digit code → **"Verify"**. Selectors in `references\login-flow.md`.
+
+**Failure table:**
 
 | Situation | Action |
 |-----------|--------|
-| Dashboard loads after OTP | session established; profile stores it automatically. Retry PHASE 1. |
-| Wrong password (still on password screen / never advanced to OTP) | delete `qid.bin`; ask user to re-run capture script; retry helper ONCE. Fails again → STOP. |
+| Wrong password (never advanced past password screen) | delete `qid.bin`; ask user to re-run capture script; retry ONCE. Fails again → STOP. |
 | OTP rejected/expired | OTP problem — do NOT delete `qid.bin`. User requests fresh code and re-pastes. |
 | Email unavailable + session expired | cannot authenticate — report and STOP. |
 
 **Never** echo the password or OTP. The only durable secret is `qid.bin` (DPAPI-encrypted).
+
+> **Why "Keep me signed in":** Okta default session is ~2h; checking this box extends to ~30 days,
+> dramatically reducing how often Recovery 1 triggers. Always check it when the checkbox is present.
 
 ---
 
