@@ -51,6 +51,14 @@ export function isFixpoint(prev, curr) {
   return curr.clicked === 0 && curr.count === prev.count && curr.h === prev.h;
 }
 
+// Residual-expander detector for the final pre-extract snapshot confirmation.
+// If the accessibility snapshot still shows obvious "load/show/view more" controls,
+// the fixpoint loop likely missed collapsed content — warn (non-fatal).
+export function snapshotHasExpanders(snapshot) {
+  if (!snapshot) return false;
+  return /(load more|show more|view more|see more|show all|view full|read more|\d+\s+more)/i.test(snapshot);
+}
+
 export function selectExitCode(state) {
   if (state.configMissing) return EXIT.CONFIG_MISSING;
   if (state.authNeeded)    return EXIT.AUTH_NEEDED;
@@ -77,27 +85,38 @@ function deepRoots(root) {
 const deepAll = sel => deepRoots(document).flatMap(r => [...r.querySelectorAll(sel)]);
 `;
 
-export function buildExpandPassJs() {
+// expanderSel  : the discovered, precise expander selector (selectors.expanders.selector).
+//                When provided it is AUTHORITATIVE — clicked directly, no regex gate — so the
+//                loop is faster and never mis-toggles unrelated nav/menu controls. Falls back
+//                to the broad heuristic only when it is null/empty (first run, pre-discovery).
+// containerSel : the comment-container selector for an accurate fixpoint count.
+export function buildExpandPassJs(expanderSel, containerSel) {
+  const EXP  = expanderSel ? JSON.stringify(expanderSel) : 'null';
+  const CONT = JSON.stringify(containerSel || '[class*="comment"],[role="listitem"],article');
   return `(function() {
   ${DEEP_ROOTS_JS}
   function expandPass() {
     window.scrollTo(0, document.body.scrollHeight);
     const RX = /^\\s*(show|view|load|see|expand|read|more|older|view full|show all|\\d+\\s+(more|repl|comment))/i;
     const STAMP = 'data-x-expanded';
+    const EXP = ${EXP};
     let clicked = 0;
-    const sel = 'button,a,[role="button"],[aria-expanded="false"],summary,'
+    const broad = 'button,a,[role="button"],[aria-expanded="false"],summary,'
               + '[class*="more"],[class*="expand"],[class*="truncat"],[class*="collapse"],[class*="showMore"]';
-    for (const el of deepAll(sel)) {
+    const els = EXP ? deepAll(EXP) : deepAll(broad);
+    for (const el of els) {
       if (el.getAttribute && el.getAttribute(STAMP)) continue;
-      const label = (el.innerText || el.textContent || (el.getAttribute && el.getAttribute('aria-label')) || '').trim();
-      const isToggle = (el.getAttribute && el.getAttribute('aria-expanded') === 'false') || el.tagName === 'SUMMARY';
-      if (!isToggle && !RX.test(label)) continue;
+      if (!EXP) {
+        const label = (el.innerText || el.textContent || (el.getAttribute && el.getAttribute('aria-label')) || '').trim();
+        const isToggle = (el.getAttribute && el.getAttribute('aria-expanded') === 'false') || el.tagName === 'SUMMARY';
+        if (!isToggle && !RX.test(label)) continue;
+      }
       const r = el.getBoundingClientRect && el.getBoundingClientRect();
       if (r && r.width === 0 && r.height === 0) continue;
       try { el.setAttribute && el.setAttribute(STAMP, '1'); el.click(); clicked++; } catch (e) {}
     }
     for (const d of deepAll('details:not([open])')) { d.open = true; clicked++; }
-    const count = deepAll('[class*="comment"],[role="listitem"],article').length;
+    const count = deepAll(${CONT}).length;
     return { clicked, count, h: Math.round(document.body.scrollHeight) };
   }
   return JSON.stringify(expandPass());
@@ -181,12 +200,12 @@ function browserEval(js) {
 }
 
 // ---- Fixpoint expand loop ----
-function runFixpointLoop(maxPasses = 25) {
+function runFixpointLoop(expanderSel, containerSel, maxPasses = 25) {
   let prev  = { clicked: -1, count: -1, h: -1 };
   let stableRuns = 0;
 
   for (let pass = 0; pass < maxPasses; pass++) {
-    const curr = browserEval(buildExpandPassJs());
+    const curr = browserEval(buildExpandPassJs(expanderSel, containerSel));
     browserWait(1500);
 
     if (isFixpoint(prev, curr)) {
@@ -261,8 +280,18 @@ async function main(caseCode) {
     process.exit(EXIT.NOT_FOUND);
   }
 
-  // 4. Expand-all fixpoint loop
-  runFixpointLoop();
+  // 4. Expand-all fixpoint loop (uses the precise discovered expander + container selectors
+  //    when available, else the broad heuristic).
+  const expanderSel  = selectors.expanders && selectors.expanders.selector;
+  const containerSel = selectors.comments && selectors.comments.container;
+  runFixpointLoop(expanderSel, containerSel);
+
+  // 4b. ONE final snapshot to confirm the page is fully expanded before extracting
+  //     (cheaper than snapshotting every pass; surfaces residual "load more" controls).
+  const finalSnap = browserSnapshot();
+  if (snapshotHasExpanders(finalSnap)) {
+    process.stderr.write('Warning: residual expander controls in final snapshot — collapsed content may remain\n');
+  }
 
   // 5. Extract
   let raw = browserEval(buildExtractCaseJs(selectors));
