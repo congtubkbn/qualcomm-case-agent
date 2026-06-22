@@ -86,7 +86,7 @@ agent-browser connect "ws://127.0.0.1:9222/devtools/browser/<id>"
 **Verify the right profile is attached** (cheap guard — catches a stale temp-profile daemon):
 
 ```bash
-agent-browser eval "return new URL(location.href).hostname"   # any value = connected OK
+agent-browser eval "(function(){ return new URL(location.href).hostname; })()"   # any value = connected OK
 ```
 ```powershell
 # Confirm the CDP-9222 Chrome uses the persistent --user-data-dir, not a %TEMP% throwaway:
@@ -127,9 +127,9 @@ agent-browser wait 2000
 agent-browser snapshot -c          # read search results
 # click the result matching <CODE> (use the @ref)
 agent-browser wait 2000
-agent-browser eval "return location.hostname"   # guard: confirm not redirected to login
+agent-browser eval "(function(){ return location.hostname; })()"   # guard: confirm not redirected to login
 # if hostname = "account.qualcomm.com" → Recovery 1 → retry click ONCE
-agent-browser eval "return location.href"       # capture the real case URL
+agent-browser eval "(function(){ return location.href; })()"       # capture the real case URL
 ```
 
 Store the captured URL as `url` in the case JSON. Zero results for `<CODE>` → code wrong or no access, STOP.
