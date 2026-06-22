@@ -18,6 +18,8 @@ All paths are relative to the workspace root.
 | `data/cases/_index.json` | Registry: `{ "<CODE>": { syncedAt, commentCount, hash, enrichedAt? } }` |
 | `data/cases/<CODE>.json` | Full case data — raw + enrichment (see schema below) |
 | `data/cases/<CODE>.report.md` | Human-readable summary (quick context; no structured parsing needed) |
+| `data/cases/<CODE>.md` / `.html` / `.txt` | Full human review — every comment verbatim + per-comment analysis (`.html` richest, `.txt` grep-friendly) |
+| `data/cases/<CODE>.pdf` | Optional — PDF printed from the HTML report |
 
 ## Key schema fields
 
@@ -55,16 +57,34 @@ All paths are relative to the workspace root.
 ```json
 {
   "enrichment": {
-    "engineerSummary": "5-8 sentence debug narrative",
+    "engineerSummary": "5-8 sentence overview",
+    "currentStatus": "1-2 sentences: where the case stands now",
     "rootCause": "best hypothesis or Unresolved",
+    "caseFlow": [
+      { "step": 1, "phase": "Symptom|Hypothesis|Experiment|Data/Log|Analysis|Request|Decision|Resolution|Pending",
+        "date": "string", "by": "string", "what": "string", "refComments": ["<comment id>"] }
+    ],
+    "openQuestions": ["unanswered question / awaiting feedback"],
     "recommendedActions": ["string"],
     "tags": ["NR", "n78", "desense"],
     "timeline": [{ "date": "string", "event": "string" }],
-    "commentSummaries": { "<comment id>": "2-4 sentence summary" },
+    "commentAnalyses": {
+      "<comment id>": {
+        "summary": "2-4 sentence summary",
+        "role": "Symptom|Question|Hypothesis|Data/Log|Analysis|Request|Resolution|Info",
+        "keyPoints": ["string"],
+        "citations": ["TS 38.331 §5.3.7"],
+        "answered": true
+      }
+    },
     "enrichedAt": "ISO-8601"
   }
 }
 ```
+
+> **Schema note:** older caches may carry a flat `commentSummaries: { "<id>": "string" }` instead of
+> `commentAnalyses`. Consumers that read per-comment analysis should check `commentAnalyses` first,
+> then fall back to `commentSummaries`. The renderer (`render_case.mjs`) handles both.
 
 ## Invoke pattern
 

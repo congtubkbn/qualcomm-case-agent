@@ -26,6 +26,25 @@ const arr = v => (Array.isArray(v) ? v : []);
 const comments = arr(data.comments);
 const enrich = data.enrichment || {};
 
+// Per-comment analysis, tolerant of both schemas:
+//  - new: enrichment.commentAnalyses[id] = { summary, role, keyPoints[], citations[], answered }
+//  - old: enrichment.commentSummaries[id] = "summary string"
+// Returns a normalized object { summary, role, keyPoints[], citations[], answered } or null.
+function commentAnalysis(id) {
+  const a = (enrich.commentAnalyses || {})[id];
+  if (a && typeof a === 'object') {
+    return {
+      summary: S(a.summary),
+      role: S(a.role),
+      keyPoints: arr(a.keyPoints),
+      citations: arr(a.citations),
+      answered: a.answered,
+    };
+  }
+  const s = (enrich.commentSummaries || {})[id];
+  return S(s) ? { summary: S(s), role: '', keyPoints: [], citations: [], answered: undefined } : null;
+}
+
 /* ----------------------------- Markdown ----------------------------- */
 function md() {
   const L = [];
@@ -41,8 +60,26 @@ function md() {
   if (S(data.url)) L.push(`- **URL:** ${S(data.url)}`);
   L.push('');
 
-  if (S(enrich.engineerSummary)) { L.push('## Engineer Summary', '', S(enrich.engineerSummary), ''); }
+  if (S(enrich.engineerSummary)) { L.push('## Engineer Summary (overview)', '', S(enrich.engineerSummary), ''); }
+  if (S(enrich.currentStatus))   { L.push('## Current Status', '', S(enrich.currentStatus), ''); }
   if (S(enrich.rootCause))       { L.push('## Root Cause', '', S(enrich.rootCause), ''); }
+  if (arr(enrich.caseFlow).length) {
+    L.push('## Analysis Flow (how the case is being debugged)', '');
+    arr(enrich.caseFlow).forEach((s, i) => {
+      if (s && typeof s === 'object') {
+        const tag = [S(s.phase), S(s.date), S(s.by)].filter(Boolean).join(' · ');
+        L.push(`${i + 1}. ${tag ? `**${tag}** — ` : ''}${S(s.what)}`);
+      } else {
+        L.push(`${i + 1}. ${S(s)}`);
+      }
+    });
+    L.push('');
+  }
+  if (arr(enrich.openQuestions).length) {
+    L.push('## Open Questions / Awaiting Feedback', '');
+    for (const q of enrich.openQuestions) L.push(`- ${S(q)}`);
+    L.push('');
+  }
   if (arr(enrich.recommendedActions).length) {
     L.push('## Recommended Actions', '');
     for (const a of enrich.recommendedActions) L.push(`- ${S(a)}`);
@@ -64,8 +101,15 @@ function md() {
     const head = [S(c.timestamp), S(c.company), S(c.author) + (S(c.role) ? ` (${S(c.role)})` : '')]
       .filter(x => x && x !== ' ()').join(' · ');
     L.push(`### ${i + 1}. ${head || 'Comment'}`, '');
-    const cSum = (enrich.commentSummaries || {})[c.id];
-    if (S(cSum)) L.push(`> **Summary (engineer):** ${S(cSum)}`, '');
+    const a = commentAnalysis(c.id);
+    if (a) {
+      const roleTag = S(a.role) ? `[${S(a.role)}] ` : '';
+      const ans = a.answered === false ? ' _(unanswered)_' : '';
+      if (S(a.summary)) L.push(`> **Engineer:** ${roleTag}${S(a.summary)}${ans}`, '');
+      for (const kp of a.keyPoints) if (S(kp)) L.push(`>   - ${S(kp)}`);
+      if (a.citations.length) L.push(`> **Refs:** ${a.citations.map(x => S(x)).filter(Boolean).join(', ')}`);
+      if (a.keyPoints.length || a.citations.length) L.push('');
+    }
     if (S(c.body)) L.push(S(c.body), '');
     for (const log of arr(c.analysisLog)) { if (S(log)) L.push('```', S(log), '```', ''); }
     const atts = arr(c.attachments).filter(a => a && (S(a.name) || S(a.href)));
@@ -96,7 +140,13 @@ function report() {
   }
 
   if (S(enrich.engineerSummary)) L.push('## Summary', '', S(enrich.engineerSummary), '');
+  if (S(enrich.currentStatus))   L.push('## Current Status', '', S(enrich.currentStatus), '');
   if (S(enrich.rootCause))       L.push('## Root Cause', '', S(enrich.rootCause), '');
+  if (arr(enrich.openQuestions).length) {
+    L.push('## Open Questions / Awaiting Feedback', '');
+    for (const q of enrich.openQuestions) L.push(`- ${S(q)}`);
+    L.push('');
+  }
   if (arr(enrich.recommendedActions).length) {
     L.push('## Recommended Actions', '');
     enrich.recommendedActions.forEach((a, i) => L.push(`${i + 1}. ${S(a)}`));
@@ -114,8 +164,10 @@ function report() {
   L.push('## Comments (one-line, newest first)', '');
   comments.forEach((c, i) => {
     const who = [S(c.timestamp), S(c.company), S(c.author)].filter(Boolean).join(' · ');
-    const oneline = S((enrich.commentSummaries || {})[c.id]) || S(c.body).replace(/\s+/g, ' ').slice(0, 160);
-    L.push(`${i + 1}. **${who}** — ${oneline}`);
+    const a = commentAnalysis(c.id);
+    const role = a && S(a.role) ? `[${S(a.role)}] ` : '';
+    const oneline = (a && S(a.summary)) || S(c.body).replace(/\s+/g, ' ').slice(0, 160);
+    L.push(`${i + 1}. **${who}** — ${role}${oneline}`);
   });
   L.push('', `_Full data: ${stem}.json · Full review: ${stem}.html_`);
   return L.join('\n');
@@ -134,8 +186,19 @@ function html() {
     ? `<div class="warn">⚠ Completeness: captured ${comments.length} of ${esc(data.displayedCommentCount)} displayed comments — extraction may be incomplete.</div>`
     : '';
   const cards = [];
-  if (S(enrich.engineerSummary)) cards.push(`<div class="card"><h2>Engineer Summary</h2><p>${nl2br(enrich.engineerSummary)}</p></div>`);
+  if (S(enrich.engineerSummary)) cards.push(`<div class="card"><h2>Engineer Summary (overview)</h2><p>${nl2br(enrich.engineerSummary)}</p></div>`);
+  if (S(enrich.currentStatus))   cards.push(`<div class="card"><h2>Current Status</h2><p>${nl2br(enrich.currentStatus)}</p></div>`);
   if (S(enrich.rootCause))       cards.push(`<div class="card"><h2>Root Cause</h2><p>${nl2br(enrich.rootCause)}</p></div>`);
+  if (arr(enrich.caseFlow).length)
+    cards.push(`<div class="card"><h2>Analysis Flow</h2><ol class="flow">${arr(enrich.caseFlow).map(s => {
+      if (s && typeof s === 'object') {
+        const tag = [S(s.phase), S(s.date), S(s.by)].filter(Boolean).map(esc).join(' &middot; ');
+        return `<li>${tag ? `<span class="when">${tag}</span> ` : ''}${esc(s.what)}</li>`;
+      }
+      return `<li>${esc(s)}</li>`;
+    }).join('')}</ol></div>`);
+  if (arr(enrich.openQuestions).length)
+    cards.push(`<div class="card open"><h2>Open Questions / Awaiting Feedback</h2><ul>${enrich.openQuestions.map(q => `<li>${esc(q)}</li>`).join('')}</ul></div>`);
   if (arr(enrich.recommendedActions).length)
     cards.push(`<div class="card"><h2>Recommended Actions</h2><ul>${enrich.recommendedActions.map(a => `<li>${esc(a)}</li>`).join('')}</ul></div>`);
 
@@ -158,9 +221,16 @@ function html() {
         ${logs.map(l => `<pre>${esc(l)}</pre>`).join('')}
         ${atts.length ? `<ul>${atts.map(a => `<li><a href="${esc(a.href)}">${esc(a.name) || 'file'}</a></li>`).join('')}</ul>` : ''}
       </details>` : '';
+    const a = commentAnalysis(c.id);
+    const esum = a ? `<div class="esum">
+        <b>Engineer:</b>${S(a.role) ? ` <span class="role">${esc(a.role)}</span>` : ''}${a.answered === false ? ` <span class="unans">unanswered</span>` : ''}
+        ${S(a.summary) ? ` ${nl2br(a.summary)}` : ''}
+        ${a.keyPoints.length ? `<ul class="kp">${a.keyPoints.map(k => `<li>${esc(k)}</li>`).join('')}</ul>` : ''}
+        ${a.citations.length ? `<div class="refs"><b>Refs:</b> ${a.citations.map(esc).join(', ')}</div>` : ''}
+      </div>` : '';
     return `<article class="comment">
       <div class="chead"><span class="cnum">#${i + 1}</span> ${head || 'Comment'}</div>
-      ${(cSumH => S(cSumH) ? `<div class="esum"><b>Summary (engineer):</b> ${nl2br(cSumH)}</div>` : '')((enrich.commentSummaries || {})[c.id])}
+      ${esum}
       ${S(c.body) ? `<div class="body">${nl2br(c.body)}</div>` : ''}
       ${details}
     </article>`;
@@ -184,6 +254,11 @@ main{max-width:980px;margin:0 auto;padding:22px}
 .comment{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--acc);border-radius:10px;padding:14px 18px;margin:0 0 14px}
 .chead{color:var(--mut);font-size:13px;margin-bottom:8px}.cnum{color:var(--acc);font-weight:700;margin-right:6px}
 .esum{background:var(--hl);border-radius:8px;padding:8px 12px;margin:0 0 10px}
+.esum .role{display:inline-block;padding:1px 7px;margin:0 4px;background:#23303f;border-radius:999px;font-size:11px;color:#bcd}
+.esum .unans{display:inline-block;padding:1px 7px;margin:0 4px;background:#3a2a12;border:1px solid #6b4f1d;border-radius:999px;font-size:11px;color:#f0c674}
+.esum .kp{margin:6px 0 0;padding-left:18px}.esum .refs{margin-top:6px;color:var(--mut);font-size:13px}
+.flow{margin:0;padding-left:20px}.flow li{padding:3px 0}
+.card.open{border-left:3px solid #f0c674}
 .body{white-space:normal}
 pre{background:#0b0f14;border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;font:12px/1.45 ui-monospace,Consolas,monospace}
 details{margin-top:8px}summary{cursor:pointer;color:var(--mut)}
@@ -208,10 +283,74 @@ a{color:#6ea8fe}
 </main></body></html>`;
 }
 
+/* ------------------------------- TXT -------------------------------- */
+// Plain-text full render — for grep, diff, terminal reading, and feeding other
+// tools that want NDA-safe text without markdown/html markup.
+function txt() {
+  const L = [];
+  const hr = '='.repeat(72);
+  L.push(`${S(data.caseNumber) || stem} — ${S(data.title) || 'Untitled case'}`, hr);
+  const meta = [
+    ['Status', data.status], ['Priority', data.priority], ['Severity', data.severity],
+    ['Product', data.product], ['Customer', data.customer],
+    ['Created', data.created], ['Updated', data.updated],
+    ['Comments', comments.length], ['Synced', data.extractedAt], ['URL', data.url],
+  ].filter(([, v]) => S(v) !== '');
+  for (const [k, v] of meta) L.push(`${k}: ${S(v)}`);
+  L.push('');
+  const section = (h, body) => { if (S(body)) { L.push(h, '-'.repeat(h.length), S(body), ''); } };
+  section('ENGINEER SUMMARY (OVERVIEW)', enrich.engineerSummary);
+  section('CURRENT STATUS', enrich.currentStatus);
+  section('ROOT CAUSE', enrich.rootCause);
+  if (arr(enrich.caseFlow).length) {
+    L.push('ANALYSIS FLOW', '------------');
+    arr(enrich.caseFlow).forEach((s, i) => {
+      if (s && typeof s === 'object') {
+        const tag = [S(s.phase), S(s.date), S(s.by)].filter(Boolean).join(' · ');
+        L.push(`${i + 1}. ${tag ? `[${tag}] ` : ''}${S(s.what)}`);
+      } else L.push(`${i + 1}. ${S(s)}`);
+    });
+    L.push('');
+  }
+  if (arr(enrich.openQuestions).length) {
+    L.push('OPEN QUESTIONS / AWAITING FEEDBACK', '---------------------------------');
+    for (const q of enrich.openQuestions) L.push(`- ${S(q)}`);
+    L.push('');
+  }
+  if (arr(enrich.recommendedActions).length) {
+    L.push('RECOMMENDED ACTIONS', '-------------------');
+    enrich.recommendedActions.forEach((a, i) => L.push(`${i + 1}. ${S(a)}`));
+    L.push('');
+  }
+  if (arr(enrich.tags).length) L.push('TAGS: ' + enrich.tags.map(S).join(', '), '');
+  if (S(data.description)) section('DESCRIPTION', data.description);
+
+  L.push('COMMENTS (newest first)', hr);
+  comments.forEach((c, i) => {
+    const head = [S(c.timestamp), S(c.company), S(c.author) + (S(c.role) ? ` (${S(c.role)})` : '')]
+      .filter(x => x && x !== ' ()').join(' · ');
+    L.push(`#${i + 1}  ${head || 'Comment'}`);
+    const a = commentAnalysis(c.id);
+    if (a && S(a.summary)) {
+      L.push(`  [engineer]${S(a.role) ? ` ${S(a.role)}:` : ''} ${S(a.summary)}${a.answered === false ? ' (unanswered)' : ''}`);
+      for (const kp of a.keyPoints) if (S(kp)) L.push(`    - ${S(kp)}`);
+      if (a.citations.length) L.push(`    refs: ${a.citations.map(S).filter(Boolean).join(', ')}`);
+    }
+    if (S(c.body)) L.push('', S(c.body));
+    for (const log of arr(c.analysisLog)) if (S(log)) L.push('  --- log ---', S(log));
+    const atts = arr(c.attachments).filter(at => at && (S(at.name) || S(at.href)));
+    if (atts.length) L.push('  attachments: ' + atts.map(at => `${S(at.name) || 'file'} <${S(at.href)}>`).join(', '));
+    L.push('', '-'.repeat(72), '');
+  });
+  return L.join('\n');
+}
+
 const mdPath = join(dir, `${stem}.md`);
 const htmlPath = join(dir, `${stem}.html`);
 const reportPath = join(dir, `${stem}.report.md`);
+const txtPath = join(dir, `${stem}.txt`);
 writeFileSync(mdPath, md(), 'utf8');
 writeFileSync(htmlPath, html(), 'utf8');
 writeFileSync(reportPath, report(), 'utf8');
-console.log(`wrote:\n  ${reportPath}\n  ${mdPath}\n  ${htmlPath}`);
+writeFileSync(txtPath, txt(), 'utf8');
+console.log(`wrote:\n  ${reportPath}\n  ${mdPath}\n  ${htmlPath}\n  ${txtPath}`);

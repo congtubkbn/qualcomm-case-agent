@@ -26,6 +26,11 @@ CASE-12345", "lấy case qualcomm CASE-12345", "qualcomm case 00123456"), follow
 - First login (Okta password + 6-digit **email OTP**) is human-in-the-loop, done in the visible
   Chrome window. After that the profile persists; later syncs need no OTP until it expires.
 - Output goes to `data/cases/<CODE>.json` (full) + `<CODE>.report.md` (summary) +
-  `<CODE>.md` / `<CODE>.html` (review). Unchanged cases report "no update".
+  `<CODE>.md` / `<CODE>.html` / `<CODE>.txt` (review, + optional `<CODE>.pdf`). Unchanged cases
+  report "no update".
+- **Deep analysis** (overview, analysis flow, root cause, open questions, per-comment role +
+  3GPP citations) is PHASE 4 of the runbook, and can also be run standalone — no browser/re-scrape —
+  via the sibling skill `.claude/skills/qualcomm-enrich/SKILL.md` (triggers: "enrich/re-enrich/
+  analyze qualcomm case", "phân tích lại / đánh giá case qualcomm").
 
 One case per request. Never type the Qualcomm password or OTP — the user enters those in the browser.

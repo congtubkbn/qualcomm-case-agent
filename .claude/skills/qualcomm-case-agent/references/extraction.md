@@ -7,6 +7,13 @@ For **PHASE 3** of the Qualcomm Case Management Agent. agent-browser verb for ru
 > time. The robust loop is: `snapshot` → read the REAL container/field selectors → write the
 > extractor tailored to them → `eval` → validate against the snapshot → fix + re-run on mismatch.
 
+> **Selectors that speed up & sharpen the expand loop.** `scrape_case.mjs` now READS
+> `config/selectors.json → expanders.selector` and `comments.container`. When you discover them
+> (Selector Discovery / lock-in below), the expand loop clicks ONLY the real expander selector
+> (authoritative — no broad regex, no mis-toggling nav/menus) and counts comments with the real
+> container, so it converges faster and more accurately. If `expanders.selector` is null it falls
+> back to the broad heuristic shown below.
+
 ## Step 1 — Expand EVERYTHING to a fixpoint (critical for full capture)
 
 A case can hide data behind many stacked controls: **"Show more" / "Read more"** on long bodies,
