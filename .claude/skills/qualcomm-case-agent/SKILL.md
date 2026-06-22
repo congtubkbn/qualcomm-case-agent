@@ -13,10 +13,14 @@ engineer-grade artifacts in the local project cache.
 
 **Input contract.** One Qualcomm case code (e.g. `CASE-01234567`, `00123456`, or numeric id). Missing → ask user, STOP.
 
-**Design principle.** PHASE 1 is the entry point — always try to navigate to the case immediately.
-Chrome and auth are set up reactively only when a failure signal requires them, not proactively on
-every run. This means the common case (Chrome running, session valid) hits zero overhead before doing
-real work.
+**Design principle.** PHASE 0 attaches to the **persistent-profile Chrome** (`data\chrome-profile` on
+CDP 9222) *before* any navigation. This is mandatory and non-skippable: if agent-browser is not
+explicitly connected to that CDP endpoint, its daemon silently auto-spawns its own throwaway Chrome on
+an ephemeral `%TEMP%\agent-browser-chrome-<uuid>` profile — zero cookies, zero Okta session, forcing a
+full login + OTP on **every** run. A successful `open` does NOT imply the persistent session is in use.
+PHASE 0 is the ~1s insurance that makes the saved session ("Keep me signed in", ~30 days) actually
+load, so the common run skips Recovery 1 entirely. Auth (Recovery 1) is still reactive — triggered only
+when the *persistent* session has genuinely lapsed.
 
 **Harness-agnostic.** Works under Claude Code, Cline (VS Code), or any agent with terminal + file access.
 
@@ -62,10 +66,45 @@ Before any browser action:
 
 ---
 
+## PHASE 0 — Attach to persistent-profile Chrome *(mandatory, before any navigation)*
+
+**Goal:** guarantee agent-browser is driving the **`data\chrome-profile`** Chrome on CDP 9222 — the only
+browser that carries the saved Okta session. Skipping this is the root cause of "logs in every run":
+the daemon otherwise auto-spawns a temp-profile Chrome and `open` succeeds against an empty session.
+
+```powershell
+# Launch (or reuse) real Chrome on CDP 9222 bound to the persistent profile.
+# Idempotent: if 9222 is already listening it just prints the ws:// URL and exits 0.
+powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/connect_chrome.ps1"
+```
+
+```bash
+# Attach to the ws:// URL the helper printed (NOT bare `connect 9222` — IPv6 ::1 mismatch → 10060).
+agent-browser connect "ws://127.0.0.1:9222/devtools/browser/<id>"
+```
+
+**Verify the right profile is attached** (cheap guard — catches a stale temp-profile daemon):
+
+```bash
+agent-browser eval "return new URL(location.href).hostname"   # any value = connected OK
+```
+```powershell
+# Confirm the CDP-9222 Chrome uses the persistent --user-data-dir, not a %TEMP% throwaway:
+Get-CimInstance Win32_Process -Filter "name='chrome.exe'" |
+  Where-Object { $_.CommandLine -match '--remote-debugging-port=9222' } |
+  ForEach-Object { if ($_.CommandLine -match 'agent-browser-chrome-') {
+    Write-Host 'WRONG: attached to TEMP profile — run Recovery 0 to reset daemon, then re-attach' }
+    else { Write-Host 'OK: persistent profile attached' } }
+```
+
+If the guard prints `WRONG` (or 9222 never came up) → **[Recovery 0]** to reset the daemon, then redo PHASE 0 ONCE.
+
+---
+
 ## PHASE 1 — Locate Case *(entry point)*
 
-**Goal:** open the exact case page and capture its real URL. Chrome and auth are handled reactively
-from this phase — the common path (session valid, Chrome running) goes straight through with one `open`.
+**Goal:** open the exact case page and capture its real URL. PHASE 0 has already attached the
+persistent-profile Chrome, so the common path (valid saved session) goes straight through with one `open`.
 
 ```bash
 agent-browser open "https://support.qualcomm.com/s/global-search/<CODE>"
@@ -75,8 +114,8 @@ agent-browser open "https://support.qualcomm.com/s/global-search/<CODE>"
 
 | Outcome | Signal | Action |
 |---------|--------|--------|
-| Command errors / times out | no CDP connection | → **[Recovery 0: Chrome/CDP]** then retry PHASE 1 ONCE |
-| Opens but snapshot shows `account.qualcomm.com` | session expired or never logged in | → **[Recovery 1: Auth]** then retry PHASE 1 ONCE |
+| Command errors / times out | CDP dropped since PHASE 0 | → **[Recovery 0: Chrome/CDP]**, redo PHASE 0, then retry PHASE 1 ONCE |
+| Opens but snapshot shows `account.qualcomm.com` | persistent session genuinely lapsed | → **[Recovery 1: Auth]** then retry PHASE 1 ONCE |
 | Opens, shows search results | Chrome + session OK | continue below ↓ |
 
 If the retry after Recovery 0 or Recovery 1 still fails → report the specific error and STOP.
@@ -198,11 +237,12 @@ user pastes 6-digit code → **"Verify"**. Selectors in `references\login-flow.m
 
 ---
 
-## PHASE 1.5 — DOM Expansion *(run before every scrape)*
+## PHASE 1.5 — DOM Expansion *(run before extraction)*
 
 **Goal:** ensure full DOM content is visible before extraction. The Salesforce Chatter feed hides data
 behind pagination and collapsed bodies. These are `agent-browser click` steps — the accessibility tree
-exposes them as named controls, no JS eval needed.
+exposes them as named controls, no JS eval needed. **This is the only expansion step** — PHASE 2 extracts
+from the DOM exactly as this phase leaves it; nothing re-opens or re-expands the page.
 
 **Step A — Pagination: click "View More Posts" until gone**
 
@@ -253,34 +293,38 @@ agent-browser snapshot -c | grep -E "Expand Post|View More"
 
 ---
 
-## PHASE 2 — Scrape
+## PHASE 2 — Extract *(agent-driven)*
 
-**Goal:** capture all raw case data; write `data/cases/<CODE>.json`; update `_index.json`.
+**Goal:** extract all raw case data from the **already-expanded live DOM** (no re-open, no re-expand),
+then finalize to `data/cases/<CODE>.json` + `_index.json`.
 
-Full reference: **`references\extraction.md`**
+Full reference: **`references\extraction.md`** (selector lock-in table + extractor template).
 
-1. Read existing `_index.json` to get the old hash for `<CODE>` (for incremental check).
-2. Run scraper:
+1. Read existing `_index.json` to get the old hash for `<CODE>` (incremental check).
+2. Confirm PHASE 1.5 done: `agent-browser snapshot -c | grep -E "Expand Post|View More"` → empty.
+3. Write ONE `extractCase()` eval **from the live DOM** (adapt the extraction.md template to what the
+   snapshot shows), then run it. The JS must `return JSON.stringify(...)` of the full case object —
+   metadata + every comment (verbatim body + logs) + `displayedCommentCount` + `url`:
    ```bash
-   node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CASE_CODE>
+   agent-browser eval "<extractCase JS>"
    ```
+4. Save the eval's **verbatim** JSON to `data/cases/<CODE>.raw.json` (no edits, no truncation).
+5. Finalize (assert count → SHA-256 hash → write canonical JSON + update index):
+   ```bash
+   node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CASE_CODE> "data/cases/<CODE>.raw.json"
+   ```
+   On exit 0, delete the `.raw.json` scratch file.
 
 **Exit codes:**
 
 | Code | Meaning | Action |
 |------|---------|--------|
 | 0 | OK | Compare new hash vs old. Identical → "No update since `<syncedAt>`", STOP. Changed → PHASE 3. |
-| 2 | Bad args | Fix invocation. |
-| 3 | Auth needed | Go to Recovery 1, retry. |
-| 4 | Case not found / no access | Report, STOP. |
-| 5 | Incomplete — count < displayed | Run selector re-discovery (below), retry. STOP if still 5. |
-| 6 | selectors.json missing | Run selector discovery (below), retry. |
+| 2 | Bad args / bad raw JSON | Fix invocation; ensure `raw.comments` is an array, then re-extract. |
+| 5 | Incomplete — `comments.length < displayedCommentCount` | Finish PHASE 1.5 expansion or fix the extractor; if the Feed is virtualized, use progressive extraction (extraction.md). Re-extract, retry. STOP if still 5. |
 
-**Selector Discovery (exit 5 or 6):**
-1. `agent-browser snapshot -c` — inspect live case DOM.
-2. Identify CSS selectors for all `config/selectors.json` fields.
-3. Write selectors (update `_discoveredAt`, keep `_version`).
-4. Retry scraper.
+Auth redirect / "case not found" are caught earlier by the PHASE 1 hostname guard — PHASE 2 no longer
+navigates, so it never re-triggers them.
 
 ---
 

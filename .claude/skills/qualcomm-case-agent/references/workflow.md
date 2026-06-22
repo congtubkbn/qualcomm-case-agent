@@ -16,7 +16,7 @@ flowchart TD
   LG -->|email unavailable| S1((stop))
   LG --> P2["Phase 2 · locate case<br/>open case url / search"]
   P2 -->|not found| S2((stop))
-  P2 --> P3["Phase 3 · extract<br/>expand-all fixpoint · eval · assert count"]
+  P2 --> P3["Phase 3 · extract<br/>snapshot→click expand · eval extract · assert count"]
   P3 --> CHK{"Phase 3.5 · changed?<br/>hash vs _index.json"}
   CHK -->|no change| NUP["no update"] --> S3((stop / report))
   CHK -->|new or changed| P4["Phase 4 · enrich<br/>engineer summaries (Protocol/RF/3GPP)"]
@@ -42,7 +42,7 @@ One Qualcomm case code (`CASE-01234567`, `00123456`, or the numeric url id). Mis
 | 0 Intake | validate+normalize code, load `agent-browser` skill, ensure `data/cases/` | no code → STOP |
 | 1 Authenticate | launch real Chrome (`connect_chrome.ps1`, CDP 9222) + attach; reuse persistent `--user-data-dir` (`data/chrome-profile/`); valid → continue | expired → human Okta login + **email OTP** (profile saves it, no notify). **Email unreachable → STOP** |
 | 2 Locate | open the case (url / dashboard search on `support.qualcomm.com`) | not found → STOP |
-| 3 Extract | **expand everything to a fixpoint** (loop click "show/load more", replies, scroll), `eval` extractor → JSON; **assert** `comments.length == displayedCommentCount` | count short → expand more / fix selectors |
+| 3 Extract | **expand via `agent-browser snapshot → click`** ("View More Posts", every "Expand Post", "Description") to no-expanders-left; then ONE `eval` extractor → raw JSON → `scrape_case.mjs` finalizes (assert `comments.length >= displayedCommentCount`, hash, write) | count short → expand more / fix extractor / progressive scroll |
 | 3.5 Incremental | SHA-256 the raw case; compare to `_index.json` | same hash → **no update → STOP** (skip enrich + writes) |
 | 4 Enrich | per-comment `summary`; case `engineerSummary`, `rootCause`, `recommendedActions`, `tags`, `timeline` | — |
 | 5 Persist | write `<CODE>.json` → `node render_case.mjs` → emit report/md/html → update `_index.json` | — |
@@ -61,7 +61,8 @@ One Qualcomm case code (`CASE-01234567`, `00123456`, or the numeric url id). Mis
 ## Logic backbone
 
 1. **Session > password** — log in once, reuse the Chrome `--user-data-dir` (real Chrome via CDP); OTP only when it expires.
-2. **Expand fixpoint + count assert** — guarantees every comment is captured, nothing truncated.
+2. **Snapshot→click expand + count assert** — accessibility-tree clicks reveal every post/reply/body;
+   the `displayedCommentCount` assert guarantees nothing is missed or truncated.
 3. **Incremental** — unchanged case is not re-enriched or rewritten.
 4. **Role split** — model owns data + judgement (JSON); the render script owns formatting
    (report/md/html) → deterministic and token-cheap.
