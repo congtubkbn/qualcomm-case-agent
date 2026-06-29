@@ -95,6 +95,23 @@ function finalize(caseCode, rawPath) {
     process.exit(EXIT.INCOMPLETE);
   }
 
+  // Header gate: title drives the human-facing heading. The extractor leaves it
+  // "" on the Feed view; the agent must backfill it from the PHASE 1 search row.
+  // An empty title is a failed pull dressed as success (the renderer would fall
+  // back to "Untitled case"), so reject rather than persist a headerless case.
+  if (!String(raw.title || '').trim()) {
+    emit({
+      code: EXIT.INCOMPLETE,
+      reason: 'empty title — backfill header fields (title/status/priority) from the PHASE 1 search row before finalizing',
+      caseCode,
+    });
+    process.exit(EXIT.INCOMPLETE);
+  }
+
+  // Soft signal for the remaining header fields — sometimes legitimately empty
+  // (old/closed/draft cases), so warn but do NOT block.
+  const thinHeader = ['status', 'priority', 'customer'].filter(k => !String(raw[k] || '').trim());
+
   // Stamp identity + write canonical JSON.
   raw.hash = computeHash(raw);
   raw.extractedAt = new Date().toISOString();
@@ -128,7 +145,10 @@ function finalize(caseCode, rawPath) {
     commentCount: raw.comments.length,
     hash: raw.hash,
     path: outPath,
-    ...(assertion.warning ? { warning: assertion.warning } : {}),
+    ...(assertion.warning || thinHeader.length
+      ? { warning: [assertion.warning, thinHeader.length ? `empty header fields: ${thinHeader.join(', ')}` : '']
+          .filter(Boolean).join('; ') }
+      : {}),
   });
   process.exit(EXIT.OK);
 }
