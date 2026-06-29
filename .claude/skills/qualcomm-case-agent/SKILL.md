@@ -11,7 +11,7 @@ allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(node:*), B
 autonomously retrieve the entire case from the Qualcomm Support portal, analyze it, and produce
 engineer-grade artifacts in the local project cache.
 
-**Input contract.** One Qualcomm case code (e.g. `CASE-01234567`, `00123456`, or numeric id). Missing → ask user, STOP.
+**Input contract.** One Qualcomm case code = **exactly 8 digits** (e.g. `08460319`). A leading `CASE-` prefix is accepted and stripped. Anything else → intake fails, ask user, STOP.
 
 **Design principle.** PHASE 0 attaches to the **persistent-profile Chrome** (`data\chrome-profile` on
 CDP 9222) *before* any navigation. This is mandatory and non-skippable: if agent-browser is not
@@ -60,10 +60,11 @@ Before any browser action:
    full CLI selector reference and the Skill tool is unavailable.
 
 2. **Validate + prep (no browser):** run the bundled intake guard. Trims the
-   code, rejects empty / path-illegal codes (`\ / : * ? " < > |`), creates
-   `data\cases\`, seeds `data\cases\_index.json = {}` if absent, and fails loud
-   on a corrupt index. Regex/metachars live in the script (not the command
-   line), so it behaves identically under PowerShell and the Bash tool:
+   code, strips an optional `CASE-` prefix, rejects anything that is not exactly
+   8 digits, creates `data\cases\`, seeds `data\cases\_index.json = {}` if absent,
+   and fails loud on a corrupt index. **Use the 8-digit code it echoes**
+   (`intake OK <CODE>`) for all downstream navigation. Regex lives in the script
+   (not the command line), so it behaves identically under PowerShell and the Bash tool:
    ```bash
    node ".claude/skills/qualcomm-case-agent/scripts/intake.mjs" "<CODE>"
    ```

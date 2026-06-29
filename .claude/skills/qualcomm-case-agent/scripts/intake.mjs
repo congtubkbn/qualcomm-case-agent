@@ -4,10 +4,13 @@
 // identically under PowerShell, cmd, and the POSIX Bash tool.
 import fs from 'node:fs';
 
-const code = (process.argv[2] || '').trim();
-if (!code) { console.error('ERROR: empty case code'); process.exit(1); }
-if (/[\\/:*?"<>|]/.test(code)) {
-  console.error(`ERROR: illegal path chars in case code: ${code}`);
+const raw = (process.argv[2] || '').trim();
+if (!raw) { console.error('ERROR: empty case code'); process.exit(1); }
+
+// Tolerate a leading CASE- prefix, then require exactly 8 digits.
+const code = raw.replace(/^CASE-/i, '');
+if (!/^\d{8}$/.test(code)) {
+  console.error(`ERROR: case code must be 8 digits (got: ${raw})`);
   process.exit(1);
 }
 
