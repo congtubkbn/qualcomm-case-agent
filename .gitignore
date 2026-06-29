@@ -4,6 +4,7 @@ data/.secrets/
 data/qualcomm-session.json
 *.session.json
 data/_proftest/
+data/
 
 # Cached case content is Qualcomm NDA material — keep local only
 data/cases/

@@ -42,7 +42,7 @@ Scripts and references live under `.claude\skills\qualcomm-case-agent\` (skill d
 | Session store | `data\chrome-profile\` — persistent `--user-data-dir`; git-ignored |
 | Case cache | per-case folder `data\cases\<CODE>\`: `case.json` · `case.report.md` · `case.md` · `case.html` · `case.txt` · `case.pdf` (optional) |
 | Sync index | `data\cases\_index.json` |
-| Scripts | skill dir `scripts\`: `connect_chrome.ps1`, `okta_login.ps1`, `capture_password.ps1`, `extract_case.js` (PHASE 2 extractor, run via `eval --stdin`), `scrape_case.mjs` (finalizer), `render_case.mjs` |
+| Scripts | skill dir `scripts\`: `intake.mjs` (Intake guard — validate code + prep dirs), `connect_chrome.ps1`, `okta_login.ps1`, `capture_password.ps1`, `extract_case.js` (PHASE 2 extractor, run via `eval --stdin`), `scrape_case.mjs` (finalizer), `render_case.mjs` |
 | Enrich skill | `qualcomm-enrich` — standalone analyst pass (no browser, no re-scrape) |
 | References | skill dir `references\`: `login-flow.md`, `extraction.md`, `workflow.md`, `consumer-guide.md` |
 
@@ -54,15 +54,19 @@ Scripts and references live under `.claude\skills\qualcomm-case-agent\` (skill d
 
 Before any browser action:
 
-1. **Load agent-browser reference:**
+1. **Load agent-browser reference (once per session, not per-case):**
+   Invoke the `agent-browser` Skill tool — skip if already loaded this session.
+   Only fall back to `agent-browser skills get core --full` when you need the
+   full CLI selector reference and the Skill tool is unavailable.
+
+2. **Validate + prep (no browser):** run the bundled intake guard. Trims the
+   code, rejects empty / path-illegal codes (`\ / : * ? " < > |`), creates
+   `data\cases\`, seeds `data\cases\_index.json = {}` if absent, and fails loud
+   on a corrupt index. Regex/metachars live in the script (not the command
+   line), so it behaves identically under PowerShell and the Bash tool:
    ```bash
-   agent-browser skills get core --full
+   node ".claude/skills/qualcomm-case-agent/scripts/intake.mjs" "<CODE>"
    ```
-   (Claude Code: also invoke the `agent-browser` Skill tool.)
-
-2. **Validate + normalize case code:** trim, reject path-illegal chars `\ / : * ? " < > |`.
-
-3. **Prepare cache dirs:** ensure `data\cases\` exists; create `data\cases\_index.json = {}` if absent.
 
 ---
 
