@@ -1,6 +1,6 @@
 ---
 name: qualcomm-case-agent
-description: "Qualcomm Case Management Agent. Given ONE Qualcomm case code, drive agent-browser to sign in (Qualcomm ID SSO + email OTP) and extract the COMPLETE case from the Qualcomm Support portal (support.qualcomm.com) — full metadata plus every comment (timestamp, company, author, comment text + full detail, analysis logs/attachments). Enrich as a Qualcomm / Protocol / 3GPP / RF expert engineer: per-comment analysis (role + key points + 3GPP citations + answered/unanswered) plus a case-level overview, analysis flow, root cause, current status, and open questions. Persist to the access-qualcomm project cache newest-first in JSON (machine), Markdown + single-file HTML + TXT (human review), and optional PDF. Deep analysis can also be run/redone standalone via the sibling `qualcomm-enrich` skill (no re-scrape). Incremental: unchanged cases report 'no update'. Triggers: 'qualcomm case <code>', 'pull qualcomm case', 'access qualcomm case', 'lấy case qualcomm', 'phân tích case qualcomm', 'qualcomm case agent', 'extract qualcomm case code'. Use whenever the user provides a Qualcomm case code/number and wants the full case captured and summarized."
+description: "Qualcomm Case Management Agent. Given ONE Qualcomm case code, drive agent-browser to sign in (Qualcomm ID SSO + email OTP) and extract the COMPLETE case from the Qualcomm Support portal (support.qualcomm.com) — full metadata plus every comment (timestamp, company, author, comment text + full detail, analysis logs/attachments). Enrich as a Qualcomm / Protocol / 3GPP / RF expert engineer: per-comment analysis (role + key points + 3GPP citations + answered/unanswered) plus a case-level overview, analysis flow, root cause, current status, and open questions. Persist to the access-qualcomm project cache newest-first in JSON (machine), Markdown + single-file HTML + TXT + PDF (human review). Deep analysis can also be run/redone standalone via the sibling `qualcomm-enrich` skill (no re-scrape). Incremental: unchanged cases report 'no update'. Triggers: 'qualcomm case <code>', 'pull qualcomm case', 'access qualcomm case', 'lấy case qualcomm', 'phân tích case qualcomm', 'qualcomm case agent', 'extract qualcomm case code'. Use whenever the user provides a Qualcomm case code/number and wants the full case captured and summarized."
 allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(node:*), Bash(powershell:*), PowerShell, Read, Write, Glob
 ---
 
@@ -40,7 +40,7 @@ Scripts and references live under `.claude\skills\qualcomm-case-agent\` (skill d
 | MFA | **Email OTP** — 6-digit code to Samsung mailbox, expires ~5 min. Always human-pasted |
 | Browser | **real Google Chrome** on CDP `9222` via `scripts\connect_chrome.ps1` |
 | Session store | `data\chrome-profile\` — persistent `--user-data-dir`; git-ignored |
-| Case cache | per-case folder `data\cases\<CODE>\`: `case.json` · `case.report.md` · `case.md` · `case.html` · `case.txt` · `case.pdf` (optional) |
+| Case cache | per-case folder `data\cases\<CODE>\`: `case.json` · `case.report.md` · `case.md` · `case.html` · `case.txt` · `case.pdf` |
 | Sync index | `data\cases\_index.json` |
 | Scripts | skill dir `scripts\`: `intake.mjs` (Intake guard — validate code + prep dirs), `connect_chrome.ps1`, `okta_login.ps1`, `capture_password.ps1`, `readiness.js` (PHASE 1 readiness probe, run via `eval --stdin`), `extract_case.js` (PHASE 2 extractor, run via `eval --stdin`), `scrape_case.mjs` (finalizer), `render_case.mjs` |
 | Enrich skill | `qualcomm-enrich` — standalone analyst pass (no browser, no re-scrape) |
@@ -468,13 +468,20 @@ All artifacts go in the case folder `data\cases\<CODE>\` (created by `scrape_cas
    ```
    Writes: `case.report.md` (concise summary, ⚠ if captured < displayed), `case.md` + `case.html` + `case.txt` (full verbatim).
 
-3. **Optional PDF** — using Chrome attached in this run. On Windows, build the `file://` URL from the
-   Windows path (`pwd -W`); a bare `$(pwd)` is Git-bash `/e/...` → Chrome `ERR_FILE_NOT_FOUND`:
+3. **PDF (mandatory)** — Chrome is always attached (PHASE 0 is non-skippable), so the PDF is a
+   required artifact, NOT optional. On Windows, build the `file://` URL from the Windows path
+   (`pwd -W`); a bare `$(pwd)` is Git-bash `/e/...` → Chrome `ERR_FILE_NOT_FOUND`:
    ```bash
    agent-browser open "file:///$(pwd -W)/data/cases/<CODE>/case.html"
    agent-browser pdf "data/cases/<CODE>/case.pdf"
    ```
-   Skip if Chrome not attached.
+   **Verify it landed** — `case.pdf` must exist and be non-zero before PHASE 4 is done:
+   ```bash
+   test -s "data/cases/<CODE>/case.pdf" && echo "PDF OK" || echo "PDF MISSING — retry"
+   ```
+   If missing: the `file://` URL was malformed (re-check `pwd -W`) or Chrome lost its attach
+   (→ **[Recovery 0]**, re-attach, redo this step). Only after two failed attempts may PHASE 4
+   finish without it — and then PHASE 5 must report the PDF as failed, not silently omit it.
 
 4. **Update `_index.json`** (at `data/cases/` root): `"<CODE>": { "syncedAt": "<ISO>", "commentCount": N, "hash": "<sha256>" }`.
 
@@ -484,7 +491,7 @@ All artifacts go in the case folder `data\cases\<CODE>\` (created by `scrape_cas
 
 Tell the user: case number + title + status, comments captured **vs displayed** (or **"no update"**),
 current status, root cause, # open questions, top recommended actions, file paths
-(`data/cases/<CODE>/`: `case.json` · `case.report.md` · `case.html` · `case.txt`). Attach `case.report.md` and `case.html`.
+(`data/cases/<CODE>/`: `case.json` · `case.report.md` · `case.html` · `case.txt` · `case.pdf`). Attach `case.report.md` and `case.html`. If the PDF failed both attempts (PHASE 4 step 3), say so explicitly — never drop it from the list silently.
 
 ---
 
