@@ -1,6 +1,6 @@
 ---
 name: qualcomm-enrich
-description: "Qualcomm Case Enrichment — the analyst half of the Qualcomm pipeline. Takes an ALREADY-SCRAPED case (data/cases/<CODE>.json produced by qualcomm-case-agent) and, acting as a senior Qualcomm / Protocol / 3GPP / RF expert engineer, writes the engineer-grade analysis into data.enrichment: an overview, the case ANALYSIS FLOW (how the debug is progressing), root cause, current status, OPEN QUESTIONS / awaiting-feedback, recommended actions, and per-comment analysis (role in the flow + key points + 3GPP citations + answered/unanswered). Then re-renders JSON/Markdown/HTML/TXT (+PDF). No browser, no login — it never re-scrapes. Incremental: keeps existing per-comment analyses, only adds new comment ids, always re-synthesizes case-level fields. Triggers: 'enrich qualcomm case <code>', 'qualcomm enrich', 're-enrich', 'redo analysis', 'improve summary', 'phân tích lại case qualcomm', 'đánh giá case qualcomm', 'analyze qualcomm case <code>'. Use when the raw case JSON already exists and the user wants (better) expert analysis without re-pulling the portal."
+description: "Qualcomm Case Enrichment — the analyst half of the Qualcomm pipeline. Takes an ALREADY-SCRAPED case (data/cases/<CODE>/case.json produced by qualcomm-case-agent) and, acting as a senior Qualcomm / Protocol / 3GPP / RF expert engineer, writes the engineer-grade analysis into data.enrichment: an overview, the case ANALYSIS FLOW (how the debug is progressing), root cause, current status, OPEN QUESTIONS / awaiting-feedback, recommended actions, and per-comment analysis (role in the flow + key points + 3GPP citations + answered/unanswered). Then re-renders JSON/Markdown/HTML/TXT (+PDF). No browser, no login — it never re-scrapes. Incremental: keeps existing per-comment analyses, only adds new comment ids, always re-synthesizes case-level fields. Triggers: 'enrich qualcomm case <code>', 'qualcomm enrich', 're-enrich', 'redo analysis', 'improve summary', 'phân tích lại case qualcomm', 'đánh giá case qualcomm', 'analyze qualcomm case <code>'. Use when the raw case JSON already exists and the user wants (better) expert analysis without re-pulling the portal."
 allowed-tools: Bash(node:*), Read, Write, Glob
 ---
 
@@ -13,8 +13,8 @@ turn raw comments into an analysis a reviewing engineer can read top-down: **gra
 follow the debug flow → see what is still open → drill into any single comment.**
 
 **This skill never opens a browser and never logs in.** It only reads
-`data/cases/<CODE>.json`, writes the `enrichment` object back, and re-renders. Scraping is the
-separate `qualcomm-case-agent` skill (PHASES 0–3). If `data/cases/<CODE>.json` does not exist →
+`data/cases/<CODE>/case.json`, writes the `enrichment` object back, and re-renders. Scraping is the
+separate `qualcomm-case-agent` skill (PHASES 0–3). If `data/cases/<CODE>/case.json` does not exist →
 tell the user to run `qualcomm-case-agent` first, and STOP.
 
 > Paths are relative to the workspace root (the access-qualcomm project / CWD). The render script
@@ -24,7 +24,7 @@ tell the user to run `qualcomm-case-agent` first, and STOP.
 
 ## Input contract
 
-- One case code whose raw JSON already exists at `data/cases/<CODE>.json`.
+- One case code whose raw JSON already exists at `data/cases/<CODE>/case.json`.
 - Missing JSON → STOP and point the user at `qualcomm-case-agent`.
 - Optional: custom enrichment instructions for THIS run only (see "Re-enrich" below).
 
@@ -46,7 +46,7 @@ tell the user to run `qualcomm-case-agent` first, and STOP.
 
 ## PHASE E0 — Load & validate
 
-1. Read `data/cases/<CODE>.json`. Not found → STOP (run `qualcomm-case-agent` first).
+1. Read `data/cases/<CODE>/case.json`. Not found → STOP (run `qualcomm-case-agent` first).
 2. Read existing `enrichment` (may be absent). Note which comment ids already have an analysis.
 
 ## PHASE E1 — Per-comment analysis (incremental)
@@ -110,26 +110,26 @@ Guidance per field:
 ## PHASE E3 — Merge & persist
 
 1. Merge: keep old `commentAnalyses`, add the new ids; OVERWRITE all case-level fields; set
-   `enrichedAt`. Write back to `data/cases/<CODE>.json` (raw untouched).
+   `enrichedAt`. Write back to `data/cases/<CODE>/case.json` (raw untouched).
 2. Update `data/cases/_index.json["<CODE>"].enrichedAt`.
 3. Re-render all human formats (deterministic — do not hand-write them):
    ```bash
-   node ".claude/skills/qualcomm-case-agent/scripts/render_case.mjs" "data/cases/<CODE>.json"
+   node ".claude/skills/qualcomm-case-agent/scripts/render_case.mjs" "data/cases/<CODE>/case.json"
    ```
-   Writes siblings: `<CODE>.report.md` (summary), `<CODE>.md` + `<CODE>.html` + `<CODE>.txt` (full).
+   Writes siblings in `data/cases/<CODE>/`: `case.report.md` (summary), `case.md` + `case.html` + `case.txt` (full).
 4. **PDF (optional, needs the connected Chrome from qualcomm-case-agent PHASE 0):** print the
    rendered HTML — it's our engineer report, not the raw portal page:
    ```bash
-   agent-browser open "file://$(pwd)/data/cases/<CODE>.html"
-   agent-browser pdf "data/cases/<CODE>.pdf"
+   agent-browser open "file://$(pwd)/data/cases/<CODE>/case.html"
+   agent-browser pdf "data/cases/<CODE>/case.pdf"
    ```
    If no Chrome session is attached, skip PDF (HTML is the canonical human format) and say so.
 
 ## PHASE E4 — Report
 
 Tell the user: overview (engineerSummary), current status, root cause, # open questions, top
-actions, and the output paths (`<CODE>.json` · `.report.md` · `.html` · `.txt` [· `.pdf`]). Attach
-`<CODE>.report.md` and `<CODE>.html`.
+actions, and the output paths under `data/cases/<CODE>/` (`case.json` · `case.report.md` · `case.html` · `case.txt` [· `case.pdf`]). Attach
+`case.report.md` and `case.html`.
 
 ---
 
