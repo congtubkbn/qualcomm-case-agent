@@ -42,7 +42,7 @@ Scripts and references live under `.claude\skills\qualcomm-case-agent\` (skill d
 | Session store | `data\chrome-profile\` — persistent `--user-data-dir`; git-ignored |
 | Case cache | per-case folder `data\cases\<CODE>\`: `case.json` · `case.report.md` · `case.md` · `case.html` · `case.txt` · `case.pdf` (optional) |
 | Sync index | `data\cases\_index.json` |
-| Scripts | skill dir `scripts\`: `intake.mjs` (Intake guard — validate code + prep dirs), `connect_chrome.ps1`, `okta_login.ps1`, `capture_password.ps1`, `extract_case.js` (PHASE 2 extractor, run via `eval --stdin`), `scrape_case.mjs` (finalizer), `render_case.mjs` |
+| Scripts | skill dir `scripts\`: `intake.mjs` (Intake guard — validate code + prep dirs), `connect_chrome.ps1`, `okta_login.ps1`, `capture_password.ps1`, `readiness.js` (PHASE 1 readiness probe, run via `eval --stdin`), `extract_case.js` (PHASE 2 extractor, run via `eval --stdin`), `scrape_case.mjs` (finalizer), `render_case.mjs` |
 | Enrich skill | `qualcomm-enrich` — standalone analyst pass (no browser, no re-scrape) |
 | References | skill dir `references\`: `login-flow.md`, `extraction.md`, `workflow.md`, `consumer-guide.md` |
 
@@ -114,29 +114,55 @@ persistent-profile Chrome, so the common path (valid saved session) goes straigh
 agent-browser open "https://support.qualcomm.com/s/global-search/<CODE>"
 ```
 
-**Interpret the result:**
+**If `open` itself errors / times out** → **[Recovery 0: Chrome/CDP]**, redo PHASE 0, then retry PHASE 1 ONCE.
 
-| Outcome | Signal | Action |
-|---------|--------|--------|
-| Command errors / times out | CDP dropped since PHASE 0 | → **[Recovery 0: Chrome/CDP]**, redo PHASE 0, then retry PHASE 1 ONCE |
-| Opens but snapshot shows `account.qualcomm.com` | persistent session genuinely lapsed | → **[Recovery 1: Auth]** then retry PHASE 1 ONCE |
-| Opens, shows search results | Chrome + session OK | continue below ↓ |
-
-If the retry after Recovery 0 or Recovery 1 still fails → report the specific error and STOP.
-
-**On success — navigate into case:**
+**Otherwise poll for readiness — do NOT blind-`wait` then snapshot.** The portal is a
+Salesforce Lightning SPA: right after `open`, the accessibility tree can be empty while the DOM
+is still hydrating. A bare `snapshot -c` returning `(empty page)` does NOT mean "no results" — it
+conflates *loading*, *zero-results*, *auth-bounce*, and *dead-blank*. The `readiness.js` probe
+classifies them into one `state` field (runs `eval --stdin`; regex + selectors live in the file to
+avoid Bash/PowerShell quote-hell):
 
 ```bash
-agent-browser wait 2000
-agent-browser snapshot -c          # read search results
-# click the result matching <CODE> (use the @ref)
-agent-browser wait 2000
-agent-browser eval "(function(){ return location.hostname; })()"   # guard: confirm not redirected to login
-# if hostname = "account.qualcomm.com" → Recovery 1 → retry click ONCE
-agent-browser eval "(function(){ return location.href; })()"       # capture the real case URL
+# poll readiness on the SAME url, max 6 rounds x 2s = 12s ceiling
+for i in 1 2 3 4 5 6; do
+  R=$(agent-browser eval --stdin < .claude/skills/qualcomm-case-agent/scripts/readiness.js)
+  echo "$R"
+  echo "$R" | grep -q '"state":"READY"' && break   # → continue (click result)
+  echo "$R" | grep -q '"state":"EMPTY"' && break   # → STOP: wrong code / no access
+  echo "$R" | grep -q '"state":"AUTH"'  && break   # → Recovery 1
+  echo "$R" | grep -q '"state":"BLANK"' && break   # → Recovery 2
+  agent-browser wait 2000
+done
 ```
 
-Store the captured URL as `url` in the case JSON. Zero results for `<CODE>` → code wrong or no access, STOP.
+**Interpret the final `state`:**
+
+| `state` | Meaning | Action |
+|---------|---------|--------|
+| `READY` | search-result rows present | continue below ↓ |
+| `AUTH` | bounced to `account.qualcomm.com` | → **[Recovery 1: Auth]** then retry PHASE 1 ONCE |
+| `EMPTY` | load finished, genuinely zero results | **STOP** — code wrong or no access |
+| `BLANK` | DOM essentially empty (dead/blank page) | → **[Recovery 2: Empty/Stuck Page]** ONCE |
+| `LOADING` after 6 rounds | never hydrated within 12s | → **[Recovery 2: Empty/Stuck Page]** ONCE |
+
+If the retry after Recovery 0 / 1 / 2 still fails → report the final probe `{state,url,host,nodes,rows,title}` and STOP.
+
+**On `READY` — navigate into case:**
+
+```bash
+agent-browser snapshot -c          # rows are loaded now — read search results
+# click the result matching <CODE> (use the @ref)
+agent-browser eval --stdin < .claude/skills/qualcomm-case-agent/scripts/readiness.js   # re-probe after click
+# state=AUTH → Recovery 1 → retry click ONCE; state=READY/other → proceed
+agent-browser eval "(function(){ return location.href; })()"   # capture the real case URL
+```
+
+Store the captured URL as `url` in the case JSON.
+
+> **Do NOT guess alternate URLs.** `/s/case/<CODE>` is always a bad route — the case page needs a
+> Salesforce 18-char record id (`<SFID>`), obtainable ONLY by clicking the search result, never built
+> from the case number. See the **URL discipline** guardrail.
 
 ---
 
@@ -238,6 +264,41 @@ user pastes 6-digit code → **"Verify"**. Selectors in `references\login-flow.m
 
 > **Why "Keep me signed in":** Okta default session is ~2h; checking this box extends to ~30 days,
 > dramatically reducing how often Recovery 1 triggers. Always check it when the checkbox is present.
+
+---
+
+## Recovery 2 — Empty/Stuck Page
+
+Run when PHASE 1 polling ends in `state=BLANK`, or `state=LOADING` after the 6-round (12s) ceiling —
+the page is on the right URL but never rendered results. **Diagnose in place; never navigate to a
+guessed URL.** Runs at most ONCE.
+
+```bash
+# 1. Auth bounce that the probe's host check may have raced? Re-confirm host directly.
+agent-browser eval "(function(){ return location.hostname; })()"
+#    = account.qualcomm.com → go to Recovery 1 (Auth) instead.
+
+# 2. Reload the SAME url once (transient SPA hydration failure), then re-poll readiness.
+agent-browser open "https://support.qualcomm.com/s/global-search/<CODE>"   # SAME link — not a different route
+for i in 1 2 3 4 5 6; do
+  R=$(agent-browser eval --stdin < .claude/skills/qualcomm-case-agent/scripts/readiness.js)
+  echo "$R"
+  echo "$R" | grep -qE '"state":"(READY|EMPTY|AUTH)"' && break
+  agent-browser wait 2000
+done
+```
+
+Decision after the reload poll:
+
+| Result | Action |
+|--------|--------|
+| `READY` | recovered → return to PHASE 1 (click the result) |
+| `EMPTY` | genuinely zero results → STOP (wrong code / no access) |
+| `AUTH` | → Recovery 1 |
+| still `BLANK`/`LOADING` | portal down or render broken → **STOP**, report final probe `{state,url,host,nodes,rows,title}` |
+
+**Hard ceiling:** Recovery 2 runs once. Do not loop it, do not escalate to other URLs. A persistently
+blank page is reported, not worked around.
 
 ---
 
@@ -430,6 +491,7 @@ current status, root cause, # open questions, top recommended actions, file path
 
 - **Load agent-browser reference first** before any browser action.
 - **Session = persistent Chrome profile** at `data\chrome-profile`. Never close between phases. The profile persists across all phases and runs — Chrome closed unexpectedly → Recovery 0 on next action.
+- **URL discipline.** PHASE 1 `open`s exactly ONE url: `/s/global-search/<CODE>`. Once `location.href` confirms you are on it, **never `open` a different URL to "try"**. The real case URL is `/s/case/<SFID>/<slug>` where `<SFID>` is a Salesforce 18-char record id obtainable ONLY by clicking the search result — **never** construct `/s/case/<case-number>` (always a bad route). A blank/empty page is diagnosed in place (poll → Recovery 2), not escaped by navigating elsewhere.
 - **Secrets:** `qid.bin` (DPAPI, CurrentUser) is the only durable password copy. Never in chat, outputs, or plaintext. OTP never stored.
 - **Confidentiality:** case content is Qualcomm NDA. Keep in `data\cases\` (git-ignored). Never paste to external services.
 - **Fidelity:** capture comment bodies and logs VERBATIM. Never truncate. Analyses are a separate field.
