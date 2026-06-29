@@ -383,11 +383,14 @@ Full reference: **`references\extraction.md`** (the three eval rules + selector 
    ```
    If the live DOM differs and fields come back empty, edit `extract_case.js` in place (it is the
    canonical extractor, not a throwaway). Header fields (title/status/priority) aren't on the Feed view —
-   fill them from the PHASE 1 search row before finalizing.
-4. Sanity-check, then finalize (rejects 0 comments → assert count → SHA-256 hash → write JSON + index):
+   pass them to `scrape_case.mjs` as flags (next step). **Do NOT Read+Edit `case.raw.json` to backfill
+   the title** — that re-ingests every comment body to set 3 fields; let the script merge them in code.
+4. Sanity-check, then finalize (rejects 0 comments → assert count → backfill header flags → SHA-256
+   hash → write JSON + index). Pass the title/status/priority you already hold from the PHASE 1 search
+   row as flags — the script fills them only where the Feed extractor left them blank:
    ```bash
    node -e "const j=JSON.parse(require('fs').readFileSync('data/cases/<CODE>/case.raw.json','utf8')); console.log(j.caseNumber, j.comments.length, j.displayedCommentCount)"
-   node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CASE_CODE> "data/cases/<CODE>/case.raw.json"
+   node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CASE_CODE> "data/cases/<CODE>/case.raw.json" --title "<TITLE>" --status "<STATUS>" --priority "<PRIORITY>"
    ```
    On exit 0, delete the `case.raw.json` scratch file.
 

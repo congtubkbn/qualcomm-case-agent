@@ -56,11 +56,28 @@ export function countAssert(capturedCount, displayedCount) {
   return { ok: true };
 }
 
+// Header fields the agent already holds in-context from the PHASE 1 search row.
+// Passing them as flags lets the script backfill the big raw file in CODE — the
+// agent never re-Reads case.raw.json just to add a title (O(1) tokens, not O(case size)).
+export const HEADER_KEYS = ['title', 'status', 'priority', 'severity', 'customer'];
+
+// Parse `--title "..."` style flags into an overrides object. Only HEADER_KEYS honored.
+export function parseHeaderFlags(argv) {
+  const out = {};
+  for (let i = 0; i < argv.length; i++) {
+    const m = /^--([a-zA-Z]+)$/.exec(argv[i]);
+    if (m && HEADER_KEYS.includes(m[1]) && argv[i + 1] != null) {
+      out[m[1]] = argv[++i];
+    }
+  }
+  return out;
+}
+
 // ---- Index path ----
 const INDEX_PATH = join(DATA_DIR, '_index.json');
 
 // ---- Main ----
-function finalize(caseCode, rawPath) {
+function finalize(caseCode, rawPath, header = {}) {
   if (!existsSync(rawPath)) {
     emit({ code: EXIT.BAD_ARGS, reason: `raw JSON not found: ${rawPath}` });
     process.exit(EXIT.BAD_ARGS);
@@ -95,10 +112,20 @@ function finalize(caseCode, rawPath) {
     process.exit(EXIT.INCOMPLETE);
   }
 
+  // Backfill header fields from CLI flags (PHASE 1 search row) — only where the
+  // Feed extractor left them blank, so a real extracted value always wins. This
+  // is the cheap path: the agent passes what it already knows instead of Reading
+  // back the whole raw file to Edit three fields.
+  for (const k of HEADER_KEYS) {
+    if (!String(raw[k] || '').trim() && String(header[k] || '').trim()) {
+      raw[k] = header[k].trim();
+    }
+  }
+
   // Header gate: title drives the human-facing heading. The extractor leaves it
-  // "" on the Feed view; the agent must backfill it from the PHASE 1 search row.
-  // An empty title is a failed pull dressed as success (the renderer would fall
-  // back to "Untitled case"), so reject rather than persist a headerless case.
+  // "" on the Feed view; the agent must backfill it from the PHASE 1 search row
+  // (pass `--title`). An empty title is a failed pull dressed as success (the
+  // renderer would fall back to "Untitled case"), so reject rather than persist.
   if (!String(raw.title || '').trim()) {
     emit({
       code: EXIT.INCOMPLETE,
@@ -162,8 +189,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const caseCode = process.argv[2]?.trim().toUpperCase();
   const rawPath = process.argv[3]?.trim();
   if (!caseCode || !rawPath) {
-    emit({ code: EXIT.BAD_ARGS, reason: 'usage: node scrape_case.mjs <CASE_CODE> <rawJsonPath>' });
+    emit({ code: EXIT.BAD_ARGS, reason: 'usage: node scrape_case.mjs <CASE_CODE> <rawJsonPath> [--title "..." --status "..." --priority "..."]' });
     process.exit(EXIT.BAD_ARGS);
   }
-  finalize(caseCode, rawPath);
+  finalize(caseCode, rawPath, parseHeaderFlags(process.argv.slice(4)));
 }
