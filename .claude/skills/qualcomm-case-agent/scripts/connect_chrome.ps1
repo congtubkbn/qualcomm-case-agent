@@ -21,6 +21,11 @@
      -Port 9222            CDP/remote-debugging port (default 9222)
      -Profile <dir>        user-data-dir (default: <project-root>\data\chrome-profile)
 
+  Exit codes: 0 CDP up (launched or reused, OUR profile verified where readable)
+              3 Chrome not found | 4 CDP port never came up
+              5 port is held by a DIFFERENT process/profile (close it or use -Port;
+                do NOT loop Recovery 0 on this - its kill cannot reach that process)
+
   NOTE: keep this file ASCII-only. PowerShell 5.1 reads a BOM-less file as the
   ANSI codepage, so non-ASCII chars (em-dashes, curly quotes) corrupt parsing.
 #>
@@ -88,7 +93,29 @@ function Get-WsUrl([int]$p) {
 }
 
 if (Test-Cdp $Port) {
+  # Guard: the listener must be OUR profile's Chrome. Blindly "reusing" a foreign
+  # listener (another tool, or a Chrome on a DIFFERENT --user-data-dir) is the
+  # silent stuck-loop: the saved Okta session never loads, every run re-logins,
+  # and Recovery 0 cannot fix it (its kill is path-filtered to .agent-browser).
+  # Positive mismatch only - if the command line is unreadable (rights), fall
+  # through to reuse with a caution rather than false-blocking.
+  $own = (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+          Select-Object -First 1).OwningProcess
+  $cmd = $null
+  if ($own) {
+    $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$own" -ErrorAction SilentlyContinue
+    if ($proc) { $cmd = $proc.CommandLine }
+  }
+  if ($cmd -and $cmd.IndexOf($Profile, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+    Write-Host "ERROR: port $Port is already used by a DIFFERENT process/profile (pid $own):"
+    Write-Host "  $cmd"
+    Write-Host "Expected --user-data-dir: $Profile"
+    Write-Host "The saved Okta session lives ONLY in that profile - reusing this listener would force a login every run."
+    Write-Host "Fix: close that process (or re-run with -Port <other> and connect to that port instead)."
+    exit 5
+  }
   Write-Host "Chrome CDP already listening on $Port - reusing it. Profile: $Profile"
+  if (-not $cmd) { Write-Host "  (note: listener command line unreadable - could not verify the profile)" }
   $ws = Get-WsUrl $Port
   if ($ws) { Write-Host "Next: agent-browser connect `"$ws`"" }
   else     { Write-Host "Next: agent-browser connect $Port  (use ws://127.0.0.1 URL if this 10060-times-out)" }

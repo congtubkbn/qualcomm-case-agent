@@ -104,6 +104,11 @@ Get-CimInstance Win32_Process -Filter "name='chrome.exe'" |
 
 If the guard prints `WRONG` (or 9222 never came up) → **[Recovery 0]** to reset the daemon, then redo PHASE 0 ONCE.
 
+> **`connect_chrome.ps1` exit 5** = port 9222 is held by a DIFFERENT process/profile (it verifies the
+> listener's `--user-data-dir`). Recovery 0 can NOT fix this (its kill is path-filtered to
+> `.agent-browser` Chromes) — do NOT loop it. Report the printed PID/command line to the user: close
+> that process, or re-run with `-Port <other>` and connect to that port instead.
+
 ---
 
 ## PHASE 1 — Locate Case *(entry point)*
@@ -235,30 +240,47 @@ agent-browser snapshot -i
 
 **Step 2 — Fallback: okta_login.ps1 (only if Step 1 failed)**
 
-`data\.secrets\qid.bin` exists → run the DPAPI-decrypted two-step helper:
+`data\.secrets\qid.bin` exists → run the DPAPI-decrypted two-step helper (it checks
+"Keep me signed in" itself, polls each screen transition with a bounded ceiling — no blind sleeps —
+and decides state by `location.hostname`, so it cannot mistake a slow-loading page for a valid
+session):
 ```bash
 powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/okta_login.ps1"
 ```
 
-`qid.bin` missing → ask user to run in a **real PowerShell terminal** (NOT cmd, NOT chat):
+Branch on its **exit code** (do not re-diagnose from snapshots yourself):
+
+| Exit | Meaning | Action |
+|------|---------|--------|
+| 0 | session valid / established, **or** password accepted and OTP screen is up (output says which) | OTP case → Step 3; otherwise retry PHASE 1 |
+| 3 | not attached, or page never reached a known state within the ceiling | re-check PHASE 0; retry ONCE; still 3 → report + STOP |
+| 4 | `qid.bin` missing | run capture (below), then re-run `okta_login.ps1` |
+| 6 | **wrong password** (username bounce / credential error) | delete `qid.bin` → user re-captures → retry ONCE; fails again → STOP |
+
+`qid.bin` missing (exit 4) → ask user to run in a **real PowerShell terminal** (NOT cmd, NOT chat):
 ```
 powershell -ExecutionPolicy Bypass -File .claude\skills\qualcomm-case-agent\scripts\capture_password.ps1
 ```
 Wait for "Saved … bytes", then run `okta_login.ps1`.
-
-After okta_login.ps1, check snapshot again with the same decision table above.
 
 **Step 3 — OTP (only if presented)**
 
 Drive OTP screens by snapshot: **"Send me an email"** → **"Enter a verification code instead"** →
 user pastes 6-digit code → **"Verify"**. Selectors in `references\login-flow.md`.
 
+**Bounded wait for the human (never spin forever):** after asking the user to paste the code, poll
+`agent-browser snapshot -i` every ~30s. Portal/dashboard content → done, retry PHASE 1. Still a
+verification screen after **10 minutes** → report ("waiting on email OTP — code expires ~5 min,
+request a fresh one and tell me to resume") and **STOP**. Do not keep polling past the ceiling, and
+do not re-click "Send me an email" repeatedly (each click invalidates the previous code).
+
 **Failure table:**
 
 | Situation | Action |
 |-----------|--------|
-| Wrong password (never advanced past password screen) | delete `qid.bin`; ask user to re-run capture script; retry ONCE. Fails again → STOP. |
+| Wrong password (`okta_login.ps1` exit 6, or Step 1 never advanced past the password screen) | delete `qid.bin`; ask user to re-run capture script; retry ONCE. Fails again → STOP. |
 | OTP rejected/expired | OTP problem — do NOT delete `qid.bin`. User requests fresh code and re-pastes. |
+| OTP wait ceiling (10 min) reached | report and STOP — resume when the user says the code is pasted. |
 | Email unavailable + session expired | cannot authenticate — report and STOP. |
 
 **Never** echo the password or OTP. The only durable secret is `qid.bin` (DPAPI-encrypted).
@@ -322,6 +344,10 @@ agent-browser snapshot -i   # re-check; stop when button absent
 
 The button appears as `button "View More Posts"` or `button "View More"` near the bottom of the Feed
 region. Repeat until it no longer appears in the snapshot.
+
+**Ceiling:** this loop is bounded — max **30 rounds**, and if a click does not increase the number of
+posts in the snapshot for 2 consecutive rounds (button present but inert), stop and report instead of
+clicking forever. A case with more than ~30 pages of posts is reported, not silently spun on.
 
 **Step B — Expand all "Expand Post" links**
 

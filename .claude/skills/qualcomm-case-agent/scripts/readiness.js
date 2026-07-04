@@ -38,8 +38,19 @@
   // EMPTY signal: Lightning "no results" illustration text.
   var noRes = /no results|0 result|nothing to see/i.test(text);
 
+  // AUTH must catch ANY identity-provider host, not just account.qualcomm.com —
+  // the Okta flow can hop through *.okta.com / sso / login hosts. Misclassifying
+  // those as BLANK/LOADING sends the agent to Recovery 2 (reload) instead of
+  // Recovery 1 (login), wasting the single recovery attempt.
+  var host = location.hostname;
+  var isPortal = /(^|\.)support\.qualcomm\.com$/i.test(host);
+  var isIdp = !isPortal && (
+    /(^|\.)okta\.com$/i.test(host) ||
+    /(account|login|signin|sso|auth)/i.test(host)
+  );
+
   var state;
-  if (location.hostname === 'account.qualcomm.com') state = 'AUTH';
+  if (isIdp)                                        state = 'AUTH';
   else if (rows > 0)                                state = 'READY';
   else if (noRes && spin === 0)                     state = 'EMPTY';
   else if (nodes < 50)                              state = 'BLANK';

@@ -134,6 +134,19 @@ transcript):
 powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/okta_login.ps1"
 ```
 
+**Stuck-proofing (v2):** every wait in the script is a bounded poll (default 20s per transition,
+`-StepTimeoutSec` to change), never a fixed sleep — a slow-hydrating SPA page can no longer be
+mistaken for "session valid" or "password field missing". State is decided by `location.hostname`
+via eval (`support.qualcomm.com` = portal; `account.qualcomm.com` / `*.okta.com` / sso hosts =
+login), and the post-password outcome is classified with OTP-SPECIFIC markers (the old regex
+matched the word `Verify`, which sits on the password screen itself, so a rejected password was
+reported as "accepted — do OTP" and the human waited for an email that never came). The script also
+checks **"Keep me signed in"** on the username screen (best-effort), extending the session ~2h → ~30d.
+
+**Exit codes:** `0` session valid/established or OTP handoff (output says which) · `3` not
+attached / no known state within ceiling · `4` `qid.bin` missing · `6` **wrong password**
+(username bounce or credential error — delete `qid.bin` + re-capture; never an OTP problem).
+
 Confirmed screen sequence (refs are illustrative — re-snapshot each run):
 
 | Screen | Heading | Field | Action |
@@ -182,8 +195,9 @@ agent-browser click "input[type='submit']"          # Verify
      wait, then run the conduit.
    - Then the user pastes the **email OTP** into the page. Wait, then `agent-browser snapshot -c` to
      confirm the dashboard. The profile stores the new session automatically.
-3. **Login fails after submit** (still on `account.qualcomm.com` with a credential error, OR the form
-   never advanced to the OTP step) → **wrong password**:
+3. **Login fails after submit** (`okta_login.ps1` exit 6; or manually: still on
+   `account.qualcomm.com` with a credential error / bounced back to the username screen — Okta's
+   wrong-password signature) → **wrong password**:
    - `agent-browser auth delete qualcomm` (if present) and delete `data/.secrets/qid.bin`.
    - Ask the user to re-run the capture snippet, then retry the conduit **once**.
    - Fails again → report plainly and STOP. Do not loop.
