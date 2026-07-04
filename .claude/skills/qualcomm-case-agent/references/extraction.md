@@ -64,6 +64,32 @@ asserts `comments.length >= displayedCommentCount` (short → exit 5, expand mor
 the SHA-256 `hash` + `extractedAt`, writes `data/cases/<CODE>/case.json`, and updates the root
 `_index.json`. It never drives the browser and never mutates your raw fields.
 
+## Update runs (`--merge`) — partial capture of a cached case
+
+When the case is already cached and the user confirmed an update (SKILL.md Intake cache check +
+PHASE 1.5B), the DOM holds the NEW posts fully expanded while old posts stay collapsed/truncated.
+Run the SAME extractor over that DOM, then finalize with `--merge`:
+
+```bash
+node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CODE> "data/cases/<CODE>/case.raw.json" --merge --status "<STATUS>" --priority "<PRIORITY>"
+```
+
+What the merge does (all in code, deterministic):
+
+- **Dedup key = author + whitespace-normalized first 120 chars of body.** Timestamps are excluded
+  on purpose — Chatter's relative times ("13h ago") drift between runs, and old posts arrive
+  truncated; the prefix survives both. (Known limit: editing the first 120 chars of an old comment
+  makes it look new.)
+- Comments not in the cache are **prepended** (feed is newest-first) with collision-free ids;
+  cached comments, `analysisLog`s, timestamps and `enrichment` are kept **verbatim** — a truncated
+  re-capture never overwrites a full cached body.
+- `url` + `displayedCommentCount` are refreshed; `--status`/`--priority` flags override the cache
+  (fresh PHASE 1 row is the current truth); other raw fields only fill blanks. `--title` not needed.
+- Completeness assert runs on the MERGED set; the hash is recomputed over it.
+- Emits `newComments` / `newCommentIds` / `headerChanged` / `changed` — `newComments: 0` with
+  nothing else changed = "no update".
+- `--merge` without an existing `data/cases/<CODE>/case.json` → exit 2 (run a full extraction).
+
 **Header metadata (title/status/priority/customer) is NOT on the Feed view** — it lives on the case
 **Detail tab** and the **PHASE 1 search-results row** (which exposes Subject, Status, Priority, Customer
 Project). `extract_case.js` leaves those fields `""`; fill them by editing the raw JSON from what PHASE 1

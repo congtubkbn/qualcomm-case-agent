@@ -10,16 +10,20 @@ How the Qualcomm Case Management Agent runs end to end. Companion to `SKILL.md` 
 flowchart TD
   IN(["Input — 1 Qualcomm case code"]) --> P0["Phase 0 · intake<br/>validate code · load agent-browser · mkdir data/cases"]
   P0 -->|no code| S0((stop))
-  P0 --> P1["Phase 1 · authenticate<br/>attach real Chrome (CDP 9222) · reuse --user-data-dir session"]
+  P0 --> CACHE{"cached in _index.json?"}
+  CACHE -->|no → new case, full flow| P1
+  CACHE -->|yes| ASK{"ask user:<br/>update from portal?"}
+  ASK -->|no| RPT["report from cache"] --> S4((stop))
+  ASK -->|yes → update run| P1["Phase 1 · authenticate<br/>attach real Chrome (CDP 9222) · reuse --user-data-dir session"]
   P1 -->|session valid| P2
   P1 -->|expired| LG["human: Okta login + email OTP<br/>(profile saves it, no notify)"]
   LG -->|email unavailable| S1((stop))
   LG --> P2["Phase 2 · locate case<br/>open case url / search"]
   P2 -->|not found| S2((stop))
-  P2 --> P3["Phase 3 · extract<br/>snapshot→click expand · eval extract · assert count"]
-  P3 --> CHK{"Phase 3.5 · changed?<br/>hash vs _index.json"}
+  P2 --> P3["Phase 3 · extract<br/>new case: full expand · eval extract · assert count<br/>update run: expand ONLY new posts → merge (--merge)"]
+  P3 --> CHK{"Phase 3.5 · changed?<br/>full: hash vs _index.json<br/>update: newComments / headerChanged"}
   CHK -->|no change| NUP["no update"] --> S3((stop / report))
-  CHK -->|new or changed| P4["Phase 4 · enrich<br/>engineer summaries (Protocol/RF/3GPP)"]
+  CHK -->|new or changed| P4["Phase 4 · enrich<br/>engineer summaries (Protocol/RF/3GPP)<br/>update run: only the NEW comment ids"]
   P4 --> P5["Phase 5 · persist<br/>write json → render → update index"]
   P5 --> OUT
   subgraph OUT["outputs — data/cases/"]
@@ -39,12 +43,12 @@ One Qualcomm case code (`CASE-01234567`, `00123456`, or the numeric url id). Mis
 
 | Phase | Does | Guard / branch |
 |-------|------|----------------|
-| 0 Intake | validate+normalize code, load `agent-browser` skill, ensure `data/cases/` | no code → STOP |
+| 0 Intake | validate+normalize code, load `agent-browser` skill, ensure `data/cases/`; **cache check**: case already in `_index.json` → ask user "update from portal?" (skip the question when the request already says update/report-only) | no code → STOP · cached + user says no → report from cache, STOP |
 | 1 Authenticate | launch real Chrome (`connect_chrome.ps1`, CDP 9222) + attach; reuse persistent `--user-data-dir` (`data/chrome-profile/`); valid → continue | expired → human Okta login + **email OTP** (profile saves it, no notify). **Email unreachable → STOP** |
 | 2 Locate | open the case (url / dashboard search on `support.qualcomm.com`) | not found → STOP |
-| 3 Extract | **expand via `agent-browser snapshot → click`** ("View More Posts", every "Expand Post", "Description") to no-expanders-left; then ONE `eval` extractor → raw JSON → `scrape_case.mjs` finalizes (assert `comments.length >= displayedCommentCount`, hash, write) | count short → expand more / fix extractor / progressive scroll |
-| 3.5 Incremental | SHA-256 the raw case; compare to `_index.json` | same hash → **no update → STOP** (skip enrich + writes) |
-| 4 Enrich | per-comment `summary`; case `engineerSummary`, `rootCause`, `recommendedActions`, `tags`, `timeline` | — |
+| 3 Extract | **new case:** expand via `agent-browser snapshot → click` ("View More Posts", every "Expand Post", "Description") to no-expanders-left; then ONE `eval` extractor → raw JSON → `scrape_case.mjs` finalizes (assert `comments.length >= displayedCommentCount`, hash, write). **Update run:** fast probe (top post + feed count vs cache → may already be "no update"); else paginate only until the newest CACHED comment is visible, expand ONLY the posts above it, extract, finalize with `--merge` — new comments prepended, cached comments/logs/enrichment kept verbatim | count short → expand more / fix extractor / progressive scroll |
+| 3.5 Incremental | full: SHA-256 the raw case, compare to `_index.json`; update run: `--merge` emits `newComments` / `headerChanged` / `changed` | no change → **no update → STOP** (skip enrich + writes) · `newComments:0, headerChanged:true` → re-render only |
+| 4 Enrich | per-comment `summary`; case `engineerSummary`, `rootCause`, `recommendedActions`, `tags`, `timeline`; update run analyzes ONLY the new comment ids, then re-synthesizes case-level fields | — |
 | 5 Persist | write `<CODE>/case.json` → `node render_case.mjs` → emit report/md/html/txt in the folder → update root `_index.json` | — |
 | 6 Report | tell user: counts (captured vs displayed), root cause, paths | — |
 
@@ -64,7 +68,10 @@ One Qualcomm case code (`CASE-01234567`, `00123456`, or the numeric url id). Mis
 1. **Session > password** — log in once, reuse the Chrome `--user-data-dir` (real Chrome via CDP); OTP only when it expires.
 2. **Snapshot→click expand + count assert** — accessibility-tree clicks reveal every post/reply/body;
    the `displayedCommentCount` assert guarantees nothing is missed or truncated.
-3. **Incremental** — unchanged case is not re-enriched or rewritten.
+3. **Incremental** — a cached case triggers a "update from portal?" question first (unless the
+   request already decided); an update run expands/extracts/enriches ONLY the new comments
+   (`--merge` prepends them, everything cached is kept verbatim) and re-renders the outputs;
+   an unchanged case is not re-enriched or rewritten.
 4. **Role split** — model owns data + judgement (JSON); the render script owns formatting
    (report/md/html) → deterministic and token-cheap.
 5. **Fail-fast guards** — four early STOPs (no code, email unavailable, not found, no change);
