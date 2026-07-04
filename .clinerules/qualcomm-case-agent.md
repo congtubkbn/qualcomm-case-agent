@@ -27,7 +27,9 @@ CASE-12345", "lấy case qualcomm CASE-12345", "qualcomm case 00123456"), follow
   Chrome window. After that the profile persists; later syncs need no OTP until it expires.
 - Output goes to `data/cases/<CODE>.json` (full) + `<CODE>.report.md` (summary) +
   `<CODE>.md` / `<CODE>.html` / `<CODE>.txt` (review, + optional `<CODE>.pdf`). Unchanged cases
-  report "no update".
+  report "no update". A case that is already cached triggers an "update from the portal?" question
+  first (ask_followup_question); a confirmed update run pulls ONLY the new comments and merges them
+  (`scrape_case.mjs --merge`) — cached comments and analysis are never re-fetched.
 - **Deep analysis** (overview, analysis flow, root cause, open questions, per-comment role +
   3GPP citations) is PHASE 4 of the runbook, and can also be run standalone — no browser/re-scrape —
   via the sibling skill `.claude/skills/qualcomm-enrich/SKILL.md` (triggers: "enrich/re-enrich/

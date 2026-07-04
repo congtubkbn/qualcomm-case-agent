@@ -42,7 +42,7 @@ Scripts and references live under `.claude\skills\qualcomm-case-agent\` (skill d
 | Session store | `data\chrome-profile\` — persistent `--user-data-dir`; git-ignored |
 | Case cache | per-case folder `data\cases\<CODE>\`: `case.json` · `case.report.md` · `case.md` · `case.html` · `case.txt` · `case.pdf` |
 | Sync index | `data\cases\_index.json` |
-| Scripts | skill dir `scripts\`: `intake.mjs` (Intake guard — validate code + prep dirs), `connect_chrome.ps1`, `okta_login.ps1`, `capture_password.ps1`, `readiness.js` (PHASE 1 readiness probe, run via `eval --stdin`), `extract_case.js` (PHASE 2 extractor, run via `eval --stdin`), `scrape_case.mjs` (finalizer), `render_case.mjs` |
+| Scripts | skill dir `scripts\`: `intake.mjs` (Intake guard — validate code + prep dirs), `connect_chrome.ps1`, `okta_login.ps1`, `capture_password.ps1`, `readiness.js` (PHASE 1 readiness probe, run via `eval --stdin`), `extract_case.js` (PHASE 2 extractor, run via `eval --stdin`), `scrape_case.mjs` (finalizer; `--merge` = incremental update run), `render_case.mjs` |
 | Enrich skill | `qualcomm-enrich` — standalone analyst pass (no browser, no re-scrape) |
 | References | skill dir `references\`: `login-flow.md`, `extraction.md`, `workflow.md`, `consumer-guide.md` |
 
@@ -67,6 +67,27 @@ Before any browser action:
    (not the command line), so it behaves identically under PowerShell and the Bash tool:
    ```bash
    node ".claude/skills/qualcomm-case-agent/scripts/intake.mjs" "<CODE>"
+   ```
+
+3. **Cache check — already saved? Ask before re-pulling (no browser):**
+   If `_index.json` has an entry for `<CODE>` and `data/cases/<CODE>/case.json` exists, the case
+   was already captured. Do NOT silently re-scrape. Tell the user what is cached and ask:
+
+   > Case `<CODE>` is already saved (synced `<syncedAt>`, N comments). Update it from the portal now?
+
+   Under Claude Code use the AskUserQuestion tool; under other harnesses ask in chat.
+
+   | Answer / situation | Action |
+   |--------------------|--------|
+   | User's request already said update/sync/refresh/re-pull ("update case", "sync lại", "check for new comments") | skip the question → **update run** |
+   | User's request already said report-only ("show what we have", "xem lại case") | skip the question → report from cache (PHASE 5 on existing files), STOP — no browser |
+   | Asked, user says **yes** | **update run** — PHASE 0 → 1 as usual, then PHASE 1.5B (incremental expand) + PHASE 2 `--merge` |
+   | Asked, user says **no** | report from cache, STOP — no browser, no login |
+
+   No index entry → **new case** → full flow (PHASE 0 → 1 → 1.5A full expand → PHASE 2 full finalize).
+   Before an update run, read the anchor from the cache (used by PHASE 1.5B):
+   ```bash
+   node -e "const j=JSON.parse(require('fs').readFileSync('data/cases/<CODE>/case.json','utf8')); const c=j.comments[0]; console.log(JSON.stringify({displayed:j.displayedCommentCount, cachedCount:j.comments.length, newestAuthor:c.author, newestBodyStart:c.body.replace(/\s+/g,' ').slice(0,80), syncedAt:j.extractedAt}))"
    ```
 
 ---
@@ -305,10 +326,15 @@ blank page is reported, not worked around.
 
 ## PHASE 1.5 — DOM Expansion *(run before extraction)*
 
-**Goal:** ensure full DOM content is visible before extraction. The Salesforce Chatter feed hides data
-behind pagination and collapsed bodies. These are `agent-browser click` steps — the accessibility tree
-exposes them as named controls, no JS eval needed. **This is the only expansion step** — PHASE 2 extracts
-from the DOM exactly as this phase leaves it; nothing re-opens or re-expands the page.
+**Goal:** ensure the DOM content needed for extraction is visible. The Salesforce Chatter feed hides
+data behind pagination and collapsed bodies. These are `agent-browser click` steps — the accessibility
+tree exposes them as named controls, no JS eval needed. **This is the only expansion step** — PHASE 2
+extracts from the DOM exactly as this phase leaves it; nothing re-opens or re-expands the page.
+
+Two variants: **1.5A (full)** for a new case — expand everything; **1.5B (incremental)** for an
+update run on a cached case — expand only down to the newest cached comment.
+
+### PHASE 1.5A — Full expansion (new case)
 
 **Step A — Pagination: click "View More Posts" until gone**
 
@@ -357,6 +383,35 @@ agent-browser snapshot -c | grep -E "Expand Post|View More"
 > to reveal 9th post. 6 "Expand Post" links across posts + 1 nested comment. Description was
 > collapsed. All resolved by sequential click → wait → verify.
 
+### PHASE 1.5B — Incremental expansion (update run on a cached case)
+
+Full expansion re-loads and re-expands every old post just to throw the bytes away in the merge.
+On an update run, the newest CACHED comment (the **anchor** from the Intake cache check —
+`newestAuthor` + `newestBodyStart`) is the stop line:
+
+**Step 0 — Fast no-update probe** (first snapshot, before any clicking):
+
+```bash
+agent-browser snapshot -c   # read: `status "N Chatter Feed Items"` + the top post
+```
+
+If **N equals** the cached `displayed` AND the **top post matches the anchor** (same author, body
+starts with `newestBodyStart`) → nothing new → report **"no update since `<syncedAt>`"** and STOP
+(skip PHASE 2 entirely).
+
+> Caveat: a new nested reply under an old post does not move the top post and may not change N.
+> If the user says there IS an update (they saw a notification), skip this probe and run Steps 1–2 —
+> the `--merge` finalize is the definitive check.
+
+**Step 1 — Paginate only until the anchor is visible.** Click "View More Posts" and re-snapshot;
+STOP clicking as soon as a post matching the anchor appears. Do NOT paginate to the end of the feed.
+
+**Step 2 — Expand only the NEW posts.** Click "Expand Post" only on posts ABOVE the anchor
+(and their nested replies). Old posts stay collapsed — the merge dedupes their truncated bodies
+away and keeps the cached verbatim ones. Description is already cached → do not re-expand.
+
+**Confirm:** every post above the anchor shows no remaining "Expand Post". Then PHASE 2 with `--merge`.
+
 ---
 
 ## PHASE 2 — Extract *(agent-driven)*
@@ -371,7 +426,9 @@ then finalize to `data/cases/<CODE>/case.json` (+ root `_index.json`).
 Full reference: **`references\extraction.md`** (the three eval rules + selector lock-in table).
 
 1. Read existing `_index.json` to get the old hash for `<CODE>` (incremental check).
-2. Confirm PHASE 1.5 done: `agent-browser snapshot -c | grep -E "Expand Post|View More"` → empty.
+2. Confirm expansion done. **Full run:** `agent-browser snapshot -c | grep -E "Expand Post|View More"`
+   → empty. **Update run:** leftovers are EXPECTED on old posts below the anchor — only confirm the
+   posts above the anchor are expanded (PHASE 1.5B).
 3. Make the case folder, then run the bundled extractor via `--stdin` (multi-line JS reaches the browser
    intact) and redirect the result into the folder's raw scratch file. The script returns the OBJECT
    (agent-browser serializes it once — do NOT `JSON.stringify` inside, that double-encodes; and the
@@ -394,13 +451,31 @@ Full reference: **`references\extraction.md`** (the three eval rules + selector 
    ```
    On exit 0, delete the `case.raw.json` scratch file.
 
+   **Update run — finalize with `--merge` instead.** The raw file is a PARTIAL capture (new posts
+   fully expanded, old posts possibly collapsed/truncated). Run the SAME extractor, then:
+   ```bash
+   node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CASE_CODE> "data/cases/<CODE>/case.raw.json" --merge --status "<STATUS>" --priority "<PRIORITY>"
+   ```
+   The script keeps every cached comment (bodies, logs, timestamps) VERBATIM, prepends only comments
+   not already cached (dedup: author + normalized body prefix — relative-timestamp drift and
+   collapsed truncation don't break it), preserves `enrichment` untouched, refreshes
+   `url`/`displayedCommentCount`, lets fresh `--status`/`--priority` flags override the cache
+   (they're the current truth from the PHASE 1 row), and recomputes the hash. `--title` is not
+   needed — the cached title survives. Branch on the emitted JSON:
+
+   | Emitted (exit 0, merge) | Meaning | Action |
+   |------------------------|---------|--------|
+   | `newComments > 0` | new comments merged (ids in `newCommentIds`) | PHASE 3 (enrich ONLY those ids) → PHASE 4 |
+   | `newComments: 0, headerChanged: true` | no new comments, but status/priority changed | skip PHASE 3 → PHASE 4 (re-render outputs) |
+   | `newComments: 0, headerChanged: false, changed: false` | nothing new | report "no update since `<syncedAt>`", STOP |
+
 **Exit codes:**
 
 | Code | Meaning | Action |
 |------|---------|--------|
-| 0 | OK | Compare new hash vs old. Identical → "No update since `<syncedAt>`", STOP. Changed → PHASE 3. |
-| 2 | Bad args / bad raw JSON | Fix invocation; ensure `raw.comments` is an array (clean single-encoded JSON, no BOM), then re-extract. |
-| 5 | Incomplete — 0 comments, or `comments.length < displayedCommentCount` | 0 comments = wrong page / session lapsed / Feed not loaded → re-check you're on the case page, finish PHASE 1.5, re-extract. Short = expand more or, if virtualized, progressive extraction (extraction.md). STOP if still 5. |
+| 0 | OK | Full run: compare new hash vs old — identical → "No update since `<syncedAt>`", STOP; changed → PHASE 3. Update run: branch on `newComments`/`headerChanged` (table above). |
+| 2 | Bad args / bad raw JSON / `--merge` without a cached `case.json` | Fix invocation; ensure `raw.comments` is an array (clean single-encoded JSON, no BOM). `--merge` without cache → run a full extraction instead. |
+| 5 | Incomplete — 0 comments, or merged/captured `comments.length < displayedCommentCount` | 0 comments = wrong page / session lapsed / Feed not loaded → re-check you're on the case page, finish PHASE 1.5, re-extract. Short = expand more (update run: paginate further past the anchor) or, if virtualized, progressive extraction (extraction.md). STOP if still 5. |
 
 Auth redirect / "case not found" are caught earlier by the PHASE 1 hostname guard — PHASE 2 no longer
 navigates, so it never re-triggers them.
@@ -409,7 +484,8 @@ navigates, so it never re-triggers them.
 
 ## PHASE 3 — Enrich
 
-**Trigger:** PHASE 2 exit 0 AND hash changed.
+**Trigger:** PHASE 2 exit 0 AND hash changed (update run: `newComments > 0` — the ids to analyze
+are handed to you in `newCommentIds`; header-only changes skip straight to PHASE 4).
 **Delegation:** same work as standalone `qualcomm-enrich` skill. Hand off to it or run inline — both use the same schema and `render_case.mjs`.
 
 **Goal:** engineer-grade per-comment analysis + case-level synthesis in `data.enrichment`. Raw fields and `hash` are NEVER mutated.
@@ -492,7 +568,8 @@ All artifacts go in the case folder `data\cases\<CODE>\` (created by `scrape_cas
 
 ## PHASE 5 — Report
 
-Tell the user: case number + title + status, comments captured **vs displayed** (or **"no update"**),
+Tell the user: case number + title + status, comments captured **vs displayed** (update run: **how
+many NEW comments were merged**, or **"no update"**),
 current status, root cause, # open questions, top recommended actions, file paths
 (`data/cases/<CODE>/`: `case.json` · `case.report.md` · `case.html` · `case.txt` · `case.pdf`). Attach `case.report.md` and `case.html`. If the PDF failed both attempts (PHASE 4 step 3), say so explicitly — never drop it from the list silently.
 
@@ -507,7 +584,10 @@ current status, root cause, # open questions, top recommended actions, file path
 - **Confidentiality:** case content is Qualcomm NDA. Keep in `data\cases\` (git-ignored). Never paste to external services.
 - **Fidelity:** capture comment bodies and logs VERBATIM. Never truncate. Analyses are a separate field.
 - **No fabrication:** absent field/URL/log → say so.
-- **Incremental:** unchanged case → "no update"; do not rewrite or re-enrich.
+- **Incremental:** cached case → ASK the user before re-pulling (Intake cache check) unless their
+  request already decided it. Update run = PHASE 1.5B + `--merge`: only the NEW comments are
+  expanded, extracted and enriched — cached comments, logs and `enrichment` are never re-fetched or
+  rewritten; outputs are re-rendered from the merged `case.json`. Unchanged case → "no update".
 - **Scope:** one case per invocation.
 - **ToS:** extract only cases the signed-in account is authorized to view.
 
