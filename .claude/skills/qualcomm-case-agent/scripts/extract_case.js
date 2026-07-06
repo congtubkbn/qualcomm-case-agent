@@ -3,8 +3,8 @@
 // Default case extractor for PHASE 2. Run it against the ALREADY-EXPANDED case
 // page (PHASE 1.5 done) with:
 //
-//     agent-browser eval --stdin < .claude/skills/qualcomm-case-agent/scripts/extract_case.js \
-//       > data/cases/<CODE>.raw.json
+//     qcase script extract | agent-browser eval --stdin \
+//       > data/cases/<CODE>/case.raw.json
 //
 // Two things make this robust where ad-hoc extractors trip up:
 //   1. It is one IIFE whose final expression IS the result object. agent-browser

@@ -17,8 +17,9 @@ follow the debug flow → see what is still open → drill into any single comme
 separate `qualcomm-case-agent` skill (PHASES 0–3). If `data/cases/<CODE>/case.json` does not exist →
 tell the user to run `qualcomm-case-agent` first, and STOP.
 
-> Paths are relative to the workspace root (the access-qualcomm project / CWD). The render script
-> lives under the sibling skill: `.claude/skills/qualcomm-case-agent/scripts/render_case.mjs`.
+> Paths are relative to the workspace root (the access-qualcomm project / CWD). Rendering uses the
+> shared `qcase render` CLI (installed from the sibling skill's `scripts/` via `npm link`; the
+> underlying script is `qualcomm-case-agent/scripts/render_case.mjs`).
 
 ---
 
@@ -114,7 +115,7 @@ Guidance per field:
 2. Update `data/cases/_index.json["<CODE>"].enrichedAt`.
 3. Re-render all human formats (deterministic — do not hand-write them):
    ```bash
-   node ".claude/skills/qualcomm-case-agent/scripts/render_case.mjs" "data/cases/<CODE>/case.json"
+   qcase render "data/cases/<CODE>/case.json"
    ```
    Writes siblings in `data/cases/<CODE>/`: `case.report.md` (summary), `case.md` + `case.html` + `case.txt` (full).
 4. **PDF (optional, needs the connected Chrome from qualcomm-case-agent PHASE 0):** print the
@@ -149,4 +150,4 @@ Triggered by: "re-enrich", "redo analysis", "improve summary", "đánh giá lạ
   render. It can still enrich inline.
 - `qualcomm-enrich` = the standalone analyst pass over an existing raw JSON. Use it to (re)analyze
   without touching the browser. Both write the SAME `enrichment` schema and call the SAME
-  `render_case.mjs`, so outputs are identical in shape.
+  `qcase render`, so outputs are identical in shape.

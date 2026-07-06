@@ -3,7 +3,7 @@
 // PHASE 1 readiness probe. Run it after `agent-browser open <global-search URL>`
 // to classify the page state WITHOUT a blind sleep:
 //
-//     agent-browser eval --stdin < .claude/skills/qualcomm-case-agent/scripts/readiness.js
+//     qcase script readiness | agent-browser eval --stdin
 //
 // Why a file (not an inline eval): the probe carries regex (/no results/i) and CSS
 // selectors with nested quotes (a[href*="/s/case/"]). Inline, those break command-line

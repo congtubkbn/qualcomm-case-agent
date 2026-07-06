@@ -1,0 +1,26 @@
+{
+  "name": "qcase",
+  "version": "1.0.0",
+  "description": "CLI for the Qualcomm Case Management Agent skill (intake, scrape/merge, render, browser-eval payloads, Chrome/Okta helpers).",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "qcase": "./qcase.mjs"
+  },
+  "files": [
+    "qcase.mjs",
+    "_paths.mjs",
+    "_paths.ps1",
+    "intake.mjs",
+    "scrape_case.mjs",
+    "render_case.mjs",
+    "readiness.js",
+    "extract_case.js",
+    "connect_chrome.ps1",
+    "okta_login.ps1",
+    "capture_password.ps1"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -29,12 +29,13 @@ agent-browser snapshot -c | grep -E "Expand Post|View More"
 ## Step 2 — Extract the whole case in ONE eval
 
 A ready-made extractor is bundled at **`scripts/extract_case.js`** — a clean default keyed on the
-confirmed Salesforce Lightning structure (lock-in table below). Run it with `--stdin` so the multi-line
-JS reaches the browser intact, and redirect the result straight to the raw file:
+confirmed Salesforce Lightning structure (lock-in table below). `qcase script extract` prints it to
+stdout; pipe it into `agent-browser eval --stdin` so the multi-line JS reaches the browser intact, and
+redirect the result straight to the raw file:
 
 ```bash
 mkdir -p data/cases/<CODE>
-agent-browser eval --stdin < .claude/skills/qualcomm-case-agent/scripts/extract_case.js \
+qcase script extract | agent-browser eval --stdin \
   > data/cases/<CODE>/case.raw.json
 ```
 
@@ -55,7 +56,7 @@ Sanity-check the raw file, then finalize:
 
 ```bash
 node -e "const j=JSON.parse(require('fs').readFileSync('data/cases/<CODE>/case.raw.json','utf8')); console.log(j.caseNumber, j.comments.length, j.displayedCommentCount)"
-node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CODE> "data/cases/<CODE>/case.raw.json"
+qcase scrape <CODE> "data/cases/<CODE>/case.raw.json"
 # on exit 0, delete the case.raw.json scratch file
 ```
 
@@ -71,7 +72,7 @@ PHASE 1.5B), the DOM holds the NEW posts fully expanded while old posts stay col
 Run the SAME extractor over that DOM, then finalize with `--merge`:
 
 ```bash
-node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CODE> "data/cases/<CODE>/case.raw.json" --merge --status "<STATUS>" --priority "<PRIORITY>"
+qcase scrape <CODE> "data/cases/<CODE>/case.raw.json" --merge --status "<STATUS>" --priority "<PRIORITY>"
 ```
 
 What the merge does (all in code, deterministic):
