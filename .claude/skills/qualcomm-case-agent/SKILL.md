@@ -122,6 +122,12 @@ agent-browser connect "ws://127.0.0.1:9222/devtools/browser/<id>"
 ```bash
 agent-browser eval "(function(){ return new URL(location.href).hostname; })()"   # any value = connected OK
 ```
+
+> **Connectivity check ONLY — do NOT interpret the hostname value.** A non-empty result just proves
+> agent-browser is attached to a live tab; it says nothing about auth state. Even if the hostname
+> is `account.qualcomm.com` (a stale leftover tab), do **not** snapshot/click/wait here or jump to
+> Recovery 1 manually. Proceed straight to PHASE 1's `open` — its `readiness.js` probe is the sole
+> authority for classifying `AUTH`/`READY`/`EMPTY`/`BLANK` and routing to Recovery 1 only if needed.
 ```powershell
 # Confirm the CDP-9222 Chrome uses the persistent --user-data-dir, not a %TEMP% throwaway.
 # NOTE: a single Chrome launch has many chrome.exe subprocesses (renderer/GPU/utility) that all
