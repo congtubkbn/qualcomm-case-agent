@@ -14,7 +14,11 @@ if (!/^\d{8}$/.test(code)) {
   process.exit(1);
 }
 
-fs.mkdirSync('data/cases', { recursive: true });
+// Create both the cache root AND this case's folder now, so the PHASE 2 raw-file
+// redirect (`... > data/cases/<CODE>/case.raw.json`) never needs a separate shell
+// `mkdir -p` — that line kept breaking when the agent ran it under PowerShell
+// (where `-p` is parsed as a directory name, not a flag).
+fs.mkdirSync(`data/cases/${code}`, { recursive: true });
 
 const idx = 'data/cases/_index.json';
 if (!fs.existsSync(idx)) {

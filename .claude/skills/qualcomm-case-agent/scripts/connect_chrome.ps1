@@ -87,12 +87,22 @@ function Get-WsUrl([int]$p) {
   } catch { return $null }
 }
 
+# Reuse ONLY when the CDP endpoint actually answers HTTP. A port in LISTEN state
+# is not proof Chrome is alive: a dying/half-exited Chrome (or a stale socket) can
+# still show as Listen for a beat, so the old "Test-Cdp -> exit 0" path handed the
+# agent a ws:// URL that refused the connect 2s later (os error 10061). Gate reuse
+# on a real /json/version response; if the port listens but HTTP is dead, treat it
+# as stale -> fall through to a fresh launch instead of claiming a phantom reuse.
 if (Test-Cdp $Port) {
-  Write-Host "Chrome CDP already listening on $Port - reusing it. Profile: $Profile"
   $ws = Get-WsUrl $Port
-  if ($ws) { Write-Host "Next: agent-browser connect `"$ws`"" }
-  else     { Write-Host "Next: agent-browser connect $Port  (use ws://127.0.0.1 URL if this 10060-times-out)" }
-  exit 0
+  if ($ws) {
+    Write-Host "Chrome CDP already listening on $Port - reusing it. Profile: $Profile"
+    Write-Host "Next: agent-browser connect `"$ws`""
+    exit 0
+  }
+  Write-Host "Port $Port is in LISTEN but /json/version did not answer - stale/dying Chrome. Relaunching."
+  # Fall through to launch below. A fresh Chrome on the same --user-data-dir just
+  # reattaches to the persistent profile; the stale listener is replaced.
 }
 
 # Launch detached. Start-Process (NOT the '&' call operator) so Chrome does NOT

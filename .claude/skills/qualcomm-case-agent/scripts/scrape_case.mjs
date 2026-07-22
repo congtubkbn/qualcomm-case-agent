@@ -26,7 +26,7 @@
 // deterministic and identical across runs — that belongs in code, not the model.
 
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
@@ -227,6 +227,13 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
   mkdirSync(caseDir, { recursive: true });
   const outPath = join(caseDir, 'case.json');
   writeFileSync(outPath, JSON.stringify(out, null, 2), 'utf8');
+
+  // Delete the raw scratch capture ourselves, now that the canonical case.json is
+  // written. Previously the SKILL told the agent to `del`/`rm` it in a follow-up
+  // shell line, which thrashed on Windows dialect (`del /F` in cmd vs Remove-Item
+  // in PowerShell vs `rm` in Bash). Owning it here keeps cleanup cross-platform and
+  // one turn shorter. Only runs on the success path (we're about to exit OK).
+  try { rmSync(rawPath, { force: true }); } catch { /* non-fatal: leftover scratch is harmless */ }
 
   // Merge into _index.json.
   let index = {};

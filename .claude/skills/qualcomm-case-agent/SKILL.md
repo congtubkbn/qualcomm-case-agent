@@ -111,6 +111,11 @@ powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scr
 agent-browser connect "ws://127.0.0.1:9222/devtools/browser/<id>"
 ```
 
+> **If `connect` itself is REFUSED** (`os error 10061` / `10060`, or `curl http://127.0.0.1:9222/json/version`
+> fails) even though `connect_chrome.ps1` said "reusing 9222" — the port was held by a stale/dying Chrome.
+> This is a genuine failure (distinct from the timeout note below): go straight to **[Recovery 0]** once,
+> then re-attach. Do not keep retrying the same dead ws:// URL.
+
 > **Slow / harness timeout is normal, not a bug.** Chrome cold-start + CDP handshake can exceed a
 > host tool's default command timeout (e.g. Cline's `execute_command` ~30s). If the harness reports
 > "timed out, running in background" — that is the *harness's* timeout, not `agent-browser`'s. Do
@@ -211,24 +216,18 @@ Store the captured URL as `url` in the case JSON.
 
 ## Recovery 0 — Chrome/CDP Not Available
 
-Run when `agent-browser open` errors or times out. The daemon may have a stale PID pointing at a
-dead Chrome — clean that up first, then launch fresh:
-
-```powershell
-# 1. Clear any stale daemon state (safe: path-filtered, never touches user's personal Chrome)
-Get-CimInstance Win32_Process -Filter "name='chrome.exe'" |
-  Where-Object { $_.ExecutablePath -like "*\.agent-browser\*" } |
-  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-Get-Process agent-browser-win32-x64 -ErrorAction SilentlyContinue | Stop-Process -Force
-Remove-Item "$env:USERPROFILE\.agent-browser\default.pid",
-            "$env:USERPROFILE\.agent-browser\default.port",
-            "$env:USERPROFILE\.agent-browser\default.stream" -Force -ErrorAction SilentlyContinue
-```
+Run when **`agent-browser open` OR `agent-browser connect` errors/times out** — including
+`connect` refused (`os error 10061`), `10060`, or a `connect_chrome.ps1` "reusing 9222" line
+whose ws:// URL then refuses the attach (a stale/dying Chrome held the port). The daemon may have
+a stale PID pointing at a dead Chrome — one bundled script cleans that up and relaunches:
 
 ```bash
-# 2. Launch real Chrome + attach (idempotent: reuses CDP 9222 if already up after cleanup)
-powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/connect_chrome.ps1"
-# The helper prints the exact ws:// connect command — run it:
+# ONE script: kills only agent-browser's own temp-profile Chrome + daemon, clears the stale
+# pid/port/stream files, then relaunches the persistent-profile Chrome and prints the ws:// line.
+# Bundled (not an inline PowerShell block) so it runs identically through the Bash tool, cmd, or
+# PowerShell — an inline `... | Where-Object ...` block errors when pasted into the Bash tool.
+powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/recover_chrome.ps1"
+# Then run the exact connect line it prints:
 #   agent-browser connect "ws://127.0.0.1:9222/devtools/browser/<id>"
 # Do NOT use bare `connect 9222` — Windows resolves localhost to IPv6 ::1, Chrome binds IPv4 only → timeout
 ```
@@ -264,8 +263,13 @@ agent-browser wait 3000
 agent-browser snapshot -i
 # Expected: textbox "Password" pre-filled (shown as ••••••••)
 agent-browser click @<verify-ref>
-agent-browser wait 5000
-agent-browser snapshot -i
+# After Verify, Okta shows a transient "Signing in..." heading while it restores the session.
+# Poll in SHORT rounds — do NOT escalate to one long blind wait:
+for i in 1 2 3 4 5; do
+  agent-browser wait 2000
+  S=$(agent-browser snapshot -i)
+  echo "$S" | grep -q "Signing in" || break   # left the spinner → dashboard / OTP / error
+done
 ```
 
 Only once this snapshot shows an OTP screen (or Step 1 failed per the decision table) is asking
@@ -275,10 +279,16 @@ the user for anything justified. A username-only snapshot is NOT a stopping poin
 
 | Outcome | Signal | Action |
 |---------|--------|--------|
-| Dashboard loads | nav shows Cases/Projects links | session established → retry PHASE 1 |
+| Dashboard / Qualcomm home loads | nav shows Products/Support or Cases/Projects links | session established → retry PHASE 1 |
 | OTP screen appears | heading "Enter a verification code" | go to Step 3 (OTP) |
 | Still on password screen / error | password field still visible, error text | → Step 2 (okta_login.ps1) |
 | Username NOT pre-filled | blank textbox | → Step 2 (okta_login.ps1) |
+
+> **"Retry PHASE 1" = re-run `agent-browser open "https://support.qualcomm.com/s/global-search/<CODE>"`**,
+> then the readiness poll. Auth commonly lands on the Qualcomm home page, NOT the case — do **not**
+> `snapshot -i` the home page to hunt for a case link and click a `@ref`. That home snapshot is ~35k
+> chars / ~12k tokens of nav chrome, and clicking a guessed ref is non-deterministic. A clean `open`
+> of the global-search URL is one cheap, reliable step.
 
 **Step 2 — Fallback: okta_login.ps1 (only if Step 1 failed)**
 
@@ -457,12 +467,13 @@ Full reference: **`references\extraction.md`** (the three eval rules + selector 
 2. Confirm expansion done. **Full run:** `agent-browser snapshot -c | grep -E "Expand Post|View More"`
    → empty. **Update run:** leftovers are EXPECTED on old posts below the anchor — only confirm the
    posts above the anchor are expanded (PHASE 1.5B).
-3. Make the case folder, then run the bundled extractor via `--stdin` (multi-line JS reaches the browser
-   intact) and redirect the result into the folder's raw scratch file. The script returns the OBJECT
-   (agent-browser serializes it once — do NOT `JSON.stringify` inside, that double-encodes; and the
-   shell `>` avoids the PowerShell BOM):
+3. Run the bundled extractor via `--stdin` (multi-line JS reaches the browser intact) and redirect the
+   result into the folder's raw scratch file. The case folder already exists — `intake.mjs` created
+   `data/cases/<CODE>/` up front, so **no `mkdir` line is needed** (a manual `mkdir -p` kept breaking
+   under PowerShell, where `-p` is read as a dir name). The script returns the OBJECT (agent-browser
+   serializes it once — do NOT `JSON.stringify` inside, that double-encodes; and the shell `>` avoids
+   the PowerShell BOM):
    ```bash
-   mkdir -p data/cases/<CODE>
    agent-browser eval --stdin < .claude/skills/qualcomm-case-agent/scripts/extract_case.js \
      > data/cases/<CODE>/case.raw.json
    ```
@@ -477,7 +488,8 @@ Full reference: **`references\extraction.md`** (the three eval rules + selector 
    node -e "const j=JSON.parse(require('fs').readFileSync('data/cases/<CODE>/case.raw.json','utf8')); console.log(j.caseNumber, j.comments.length, j.displayedCommentCount)"
    node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CASE_CODE> "data/cases/<CODE>/case.raw.json" --title "<TITLE>" --status "<STATUS>" --priority "<PRIORITY>"
    ```
-   On exit 0, delete the `case.raw.json` scratch file.
+   On exit 0 the script deletes its own `case.raw.json` scratch file — **no `del`/`rm` line needed**
+   (a manual delete kept thrashing between `del /F`, `Remove-Item`, and `rm` across shells).
 
    **Update run — finalize with `--merge` instead.** The raw file is a PARTIAL capture (new posts
    fully expanded, old posts possibly collapsed/truncated). Run the SAME extractor, then:
