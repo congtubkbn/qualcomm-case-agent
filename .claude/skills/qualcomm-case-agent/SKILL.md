@@ -75,7 +75,9 @@ Before any browser action:
 
    > Case `<CODE>` is already saved (synced `<syncedAt>`, N comments). Update it from the portal now?
 
-   Under Claude Code use the AskUserQuestion tool; under other harnesses ask in chat.
+   Under Claude Code use the AskUserQuestion tool; under Cline use the `ask_followup_question`
+   tool (never a bare chat message — Cline's ACT mode requires a tool call every turn, and plain
+   text alone will error the turn); under other harnesses use their equivalent ask-user tool.
 
    | Answer / situation | Action |
    |--------------------|--------|
@@ -109,18 +111,31 @@ powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scr
 agent-browser connect "ws://127.0.0.1:9222/devtools/browser/<id>"
 ```
 
+> **Slow / harness timeout is normal, not a bug.** Chrome cold-start + CDP handshake can exceed a
+> host tool's default command timeout (e.g. Cline's `execute_command` ~30s). If the harness reports
+> "timed out, running in background" — that is the *harness's* timeout, not `agent-browser`'s. Do
+> NOT treat it as a failure or retry Recovery 0. Just proceed to the verify step below; if it reports
+> connected, the background run already succeeded.
+
 **Verify the right profile is attached** (cheap guard — catches a stale temp-profile daemon):
 
 ```bash
 agent-browser eval "(function(){ return new URL(location.href).hostname; })()"   # any value = connected OK
 ```
 ```powershell
-# Confirm the CDP-9222 Chrome uses the persistent --user-data-dir, not a %TEMP% throwaway:
-Get-CimInstance Win32_Process -Filter "name='chrome.exe'" |
-  Where-Object { $_.CommandLine -match '--remote-debugging-port=9222' } |
-  ForEach-Object { if ($_.CommandLine -match 'agent-browser-chrome-') {
-    Write-Host 'WRONG: attached to TEMP profile — run Recovery 0 to reset daemon, then re-attach' }
-    else { Write-Host 'OK: persistent profile attached' } }
+# Confirm the CDP-9222 Chrome uses the persistent --user-data-dir, not a %TEMP% throwaway.
+# NOTE: a single Chrome launch has many chrome.exe subprocesses (renderer/GPU/utility) that all
+# inherit --remote-debugging-port=9222 on their command line — that is normal, not multiple
+# instances. Reduce to ONE verdict line so the agent doesn't have to scan N near-identical lines:
+$procs = Get-CimInstance Win32_Process -Filter "name='chrome.exe'" |
+  Where-Object { $_.CommandLine -match '--remote-debugging-port=9222' }
+if ($procs | Where-Object { $_.CommandLine -match 'agent-browser-chrome-' }) {
+  Write-Host 'WRONG: attached to TEMP profile — run Recovery 0 to reset daemon, then re-attach'
+} elseif ($procs) {
+  Write-Host 'OK: persistent profile attached'
+} else {
+  Write-Host 'WRONG: no chrome.exe on 9222 — run Recovery 0'
+}
 ```
 
 If the guard prints `WRONG` (or 9222 never came up) → **[Recovery 0]** to reset the daemon, then redo PHASE 0 ONCE.
@@ -227,9 +242,11 @@ failure handling: **`references\login-flow.md`**.
 The session is stored in `data\chrome-profile\` (persistent `--user-data-dir`). When valid, no
 login or OTP is needed. This recovery only triggers when the Okta session token has lapsed.
 
-**Step 1 — Try profile auto-fill first (preferred, no script needed)**
+**Step 1 — Try profile auto-fill first (preferred, no script needed) — MANDATORY, do not skip to OTP**
 
-Chrome password manager pre-fills credentials when the profile is intact. Just click through:
+Chrome password manager pre-fills credentials when the profile is intact. Just click through.
+**Do NOT ask the user for an OTP before completing every sub-step below** — the OTP screen may
+never appear if "Keep me signed in" restores the session at the Verify step:
 
 ```bash
 agent-browser snapshot -i
@@ -244,6 +261,9 @@ agent-browser click @<verify-ref>
 agent-browser wait 5000
 agent-browser snapshot -i
 ```
+
+Only once this snapshot shows an OTP screen (or Step 1 failed per the decision table) is asking
+the user for anything justified. A username-only snapshot is NOT a stopping point.
 
 **Decision after Verify click:**
 
@@ -272,7 +292,9 @@ After okta_login.ps1, check snapshot again with the same decision table above.
 **Step 3 — OTP (only if presented)**
 
 Drive OTP screens by snapshot: **"Send me an email"** → **"Enter a verification code instead"** →
-user pastes 6-digit code → **"Verify"**. Selectors in `references\login-flow.md`.
+then ask the user for the 6-digit code via the harness's ask-user tool (AskUserQuestion / Cline
+`ask_followup_question` — see Intake step 3; never a bare chat message) → **"Verify"**. Selectors
+in `references\login-flow.md`.
 
 **Failure table:**
 
@@ -596,6 +618,11 @@ current status, root cause, # open questions, top recommended actions, file path
 ## Running Under Other Agents (Cline / VS Code)
 
 Cline auto-reads `.clinerules/qualcomm-case-agent.md`. Use `execute_command` for every `powershell`/`agent-browser`/`node` line. Do NOT use Cline's `browser_action` — this skill attaches to real Chrome over CDP.
+
+**Asking the user anything (OTP, cache-check yes/no) MUST use the `ask_followup_question` tool.**
+Cline's ACT mode requires a tool call on every turn — a plain assistant text reply with no tool
+use errors the turn (`"You did not use a tool in your previous response!"`) and drops the task.
+Printing the question as chat text and waiting is not sufficient; call `ask_followup_question`.
 
 ---
 

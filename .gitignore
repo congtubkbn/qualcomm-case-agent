@@ -11,3 +11,6 @@ data/cases/
 
 # Browser screenshots
 *.png
+
+# Temp/scratch output
+temp/
