@@ -38,13 +38,19 @@ if (-not (Test-Path $SecretPath)) {
   exit 4
 }
 
-# --- Step 0: open portal, confirm we are attached + on Okta ---
-AB open "https://support.qualcomm.com" | Out-Host
-Start-Sleep -Seconds 2
+# --- Step 0: check current state FIRST. Only navigate fresh if we're not already
+# mid-flow — re-opening the portal when already on the password screen resets Okta
+# back to the username step and throws away progress the caller already made.
 $snap = (AB snapshot -i | Out-String)
 if ($snap -match 'os error 10060' -or $snap -match 'Failed to read') {
   Write-Host "ERROR: agent-browser not attached. Run connect_chrome.ps1 + 'agent-browser connect 9222' first."
   exit 3
+}
+if ($snap -notmatch '(Username|Password|Sign In|Verify)') {
+  # Not already on an Okta form — navigate to the portal to trigger the auth flow.
+  AB open "https://support.qualcomm.com" | Out-Host
+  Start-Sleep -Seconds 2
+  $snap = (AB snapshot -i | Out-String)
 }
 if ($snap -match 'dashboard' -or $snap -notmatch '(Username|Password|Sign In|Verify)') {
   Write-Host "Session appears valid (no Okta form). Nothing to do."

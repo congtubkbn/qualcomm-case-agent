@@ -171,18 +171,17 @@ conflates *loading*, *zero-results*, *auth-bounce*, and *dead-blank*. The `readi
 classifies them into one `state` field (runs `eval --stdin`; regex + selectors live in the file to
 avoid Bash/PowerShell quote-hell):
 
-```bash
-# poll readiness on the SAME url, max 6 rounds x 2s = 12s ceiling
-for i in 1 2 3 4 5 6; do
-  R=$(agent-browser eval --stdin < .claude/skills/qualcomm-case-agent/scripts/readiness.js)
-  echo "$R"
-  echo "$R" | grep -q '"state":"READY"' && break   # → continue (click result)
-  echo "$R" | grep -q '"state":"EMPTY"' && break   # → STOP: wrong code / no access
-  echo "$R" | grep -q '"state":"AUTH"'  && break   # → Recovery 1
-  echo "$R" | grep -q '"state":"BLANK"' && break   # → Recovery 2
-  agent-browser wait 2000
-done
+**Run as ONE `powershell -NoProfile -Command` call — do NOT type this as a bare bash
+`for` loop.** This box's shell dispatch does not reliably run bash `for...do...done` or
+`grep`, and PowerShell itself has no `<` stdin-redirect (`agent-browser eval --stdin < file`
+silently fails there too). Wrapping in an explicit `powershell -NoProfile -Command "..."`
+call sidesteps both — same proven pattern as `okta_login.ps1`'s invocation:
+
 ```
+powershell -NoProfile -Command "for($i=0;$i -lt 6;$i++){ $R = Get-Content '.claude/skills/qualcomm-case-agent/scripts/readiness.js' -Raw | agent-browser eval --stdin; Write-Output $R; if ($R -match '\"state\":\"(READY|EMPTY|AUTH|BLANK)\"'){break}; agent-browser wait 2000 }"
+```
+<!-- poll readiness on the SAME url, max 6 rounds x 2s = 12s ceiling -->
+Read the LAST printed `state` from the output to decide the branch below.
 
 **Interpret the final `state`:**
 
@@ -263,13 +262,13 @@ agent-browser wait 3000
 agent-browser snapshot -i
 # Expected: textbox "Password" pre-filled (shown as ••••••••)
 agent-browser click @<verify-ref>
-# After Verify, Okta shows a transient "Signing in..." heading while it restores the session.
-# Poll in SHORT rounds — do NOT escalate to one long blind wait:
-for i in 1 2 3 4 5; do
-  agent-browser wait 2000
-  S=$(agent-browser snapshot -i)
-  echo "$S" | grep -q "Signing in" || break   # left the spinner → dashboard / OTP / error
-done
+```
+After Verify, Okta shows a transient "Signing in..." heading while it restores the session.
+Poll in SHORT rounds — do NOT escalate to one long blind wait, and do NOT use a bash `for`
+loop with `grep` (unreliable in this shell — see readiness-poll note above):
+```
+powershell -NoProfile -Command "for($i=0;$i -lt 5;$i++){ agent-browser wait 2000; $S = agent-browser snapshot -i | Out-String; if ($S -notmatch 'Signing in'){break} }"
+agent-browser snapshot -i
 ```
 
 Only once this snapshot shows an OTP screen (or Step 1 failed per the decision table) is asking
@@ -340,12 +339,10 @@ agent-browser eval "(function(){ return location.hostname; })()"
 
 # 2. Reload the SAME url once (transient SPA hydration failure), then re-poll readiness.
 agent-browser open "https://support.qualcomm.com/s/global-search/<CODE>"   # SAME link — not a different route
-for i in 1 2 3 4 5 6; do
-  R=$(agent-browser eval --stdin < .claude/skills/qualcomm-case-agent/scripts/readiness.js)
-  echo "$R"
-  echo "$R" | grep -qE '"state":"(READY|EMPTY|AUTH)"' && break
-  agent-browser wait 2000
-done
+```
+Same PowerShell-wrapped poll as the PHASE 1 readiness probe (not a bash `for`/`grep` loop):
+```
+powershell -NoProfile -Command "for($i=0;$i -lt 6;$i++){ $R = Get-Content '.claude/skills/qualcomm-case-agent/scripts/readiness.js' -Raw | agent-browser eval --stdin; Write-Output $R; if ($R -match '\"state\":\"(READY|EMPTY|AUTH)\"'){break}; agent-browser wait 2000 }"
 ```
 
 Decision after the reload poll:
@@ -392,11 +389,11 @@ region. Repeat until it no longer appears in the snapshot.
 After all posts are loaded, collect every `link "Expand Post"` ref and click each:
 
 ```bash
-agent-browser snapshot -c | grep "Expand Post"  # identify refs (e.g. e107, e110, e115, e118, e128)
+agent-browser snapshot -c | findstr /C:"Expand Post"  # identify refs (e.g. e107, e110, e115, e118, e128)
 agent-browser click @<ref1> && agent-browser wait 1000
 agent-browser click @<ref2> && agent-browser wait 1000
 # ... repeat for all refs
-agent-browser snapshot -c | grep "Expand Post"  # confirm: no remaining "Expand Post" links
+agent-browser snapshot -c | findstr /C:"Expand Post"  # confirm: no remaining "Expand Post" links
 ```
 
 Note: nested Chatter comments (sub-articles inside a listitem) also have their own "Expand Post" — include them.
@@ -413,7 +410,7 @@ agent-browser wait 1000
 **Confirm DOM complete:**
 
 ```bash
-agent-browser snapshot -c | grep -E "Expand Post|View More"
+agent-browser snapshot -c | findstr /C:"Expand Post" /C:"View More"
 # Expected output: (empty) — proceed to PHASE 2
 ```
 
@@ -464,7 +461,7 @@ then finalize to `data/cases/<CODE>/case.json` (+ root `_index.json`).
 Full reference: **`references\extraction.md`** (the three eval rules + selector lock-in table).
 
 1. Read existing `_index.json` to get the old hash for `<CODE>` (incremental check).
-2. Confirm expansion done. **Full run:** `agent-browser snapshot -c | grep -E "Expand Post|View More"`
+2. Confirm expansion done. **Full run:** `agent-browser snapshot -c | findstr /C:"Expand Post" /C:"View More"`
    → empty. **Update run:** leftovers are EXPECTED on old posts below the anchor — only confirm the
    posts above the anchor are expanded (PHASE 1.5B).
 3. Run the bundled extractor via `--stdin` (multi-line JS reaches the browser intact) and redirect the
