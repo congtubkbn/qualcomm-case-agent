@@ -453,8 +453,18 @@ starts with `newestBodyStart`) → nothing new → report **"no update since `<s
 > If the user says there IS an update (they saw a notification), skip this probe and run Steps 1–2 —
 > the `--merge` finalize is the definitive check.
 
+> **Hard rule: once Step 0's match check fails (body doesn't start with `newestBodyStart`, even if
+> N is unchanged), that is a positive "there IS new content" signal — final, not provisional.**
+> Nothing that happens afterward (a failed click, a stale `@ref`, a pagination error) can turn that
+> back into "no update." A tool failure means *inconclusive/blocked*, never *confirmed unchanged*.
+> If Step 1's click fails, re-`snapshot -c` for a fresh `@ref` and retry once; if it still fails,
+> STOP and report the run as blocked/incomplete (Recovery) — do NOT report "no update since
+> `<syncedAt>`" as a fallback.
+
 **Step 1 — Paginate only until the anchor is visible.** Click "View More Posts" and re-snapshot;
 STOP clicking as soon as a post matching the anchor appears. Do NOT paginate to the end of the feed.
+If the click errors (stale `@ref`, element not found), re-run `snapshot -c` to get a fresh ref before
+retrying — do not reuse a `@ref` from an earlier snapshot.
 
 **Step 2 — Expand only the NEW posts.** Click "Expand Post" only on posts ABOVE the anchor
 (and their nested replies). Old posts stay collapsed — the merge dedupes their truncated bodies
