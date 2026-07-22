@@ -170,19 +170,28 @@ is still hydrating. A bare `snapshot -c` returning `(empty page)` does NOT mean 
 conflates *loading*, *zero-results*, *auth-bounce*, and *dead-blank*. The `readiness.js` probe
 classifies them into one `state` field (runs via `eval -b`, base64-encoded):
 
-**Run as ONE `powershell -NoProfile -Command` call — do NOT type this as a bare bash
-`for` loop, and do NOT use `--stdin`.** This box's shell dispatch does not reliably run bash
-`for...do...done` or `grep`. PowerShell has no `<` stdin-redirect (`agent-browser eval --stdin <
-file` is a reserved-token parse error there). Worse: `Get-Content -Raw | agent-browser eval
---stdin` — the "PowerShell-safe" pipe form — is ALSO broken: verified live, it silently returns
-the literal string `"null"` instead of the evaluated result (an agent-browser/Windows-PowerShell
-stdin bug, not a script bug — the same bytes work fine piped from bash). Use `-b`/`--base64`
-instead: no stdin plumbing, no shell quoting, and it's agent-browser's own documented "reliable
-execution" method. Wrap in `powershell -NoProfile -Command "..."` — same proven pattern as
-`okta_login.ps1`'s invocation:
+**Run `scripts/readiness.ps1` via `-File` — do NOT type this as a bare bash
+`for` loop, do NOT use `--stdin`, and do NOT inline the poll as a `-Command "..."` one-liner.**
+This box's shell dispatch does not reliably run bash `for...do...done` or `grep`. PowerShell has
+no `<` stdin-redirect (`agent-browser eval --stdin < file` is a reserved-token parse error there).
+Worse: `Get-Content -Raw | agent-browser eval --stdin` — the "PowerShell-safe" pipe form — is ALSO
+broken: verified live, it silently returns the literal string `"null"` instead of the evaluated
+result (an agent-browser/Windows-PowerShell stdin bug, not a script bug — the same bytes work fine
+piped from bash). Use `-b`/`--base64` instead: no stdin plumbing, no shell quoting, and it's
+agent-browser's own documented "reliable execution" method.
+
+A `-Command "..."` one-liner does NOT work for this: the regex `'"state":"(READY|EMPTY|AUTH|BLANK)"'`
+has to cross the shell twice (outer shell → `powershell -Command` argument), and on this box that
+outer hop is cmd.exe. cmd.exe toggles "inside quotes" on every literal `"` it sees, ignoring the
+backslash in front of it — so the escaped `\"..\"` pairs around the regex leave `(READY|EMPTY|AUTH|BLANK)`
+in what cmd.exe considers *unquoted* territory. It then treats those `|` as real pipes and splits
+the command there, so `EMPTY`/`AUTH`/`BLANK` get run as standalone (nonexistent) commands —
+`'EMPTY' is not recognized as an internal or external command`. Putting the poll in a real `.ps1`
+file sidesteps this: the regex lives inside the file, never on a shell command line, so no
+quote/pipe re-tokenizing happens. Same proven pattern as `okta_login.ps1`'s invocation:
 
 ```
-powershell -NoProfile -Command "$b64=[Convert]::ToBase64String([IO.File]::ReadAllBytes('.claude/skills/qualcomm-case-agent/scripts/readiness.js')); for($i=0;$i -lt 6;$i++){ $R = agent-browser eval -b $b64; Write-Output $R; if ($R -match '\"state\":\"(READY|EMPTY|AUTH|BLANK)\"'){break}; agent-browser wait 2000 }"
+powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/readiness.ps1"
 ```
 <!-- poll readiness on the SAME url, max 6 rounds x 2s = 12s ceiling -->
 Read the LAST printed `state` from the output to decide the branch below.
@@ -344,10 +353,11 @@ agent-browser eval "(function(){ return location.hostname; })()"
 # 2. Reload the SAME url once (transient SPA hydration failure), then re-poll readiness.
 agent-browser open "https://support.qualcomm.com/s/global-search/<CODE>"   # SAME link — not a different route
 ```
-Same PowerShell-wrapped base64 poll as the PHASE 1 readiness probe (not a bash `for`/`grep` loop,
-not `--stdin`):
+Same `readiness.ps1` poll as the PHASE 1 readiness probe (not a bash `for`/`grep` loop, not
+`--stdin`, not an inline `-Command "..."` — see the quote/pipe cmd.exe splitting bug explained
+above):
 ```
-powershell -NoProfile -Command "$b64=[Convert]::ToBase64String([IO.File]::ReadAllBytes('.claude/skills/qualcomm-case-agent/scripts/readiness.js')); for($i=0;$i -lt 6;$i++){ $R = agent-browser eval -b $b64; Write-Output $R; if ($R -match '\"state\":\"(READY|EMPTY|AUTH)\"'){break}; agent-browser wait 2000 }"
+powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/readiness.ps1"
 ```
 
 Decision after the reload poll:
