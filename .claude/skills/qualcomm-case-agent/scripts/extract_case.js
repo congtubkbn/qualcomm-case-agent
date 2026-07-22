@@ -1,10 +1,13 @@
 // scripts/extract_case.js
 //
 // Default case extractor for PHASE 2. Run it against the ALREADY-EXPANDED case
-// page (PHASE 1.5 done) with:
+// page (PHASE 1.5 done) via base64 (NOT --stdin, NOT `<` redirection — PowerShell
+// has no `<` stdin-redirect, and `Get-Content -Raw | agent-browser eval --stdin`
+// silently returns "null" instead of the evaluated result on Windows):
 //
-//     agent-browser eval --stdin < .claude/skills/qualcomm-case-agent/scripts/extract_case.js \
-//       > data/cases/<CODE>.raw.json
+//     $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes('.claude/skills/qualcomm-case-agent/scripts/extract_case.js'))
+//     $r = agent-browser eval -b $b64
+//     [IO.File]::WriteAllText('data/cases/<CODE>/case.raw.json', $r, (New-Object Text.UTF8Encoding $false))
 //
 // Two things make this robust where ad-hoc extractors trip up:
 //   1. It is one IIFE whose final expression IS the result object. agent-browser

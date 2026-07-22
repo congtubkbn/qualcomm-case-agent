@@ -1,14 +1,17 @@
 // scripts/readiness.js
 //
 // PHASE 1 readiness probe. Run it after `agent-browser open <global-search URL>`
-// to classify the page state WITHOUT a blind sleep:
+// to classify the page state WITHOUT a blind sleep, via base64 (NOT --stdin —
+// `Get-Content -Raw | agent-browser eval --stdin` silently returns "null" under
+// PowerShell; --stdin works fine from bash but this skill runs on Windows):
 //
-//     agent-browser eval --stdin < .claude/skills/qualcomm-case-agent/scripts/readiness.js
+//     $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes('.claude/skills/qualcomm-case-agent/scripts/readiness.js'))
+//     agent-browser eval -b $b64
 //
 // Why a file (not an inline eval): the probe carries regex (/no results/i) and CSS
 // selectors with nested quotes (a[href*="/s/case/"]). Inline, those break command-line
 // quoting differently under Bash vs PowerShell — the same reason intake.mjs keeps its
-// regex off the command line and extract_case.js runs via --stdin. Keep it here.
+// regex off the command line and extract_case.js runs via base64. Keep it here.
 //
 // Same two rules as extract_case.js:
 //   1. One IIFE whose final expression IS the result object (eval runs in EXPRESSION

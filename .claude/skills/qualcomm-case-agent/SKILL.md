@@ -42,7 +42,7 @@ Scripts and references live under `.claude\skills\qualcomm-case-agent\` (skill d
 | Session store | `data\chrome-profile\` — persistent `--user-data-dir`; git-ignored |
 | Case cache | per-case folder `data\cases\<CODE>\`: `case.json` · `case.report.md` · `case.md` · `case.html` · `case.txt` · `case.pdf` |
 | Sync index | `data\cases\_index.json` |
-| Scripts | skill dir `scripts\`: `intake.mjs` (Intake guard — validate code + prep dirs), `connect_chrome.ps1`, `okta_login.ps1`, `capture_password.ps1`, `readiness.js` (PHASE 1 readiness probe, run via `eval --stdin`), `extract_case.js` (PHASE 2 extractor, run via `eval --stdin`), `scrape_case.mjs` (finalizer; `--merge` = incremental update run), `render_case.mjs` |
+| Scripts | skill dir `scripts\`: `intake.mjs` (Intake guard — validate code + prep dirs), `connect_chrome.ps1`, `okta_login.ps1`, `capture_password.ps1`, `readiness.js` (PHASE 1 readiness probe, run via `eval -b` base64), `extract_case.js` (PHASE 2 extractor, run via `eval -b` base64), `scrape_case.mjs` (finalizer; `--merge` = incremental update run), `render_case.mjs` |
 | Enrich skill | `qualcomm-enrich` — standalone analyst pass (no browser, no re-scrape) |
 | References | skill dir `references\`: `login-flow.md`, `extraction.md`, `workflow.md`, `consumer-guide.md` |
 
@@ -168,17 +168,21 @@ agent-browser open "https://support.qualcomm.com/s/global-search/<CODE>"
 Salesforce Lightning SPA: right after `open`, the accessibility tree can be empty while the DOM
 is still hydrating. A bare `snapshot -c` returning `(empty page)` does NOT mean "no results" — it
 conflates *loading*, *zero-results*, *auth-bounce*, and *dead-blank*. The `readiness.js` probe
-classifies them into one `state` field (runs `eval --stdin`; regex + selectors live in the file to
-avoid Bash/PowerShell quote-hell):
+classifies them into one `state` field (runs via `eval -b`, base64-encoded):
 
 **Run as ONE `powershell -NoProfile -Command` call — do NOT type this as a bare bash
-`for` loop.** This box's shell dispatch does not reliably run bash `for...do...done` or
-`grep`, and PowerShell itself has no `<` stdin-redirect (`agent-browser eval --stdin < file`
-silently fails there too). Wrapping in an explicit `powershell -NoProfile -Command "..."`
-call sidesteps both — same proven pattern as `okta_login.ps1`'s invocation:
+`for` loop, and do NOT use `--stdin`.** This box's shell dispatch does not reliably run bash
+`for...do...done` or `grep`. PowerShell has no `<` stdin-redirect (`agent-browser eval --stdin <
+file` is a reserved-token parse error there). Worse: `Get-Content -Raw | agent-browser eval
+--stdin` — the "PowerShell-safe" pipe form — is ALSO broken: verified live, it silently returns
+the literal string `"null"` instead of the evaluated result (an agent-browser/Windows-PowerShell
+stdin bug, not a script bug — the same bytes work fine piped from bash). Use `-b`/`--base64`
+instead: no stdin plumbing, no shell quoting, and it's agent-browser's own documented "reliable
+execution" method. Wrap in `powershell -NoProfile -Command "..."` — same proven pattern as
+`okta_login.ps1`'s invocation:
 
 ```
-powershell -NoProfile -Command "for($i=0;$i -lt 6;$i++){ $R = Get-Content '.claude/skills/qualcomm-case-agent/scripts/readiness.js' -Raw | agent-browser eval --stdin; Write-Output $R; if ($R -match '\"state\":\"(READY|EMPTY|AUTH|BLANK)\"'){break}; agent-browser wait 2000 }"
+powershell -NoProfile -Command "$b64=[Convert]::ToBase64String([IO.File]::ReadAllBytes('.claude/skills/qualcomm-case-agent/scripts/readiness.js')); for($i=0;$i -lt 6;$i++){ $R = agent-browser eval -b $b64; Write-Output $R; if ($R -match '\"state\":\"(READY|EMPTY|AUTH|BLANK)\"'){break}; agent-browser wait 2000 }"
 ```
 <!-- poll readiness on the SAME url, max 6 rounds x 2s = 12s ceiling -->
 Read the LAST printed `state` from the output to decide the branch below.
@@ -200,7 +204,7 @@ If the retry after Recovery 0 / 1 / 2 still fails → report the final probe `{s
 ```bash
 agent-browser snapshot -c          # rows are loaded now — read search results
 # click the result matching <CODE> (use the @ref)
-agent-browser eval --stdin < .claude/skills/qualcomm-case-agent/scripts/readiness.js   # re-probe after click
+# re-probe after click — use the SAME base64 `eval -b` poll as above, NOT `eval --stdin < file`
 # state=AUTH → Recovery 1 → retry click ONCE; state=READY/other → proceed
 agent-browser eval "(function(){ return location.href; })()"   # capture the real case URL
 ```
@@ -340,9 +344,10 @@ agent-browser eval "(function(){ return location.hostname; })()"
 # 2. Reload the SAME url once (transient SPA hydration failure), then re-poll readiness.
 agent-browser open "https://support.qualcomm.com/s/global-search/<CODE>"   # SAME link — not a different route
 ```
-Same PowerShell-wrapped poll as the PHASE 1 readiness probe (not a bash `for`/`grep` loop):
+Same PowerShell-wrapped base64 poll as the PHASE 1 readiness probe (not a bash `for`/`grep` loop,
+not `--stdin`):
 ```
-powershell -NoProfile -Command "for($i=0;$i -lt 6;$i++){ $R = Get-Content '.claude/skills/qualcomm-case-agent/scripts/readiness.js' -Raw | agent-browser eval --stdin; Write-Output $R; if ($R -match '\"state\":\"(READY|EMPTY|AUTH)\"'){break}; agent-browser wait 2000 }"
+powershell -NoProfile -Command "$b64=[Convert]::ToBase64String([IO.File]::ReadAllBytes('.claude/skills/qualcomm-case-agent/scripts/readiness.js')); for($i=0;$i -lt 6;$i++){ $R = agent-browser eval -b $b64; Write-Output $R; if ($R -match '\"state\":\"(READY|EMPTY|AUTH)\"'){break}; agent-browser wait 2000 }"
 ```
 
 Decision after the reload poll:
@@ -464,15 +469,21 @@ Full reference: **`references\extraction.md`** (the three eval rules + selector 
 2. Confirm expansion done. **Full run:** `agent-browser snapshot -c | findstr /C:"Expand Post" /C:"View More"`
    → empty. **Update run:** leftovers are EXPECTED on old posts below the anchor — only confirm the
    posts above the anchor are expanded (PHASE 1.5B).
-3. Run the bundled extractor via `--stdin` (multi-line JS reaches the browser intact) and redirect the
-   result into the folder's raw scratch file. The case folder already exists — `intake.mjs` created
-   `data/cases/<CODE>/` up front, so **no `mkdir` line is needed** (a manual `mkdir -p` kept breaking
-   under PowerShell, where `-p` is read as a dir name). The script returns the OBJECT (agent-browser
-   serializes it once — do NOT `JSON.stringify` inside, that double-encodes; and the shell `>` avoids
-   the PowerShell BOM):
-   ```bash
-   agent-browser eval --stdin < .claude/skills/qualcomm-case-agent/scripts/extract_case.js \
-     > data/cases/<CODE>/case.raw.json
+3. Run the bundled extractor via `eval -b` (base64) — **NOT `--stdin`, NOT `<` redirection.**
+   `--stdin` is broken on this OS: piping through PowerShell (`Get-Content -Raw | agent-browser
+   eval --stdin`) silently returns the literal string `"null"` instead of the evaluated result
+   (verified — an agent-browser/Windows-PowerShell stdin bug, not a script bug; the identical bytes
+   work fine piped from bash). Bash-style `<` redirection is a reserved token in PowerShell (hard
+   parse error). `-b` sidesteps both — no stdin plumbing, no shell quoting — and is agent-browser's
+   own documented reliable-execution method. Write the result straight to disk with .NET so it's
+   guaranteed clean UTF-8 with **no BOM** (PowerShell's `>` redirect defaults to a BOM-prefixed
+   encoding and will corrupt the JSON `scrape_case.mjs` reads next). The case folder already exists
+   — `intake.mjs` created `data/cases/<CODE>/` up front, so **no `mkdir` line is needed** (a manual
+   `mkdir -p` kept breaking under PowerShell, where `-p` is read as a dir name). The script returns
+   the OBJECT (agent-browser serializes it once — do NOT `JSON.stringify` inside, that
+   double-encodes):
+   ```powershell
+   powershell -NoProfile -Command "$b64=[Convert]::ToBase64String([IO.File]::ReadAllBytes('.claude/skills/qualcomm-case-agent/scripts/extract_case.js')); $r = agent-browser eval -b $b64; [IO.File]::WriteAllText('data/cases/<CODE>/case.raw.json', $r, (New-Object Text.UTF8Encoding $false))"
    ```
    If the live DOM differs and fields come back empty, edit `extract_case.js` in place (it is the
    canonical extractor, not a throwaway). Header fields (title/status/priority) aren't on the Feed view —
