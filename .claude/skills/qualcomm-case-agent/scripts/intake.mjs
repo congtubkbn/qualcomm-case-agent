@@ -1,31 +1,47 @@
 // Intake guard: validate case code + prep cache dirs. No browser, no deps.
 // Run: node scripts/intake.mjs "<CODE>"
+// Import: import { intake } from './intake.mjs'  ->  intake('<CODE>') => code
 // Regex/metachars live here, NOT on the command line, so it behaves
 // identically under PowerShell, cmd, and the POSIX Bash tool.
 import fs from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { DATA_DIR } from './_paths.mjs';
 
-const raw = (process.argv[2] || '').trim();
-if (!raw) { console.error('ERROR: empty case code'); process.exit(1); }
+/**
+ * Validate a case code and prepare its cache folder.
+ * Paths come from _paths.mjs (project root), not the CWD, so a scheduled run
+ * launched from anywhere writes to the same cache an interactive run does.
+ * @returns {string} the normalized 8-digit code
+ */
+export function intake(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) throw new Error('empty case code');
 
-// Tolerate a leading CASE- prefix, then require exactly 8 digits.
-const code = raw.replace(/^CASE-/i, '');
-if (!/^\d{8}$/.test(code)) {
-  console.error(`ERROR: case code must be 8 digits (got: ${raw})`);
-  process.exit(1);
+  // Tolerate a leading CASE- prefix, then require exactly 8 digits.
+  const code = s.replace(/^CASE-/i, '');
+  if (!/^\d{8}$/.test(code)) throw new Error(`case code must be 8 digits (got: ${s})`);
+
+  // Create both the cache root AND this case's folder now, so the PHASE 2 raw
+  // file write never needs a separate shell `mkdir -p` — that line kept breaking
+  // under PowerShell (where `-p` is parsed as a directory name, not a flag).
+  fs.mkdirSync(join(DATA_DIR, code), { recursive: true });
+
+  const idx = join(DATA_DIR, '_index.json');
+  if (!fs.existsSync(idx)) {
+    fs.writeFileSync(idx, '{}');
+  } else {
+    try { JSON.parse(fs.readFileSync(idx, 'utf8')); }
+    catch (e) { throw new Error(`corrupt _index.json — ${e.message}`); }
+  }
+  return code;
 }
 
-// Create both the cache root AND this case's folder now, so the PHASE 2 raw-file
-// redirect (`... > data/cases/<CODE>/case.raw.json`) never needs a separate shell
-// `mkdir -p` — that line kept breaking when the agent ran it under PowerShell
-// (where `-p` is parsed as a directory name, not a flag).
-fs.mkdirSync(`data/cases/${code}`, { recursive: true });
-
-const idx = 'data/cases/_index.json';
-if (!fs.existsSync(idx)) {
-  fs.writeFileSync(idx, '{}');
-} else {
-  try { JSON.parse(fs.readFileSync(idx, 'utf8')); }
-  catch (e) { console.error(`ERROR: corrupt _index.json — ${e.message}`); process.exit(1); }
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  try {
+    console.log(`intake OK ${intake(process.argv[2])}`);
+  } catch (e) {
+    console.error(`ERROR: ${e.message}`);
+    process.exit(1);
+  }
 }
-
-console.log(`intake OK ${code}`);
