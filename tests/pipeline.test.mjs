@@ -7,6 +7,7 @@
 
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -71,10 +72,36 @@ describe('run_case.mjs', async () => {
     assert.equal(isNoUpdate({ anchorIdx: -1, top: null }, cached), false);
   });
 
-  it('maps blocked/auth statuses to distinct non-zero exits', () => {
+  it('maps blocked/auth/busy statuses to distinct non-zero exits', () => {
     assert.equal(STATUS_EXIT['no-update'], 0);
     assert.equal(STATUS_EXIT['auth-required'], 3);
     assert.equal(STATUS_EXIT.blocked, 5);
+    assert.equal(STATUS_EXIT.busy, 6);
+  });
+});
+
+describe('lock.mjs', async () => {
+  const { acquireLock, releaseLock } = await import(new URL('lock.mjs', SCRIPTS));
+  const lockPath = join(mkdtempSync(join(tmpdir(), 'qc-lock-')), 'capture.lock');
+
+  it('grants, then refuses while held, then grants after release', () => {
+    assert.equal(acquireLock(lockPath).ok, true);
+    const second = acquireLock(lockPath);
+    assert.equal(second.ok, false);
+    assert.equal(second.holder.pid, process.pid);
+    releaseLock(lockPath);
+    assert.equal(acquireLock(lockPath).ok, true);
+    releaseLock(lockPath);
+  });
+
+  it('takes over a stale lock (dead pid or expired timestamp)', () => {
+    writeFileSync(lockPath, JSON.stringify({ pid: 2 ** 30, at: new Date().toISOString() }));
+    assert.equal(acquireLock(lockPath).ok, true, 'dead pid = stale');
+    writeFileSync(lockPath, JSON.stringify({ pid: process.pid, at: '2020-01-01T00:00:00.000Z' }));
+    assert.equal(acquireLock(lockPath).ok, true, 'old timestamp = stale');
+    writeFileSync(lockPath, 'not json');
+    assert.equal(acquireLock(lockPath).ok, true, 'corrupt lock = stale');
+    releaseLock(lockPath);
   });
 });
 
@@ -160,6 +187,22 @@ describe('web dashboard', async () => {
       body: JSON.stringify({ action: 'add', code: '12' }),
     });
     assert.equal(r.status, 400);
+  });
+
+  // undici's fetch silently drops a caller-set `origin` header, so exercise the
+  // guard with raw http requests.
+  const rawStatus = (path, headers, method = 'GET') => new Promise((resolve, reject) => {
+    const req = httpRequest({
+      host: '127.0.0.1', port: server.address().port, path, method, headers,
+    }, res => { res.resume(); resolve(res.statusCode); });
+    req.on('error', reject);
+    req.end();
+  });
+
+  it('refuses cross-origin and non-local-host requests', async () => {
+    assert.equal(await rawStatus('/api/run/08603854', { origin: 'http://evil.example' }, 'POST'), 403);
+    assert.equal(await rawStatus('/api/overview', { host: 'evil.example' }), 403);
+    assert.equal(await rawStatus('/api/overview', { origin: base() }), 200);
   });
 
   it('refuses to serve a path outside the artifact whitelist', async () => {

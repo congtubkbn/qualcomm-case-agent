@@ -26,9 +26,15 @@ stdout is **one JSON line**:
  "newCommentIds":["c1","c2"],"hash":"…","dir":"…/data/cases/08603854","elapsedMs":48210}
 ```
 
-`status` ∈ `created | updated | no-update | auth-required | not-found | blocked | error`, with
-exits `0 | 0 | 0 | 3 | 4 | 5 | 1`. `blocked` is never downgraded to `no-update` — an unchanged
-case is a positive finding, and a failed probe is not evidence of one.
+`status` ∈ `created | updated | no-update | auth-required | not-found | blocked | busy | error`,
+with exits `0 | 0 | 0 | 3 | 4 | 5 | 6 | 1`. `blocked` is never downgraded to `no-update` — an
+unchanged case is a positive finding, and a failed probe is not evidence of one.
+
+**One capture at a time.** Every path (interactive run, scheduler sweep, dashboard "Sync now")
+drives the same Chrome, so `run_case.mjs` takes a machine-wide lock (`data/.capture.lock`). A
+second run reports `busy` instead of colliding; the scheduler retries a busy case on its next
+tick without stamping `lastRunAt`. A hung run's lock goes stale after 30 minutes (or as soon as
+its process is dead).
 
 ### Why this saves tokens
 
@@ -86,8 +92,10 @@ node ".claude/skills/qualcomm-case-agent/scripts/scheduler.mjs" --case 08603854 
 ```
 
 A sweep runs only the cases whose own interval has elapsed, writes each verdict to
-`data/runs.json`, and **stops at the first `auth-required`** — the Okta email OTP is human-only,
-so retrying a lapsed session just burns attempts and hides the one fact you need to see.
+`data/runs.json` (re-reading before each write, so a dashboard-spawned run's verdict isn't
+clobbered), and **stops at the first `auth-required`** — the Okta email OTP is human-only, so
+retrying a lapsed session just burns attempts and hides the one fact you need to see. A `busy`
+verdict is not recorded: the case stays due and retries next tick.
 
 Register it on Windows:
 
@@ -105,9 +113,12 @@ in for a sweep to reach the portal.
 ## 3. Dashboard
 
 ```bash
-node web/server.mjs --scheduler      # http://127.0.0.1:8787, sweeps in the same process
+node web/server.mjs --scheduler      # http://127.0.0.1:8787 + sweeps (in a child process)
 node web/server.mjs --port 9000      # dashboard only
 ```
+
+With `--scheduler`, each sweep runs in a **child process** so a 10-minute capture never freezes
+the dashboard; at most one sweep child runs at a time.
 
 Bound to `127.0.0.1` only — the cache is Qualcomm NDA material and must not be reachable from the
 network. The page lists every cached case with status, priority, comment count (flagging
@@ -118,6 +129,9 @@ force a sync from the page. Artifacts are served from a fixed whitelist, so no p
 case folder can be requested.
 
 `GET /api/overview` is the same projection as JSON if you want to feed something else.
+
+Requests are refused (403) unless the browser believes it is talking to localhost (`Host` and
+`Origin` checks) — this closes CSRF and DNS-rebinding from other pages open on the same machine.
 
 ---
 

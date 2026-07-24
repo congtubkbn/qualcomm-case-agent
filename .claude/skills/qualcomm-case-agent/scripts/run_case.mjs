@@ -16,17 +16,19 @@
 //   auth-required                   -> exit 3  (human must finish Okta/OTP once)
 //   not-found                       -> exit 4  (wrong code, or no access)
 //   blocked                         -> exit 5  (page never rendered / capture short)
+//   busy                            -> exit 6  (another capture holds the lock — retry later)
 //   error                           -> exit 1
 //
 // "blocked" is never downgraded to "no-update": a tool failure means
 // inconclusive, not "confirmed unchanged" (SKILL.md PHASE 1.5B hard rule).
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
 import { intake } from './intake.mjs';
+import { acquireLock, releaseLock } from './lock.mjs';
 import { BrowserError, ensureChrome, evalFile, open, pdf, sleep } from './browser.mjs';
 
 const SCRIPTS = fileURLToPath(new URL('.', import.meta.url));
@@ -36,7 +38,7 @@ const EXPAND_ROUNDS = 40;    // pagination + expansion ticks
 
 export const STATUS_EXIT = {
   created: 0, updated: 0, 'no-update': 0,
-  'auth-required': 3, 'not-found': 4, blocked: 5, error: 1,
+  'auth-required': 3, 'not-found': 4, blocked: 5, busy: 6, error: 1,
 };
 
 const norm = s => String(s || '').replace(/\s+/g, ' ').trim();
@@ -182,10 +184,12 @@ async function run(code, opts) {
   if (rend.code !== 0) artifacts.renderError = rend.err.slice(0, 200);
 
   if (!opts.noPdf) {
+    const pdfPath = join(caseDir, 'case.pdf');
     try {
       open(pathToFileURL(join(caseDir, 'case.html')).href);
-      pdf(join(caseDir, 'case.pdf'));
-      artifacts.pdf = existsSync(join(caseDir, 'case.pdf'));
+      pdf(pdfPath);
+      // Non-zero size, not mere existence — a failed print leaves a 0-byte file.
+      artifacts.pdf = existsSync(pdfPath) && statSync(pdfPath).size > 0;
     } catch (e) { artifacts.pdf = false; artifacts.pdfError = e.message; }
   }
 
@@ -227,14 +231,25 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(1);
   }
 
+  // One capture at a time: every path (interactive, sweep, dashboard Sync now)
+  // drives the same Chrome — a second run reports `busy` instead of colliding.
+  const lock = acquireLock();
+  if (!lock.ok) {
+    process.stdout.write(JSON.stringify({
+      code, status: 'busy',
+      reason: `another capture is running (pid ${lock.holder.pid} since ${lock.holder.at})`,
+    }) + '\n');
+    process.exit(STATUS_EXIT.busy);
+  }
+
   run(code, opts)
-    .then(v => v)
     .catch(e => ({
       status: e instanceof BrowserError ? 'blocked' : 'error',
       reason: e.message,
       detail: e.detail,
     }))
     .then(v => {
+      releaseLock();
       const verdict = { code, ...v, elapsedMs: Date.now() - started };
       process.stdout.write(JSON.stringify(verdict) + '\n');
       process.exit(STATUS_EXIT[verdict.status] ?? 1);

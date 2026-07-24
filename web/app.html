@@ -93,7 +93,7 @@ const post = (url, body) => fetch(url, {
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}),
 }).then(r => r.json());
 
-const RUN_CLASS = { created: 'ok', updated: 'ok', 'no-update': '', 'auth-required': 'bad', blocked: 'bad', error: 'bad', 'not-found': 'warn' };
+const RUN_CLASS = { created: 'ok', updated: 'ok', 'no-update': '', 'auth-required': 'bad', blocked: 'bad', error: 'bad', 'not-found': 'warn', busy: 'warn' };
 let open = new Set();
 
 function list(label, items) {

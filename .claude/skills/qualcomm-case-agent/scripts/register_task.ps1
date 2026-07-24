@@ -31,8 +31,11 @@ $node = (Get-Command node -ErrorAction Stop).Source
 $script = Join-Path $PSScriptRoot 'scheduler.mjs'
 
 $action = New-ScheduledTaskAction -Execute $node -Argument "`"$script`" --once" -WorkingDirectory $QcProjectRoot
+# Explicit RepetitionDuration: older Windows/PS builds either reject a bare
+# RepetitionInterval or stop repeating after a day without it.
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) `
-             -RepetitionInterval (New-TimeSpan -Minutes $EveryMinutes)
+             -RepetitionInterval (New-TimeSpan -Minutes $EveryMinutes) `
+             -RepetitionDuration ([TimeSpan]::MaxValue)
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
               -ExecutionTimeLimit (New-TimeSpan -Hours 2) -MultipleInstances IgnoreNew

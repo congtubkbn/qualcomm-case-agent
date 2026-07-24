@@ -22,7 +22,7 @@ import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA_DIR, PROJECT_ROOT } from '../.claude/skills/qualcomm-case-agent/scripts/_paths.mjs';
 import {
-  RUNS_PATH, WATCHLIST_PATH, loadWatchlist, readJson, sweep, writeJson,
+  RUNS_PATH, WATCHLIST_PATH, loadWatchlist, readJson, writeJson,
 } from '../.claude/skills/qualcomm-case-agent/scripts/scheduler.mjs';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
@@ -123,11 +123,23 @@ async function readBody(req) {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { return {}; }
 }
 
+// The server binds 127.0.0.1, but a browser on this machine can still be made
+// to send requests here by a malicious page (CSRF / DNS rebinding). Both are
+// cut off by insisting the browser thinks it is talking to localhost.
+const LOCAL_HOST_RE = /^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/;
+function isLocalRequest(req) {
+  if (!LOCAL_HOST_RE.test(req.headers.host || '')) return false;   // DNS rebinding
+  const origin = req.headers.origin;
+  if (!origin) return true;                                        // same-origin nav, curl, fetch
+  try { return LOCAL_HOST_RE.test(new URL(origin).host); } catch { return false; }
+}
+
 export function createApp() {
   return createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
     const path = url.pathname;
     try {
+      if (!isLocalRequest(req)) return send(res, 403, { error: 'local requests only' });
       if (req.method === 'GET' && (path === '/' || path === '/index.html')) {
         return send(res, 200, readFileSync(join(HERE, 'app.html')), MIME['.html']);
       }
@@ -176,7 +188,18 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.stderr.write(`[web] http://127.0.0.1:${port}  (cache ${DATA_DIR})\n`);
   });
   if (argv.includes('--scheduler')) {
-    const tick = () => { try { sweep(); } catch (e) { process.stderr.write(`[scheduler] ${e.message}\n`); } };
+    // Sweep in a CHILD process, never in-process: runCase blocks for up to
+    // 15 min per case, which would freeze this event loop (and the dashboard)
+    // for the whole capture. One child at a time — no overlapping sweeps.
+    let child = null;
+    const tick = () => {
+      if (child) return;
+      child = spawn(process.execPath, [join(SCRIPTS, 'scheduler.mjs'), '--once'], {
+        stdio: ['ignore', 'ignore', 'inherit'],
+      });
+      child.on('exit', () => { child = null; });
+      child.on('error', e => { process.stderr.write(`[scheduler] ${e.message}\n`); child = null; });
+    };
     tick();
     setInterval(tick, 60000);
   }

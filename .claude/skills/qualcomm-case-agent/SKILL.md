@@ -92,10 +92,16 @@ analysis inline) · `--no-pdf`.
 | `auth-required` | 3 | saved Okta session lapsed | drive Recovery 1 → `references/login-flow.md`, then re-run the command ONCE |
 | `not-found` | 4 | search returned nothing for this code | STOP — wrong code, or the account cannot see it |
 | `blocked` | 5 | page never rendered / capture short | load `references/manual-flow.md` and finish by hand; `reason` says where it stopped |
+| `busy` | 6 | another capture holds the lock (`data/.capture.lock`) | wait for it to finish, then re-run; a hung run's lock goes stale after 30 min |
 | `error` | 1 | bad invocation or script failure | fix per `reason`; do not retry blindly |
 
 > `blocked` is never "no update". A tool failure means inconclusive — reporting an unchanged
 > case on a failed probe is the one wrong answer here.
+
+> **Known limit of the fast no-update probe:** a new *nested reply under an old post* doesn't move
+> the top post, so an update run can report `no-update` while one exists. If the user says there IS
+> an update (they saw a notification), re-run with `--mode full` — the merge dedupe is the
+> definitive check.
 
 **Do NOT `Read` `case.json` to find out what happened.** The verdict line already carries the
 counts, ids and paths; the file is the size of the whole case. Read only the comment bodies you

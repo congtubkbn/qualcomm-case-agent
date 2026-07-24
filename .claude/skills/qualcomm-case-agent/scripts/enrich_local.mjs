@@ -151,19 +151,15 @@ export function buildCaseFlow(comments, analyses) {
   return comments
     .slice()
     .reverse()
-    .map((c, i) => {
-      const a = analyses[c.id];
-      if (!a) return null;
-      return {
-        step: i + 1,
-        phase: a.role,
-        date: c.timestamp || '',
-        by: c.author || '',
-        what: a.summary,
-        refComments: [c.id],
-      };
-    })
-    .filter(Boolean);
+    .filter(c => analyses[c.id])   // filter BEFORE numbering so steps have no gaps
+    .map((c, i) => ({
+      step: i + 1,
+      phase: analyses[c.id].role,
+      date: c.timestamp || '',
+      by: c.author || '',
+      what: analyses[c.id].summary,
+      refComments: [c.id],
+    }));
 }
 
 async function main(code, opts) {

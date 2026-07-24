@@ -22,9 +22,11 @@ the feed, extracts, finalizes, renders and prints the PDF. It prints **one JSON 
 | `auth-required` | 3 | Okta session lapsed → `references/login-flow.md`, human pastes the email OTP, re-run once |
 | `not-found` | 4 | wrong code or no access — stop |
 | `blocked` | 5 | load `references/manual-flow.md` and finish by hand; `reason` says where it stopped |
+| `busy` | 6 | another capture is running (scheduler sweep or dashboard sync) — wait, then re-run |
 | `error` | 1 | fix per `reason` |
 
-`blocked` is never reported as "no update".
+`blocked` is never reported as "no update". A new nested reply under an old post can hide from
+the fast no-update probe — if the user insists there is an update, re-run with `--mode full`.
 
 **Do not `read_file` the case JSON to see what happened** — the verdict line has the counts, ids
 and paths. Read only the comments you are about to analyze. (Capture used to cost ~123k tokens a

@@ -67,14 +67,21 @@ export function runCase(code, watchlist) {
 
 export function sweep({ only = null } = {}) {
   const watchlist = loadWatchlist();
-  const runs = readJson(RUNS_PATH, {});
   const targets = only
     ? [(watchlist.cases || []).find(c => c.code === only) || { code: only }]
-    : dueCases(watchlist, runs);
+    : dueCases(watchlist, readJson(RUNS_PATH, {}));
 
   const results = [];
   for (const c of targets) {
     const v = runCase(c.code, watchlist);
+    results.push(v);
+    // `busy` = another capture held the lock. Don't stamp lastRunAt (so the
+    // case stays due and retries next tick) and don't overwrite the last real
+    // verdict with a transient one.
+    if (v.status === 'busy') continue;
+    // Re-read before writing: a dashboard-spawned run may have written its own
+    // verdict while this sweep was busy capturing — merge, don't clobber.
+    const runs = readJson(RUNS_PATH, {});
     runs[c.code] = {
       lastRunAt: new Date().toISOString(),
       status: v.status,
@@ -83,16 +90,14 @@ export function sweep({ only = null } = {}) {
       commentCount: v.commentCount,
       elapsedMs: v.elapsedMs,
     };
-    results.push(v);
-    writeJson(RUNS_PATH, { ...runs, _sweep: { at: new Date().toISOString(), ran: results.length } });
+    writeJson(RUNS_PATH, runs);
     if (v.status === 'auth-required') break;   // human must sign in; stop the sweep
   }
 
   const authRequired = results.some(v => v.status === 'auth-required');
-  writeJson(RUNS_PATH, {
-    ...runs,
-    _sweep: { at: new Date().toISOString(), ran: results.length, authRequired },
-  });
+  const runs = readJson(RUNS_PATH, {});
+  runs._sweep = { at: new Date().toISOString(), ran: results.length, authRequired };
+  writeJson(RUNS_PATH, runs);
   return { ran: results.length, authRequired, results };
 }
 
