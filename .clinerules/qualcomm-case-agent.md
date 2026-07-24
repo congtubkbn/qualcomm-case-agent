@@ -5,34 +5,61 @@ CASE-12345", "lấy case qualcomm CASE-12345", "qualcomm case 00123456"), follow
 
 **`.claude/skills/qualcomm-case-agent/SKILL.md`**
 
-(plus its `references/` for login, extraction and workflow detail).
+## The whole capture is ONE execute_command
 
-## How to run it under Cline
+```
+node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE>
+```
 
-- It is a plain runbook, not a Claude-Code skill. Use **execute_command** for every `agent-browser`
-  and `node` line; use your file tools (read_file / write_to_file / replace_in_file) for read/write.
-- All paths are **relative to the workspace root** (this project). Run commands from the project
-  folder.
-- **Do not** use Cline's built-in `browser_action`. This agent attaches the standalone `agent-browser`
-  CLI to **real Google Chrome over CDP** (`connect 9222`), launched detached with a persistent
-  `--user-data-dir` (`data/chrome-profile/`) so the Qualcomm/Okta login survives between runs.
-  `browser_action` cannot reuse that session. NOT the bundled Chromium — a broken bundled build
-  caused `os error 10060` (see SKILL.md → Troubleshooting).
-- Prerequisites (install once): Node.js ≥18, `npm i -g agent-browser`, and **real Google Chrome**
-  installed (`agent-browser install`'s bundled Chromium is not required).
-- Launch + attach (Phase 0): `execute_command` →
-  `powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/connect_chrome.ps1"`
-  then `agent-browser connect 9222 < /dev/null`. The helper never kills the user's personal Chrome.
-- First login (Okta password + 6-digit **email OTP**) is human-in-the-loop, done in the visible
-  Chrome window. After that the profile persists; later syncs need no OTP until it expires.
-- Output goes to `data/cases/<CODE>.json` (full) + `<CODE>.report.md` (summary) +
-  `<CODE>.md` / `<CODE>.html` / `<CODE>.txt` (review, + optional `<CODE>.pdf`). Unchanged cases
-  report "no update". A case that is already cached triggers an "update from the portal?" question
-  first (ask_followup_question); a confirmed update run pulls ONLY the new comments and merges them
-  (`scrape_case.mjs --merge`) — cached comments and analysis are never re-fetched.
-- **Deep analysis** (overview, analysis flow, root cause, open questions, per-comment role +
-  3GPP citations) is PHASE 4 of the runbook, and can also be run standalone — no browser/re-scrape —
-  via the sibling skill `.claude/skills/qualcomm-enrich/SKILL.md` (triggers: "enrich/re-enrich/
-  analyze qualcomm case", "phân tích lại / đánh giá case qualcomm").
+A valid 8-digit code goes straight to the portal — **do not ask "shall I update?" first**. The
+script decides new-vs-update from the cache, signs in with the persistent Chrome profile, expands
+the feed, extracts, finalizes, renders and prints the PDF. It prints **one JSON line**:
+
+| `status` | exit | Do this |
+|---|---|---|
+| `created` / `updated` | 0 | analyze (PHASE 3 — `updated` gives you `newCommentIds`), then report |
+| `no-update` | 0 | report "no update since …", stop |
+| `auth-required` | 3 | Okta session lapsed → `references/login-flow.md`, human pastes the email OTP, re-run once |
+| `not-found` | 4 | wrong code or no access — stop |
+| `blocked` | 5 | load `references/manual-flow.md` and finish by hand; `reason` says where it stopped |
+| `busy` | 6 | another capture is running (scheduler sweep or dashboard sync) — wait, then re-run |
+| `error` | 1 | fix per `reason` |
+
+`blocked` is never reported as "no update". A new nested reply under an old post can hide from
+the fast no-update probe — if the user insists there is an update, re-run with `--mode full`.
+
+**Do not `read_file` the case JSON to see what happened** — the verdict line has the counts, ids
+and paths. Read only the comments you are about to analyze. (Capture used to cost ~123k tokens a
+case, nearly all of it accessibility-tree snapshots; this command is ~1k. See `docs/AUTOMATION.md`.)
+
+## Rules that still apply
+
+- Use **execute_command** for every `node` / `powershell` line; file tools for read/write.
+- All paths are relative to the workspace root. Node resolves the cache from the project root, so
+  the command works from any working directory.
+- **Do not** use Cline's built-in `browser_action`. This agent drives the standalone
+  `agent-browser` CLI against **real Google Chrome over CDP 9222**, with a persistent
+  `--user-data-dir` (`data/chrome-profile/`) so the Okta login survives between runs.
+  `browser_action` cannot reuse that session.
+- Prerequisites (once): Node.js ≥18, `npm i -g agent-browser`, real Google Chrome.
+- First login (Okta password + 6-digit **email OTP**) is human-in-the-loop in the visible Chrome
+  window. After that the profile persists.
+- **Asking the user anything MUST use `ask_followup_question`** — ACT mode errors a turn that
+  used no tool.
+- A long capture may be reported as timed out and backgrounded. That is Cline's timeout, not a
+  failure: check `data/runs.json` or the dashboard for the real outcome.
+- Output: `data/cases/<CODE>/` — `case.json` (source of truth) + `case.report.md` + `case.md` /
+  `case.html` / `case.txt` / `case.pdf`.
+
+## Beyond one case
+
+- **Scheduled sweeps:** `node .claude/skills/qualcomm-case-agent/scripts/scheduler.mjs --once`,
+  driven by `data/watchlist.json`. Windows Task Scheduler: `scripts/register_task.ps1`.
+- **Dashboard:** `node web/server.mjs --scheduler` → `http://127.0.0.1:8787`.
+- **Local LLM enrichment** (4–7 GB RAM, zero tokens): `scripts/enrich_local.mjs`, or
+  `--enrich local` on the capture. See `docs/LOCAL_LLM.md`.
+- **Deep analysis without re-scraping:** the sibling skill
+  `.claude/skills/qualcomm-enrich/SKILL.md` ("enrich/re-enrich/analyze qualcomm case",
+  "phân tích lại / đánh giá case qualcomm").
 
 One case per request. Never type the Qualcomm password or OTP — the user enters those in the browser.
