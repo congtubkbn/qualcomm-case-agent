@@ -34,6 +34,9 @@ import { BrowserError, ensureChrome, evalFile, open, pdf, sleep } from './browse
 const SCRIPTS = fileURLToPath(new URL('.', import.meta.url));
 const PORTAL = 'https://support.qualcomm.com';
 const READY_ROUNDS = 8;      // x 2s = 16s ceiling for SPA hydration
+const FEED_PROBE_ROUNDS = 15; // x 2s = 30s ceiling — Chatter feed hydration is
+                               // slower than page readiness right after a fresh
+                               // login (cold Lightning component bootstrap)
 const EXPAND_ROUNDS = 40;    // pagination + expansion ticks
 
 export const STATUS_EXIT = {
@@ -121,10 +124,16 @@ async function run(code, opts) {
   }
 
   // --- PHASE 1.5: probe first (fast no-update check), then expand in-page.
+  // The Chatter feed lazy-loads articles one at a time on a cold Lightning
+  // bootstrap: `articles` goes truthy (1) well before the rest arrive. Waiting
+  // for merely non-zero races the feed and truncates the capture to whatever
+  // loaded first — wait for the count to hold steady across two ticks instead.
   let probe = evalFile(page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
-  for (let i = 0; i < READY_ROUNDS && (!probe || !probe.articles); i++) {
+  for (let i = 0; i < FEED_PROBE_ROUNDS; i++) {
+    const prevArticles = probe ? probe.articles : 0;
     await sleep(2000);
     probe = evalFile(page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
+    if (probe && probe.articles && probe.articles === prevArticles) break;
   }
   if (!probe || !probe.articles) {
     return { status: 'blocked', reason: 'case page has no Chatter feed articles — wrong page or feed never loaded', probe };

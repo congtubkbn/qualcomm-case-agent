@@ -46,19 +46,22 @@ if ($snap -match 'os error 10060' -or $snap -match 'Failed to read') {
   Write-Host "ERROR: agent-browser not attached. Run connect_chrome.ps1 + 'agent-browser connect 9222' first."
   exit 3
 }
-if ($snap -notmatch '(Username|Password|Sign In|Verify)') {
+if ($snap -notmatch '(Username|Qualcomm ID|Password|Sign In|Verify)') {
   # Not already on an Okta form — navigate to the portal to trigger the auth flow.
   AB open "https://support.qualcomm.com" | Out-Host
   Start-Sleep -Seconds 2
   $snap = (AB snapshot -i | Out-String)
 }
-if ($snap -match 'dashboard' -or $snap -notmatch '(Username|Password|Sign In|Verify)') {
+if ($snap -match 'dashboard' -or $snap -notmatch '(Username|Qualcomm ID|Password|Sign In|Verify)') {
   Write-Host "Session appears valid (no Okta form). Nothing to do."
   exit 0
 }
 
 # --- Step 1: username screen -> Next ---
-if ($snap -match 'Username') {
+# NOTE: the field label seen live is "Qualcomm ID", not "Username" (confirmed
+# 2026-07). Matching on "Username" alone silently skipped this whole block and
+# fell through to the password check with a stale username-only snapshot.
+if ($snap -match '(Username|Qualcomm ID)') {
   # Prefill defends against a blank field; harmless if already populated.
   AB fill "input[name='identifier']" $Username 2>&1 | Out-Null
   AB click "input[type='submit']" | Out-Host
@@ -87,7 +90,7 @@ Start-Sleep -Seconds 3
 # don't falsely tell the user to look for an OTP that never appears.
 $post = (AB snapshot -i | Out-String)
 $looksOtp  = $post -match '(verification code|Send me an email|Get a verification|Enter a code|Verify)'
-$looksUser = $post -match "(name=.?identifier|Username|Sign In)"
+$looksUser = $post -match "(name=.?identifier|Username|Qualcomm ID|Sign In)"
 if ($looksUser -and -not $looksOtp) {
   Write-Host "`nERROR: bounced back to the USERNAME screen after submitting the password."
   Write-Host "       This is Okta's signature for a WRONG or EMPTY password in qid.bin."

@@ -27,6 +27,15 @@
   const txt = el => (el && (el.innerText || el.textContent || "")).trim();
   const qsa = sel => Array.from(document.querySelectorAll(sel));
 
+  // Chatter renders its paragraph-separator marker differently in the collapsed
+  // teaser vs the expanded ".feedBodyInner" body, and BOTH forms come through as
+  // mojibake (a real non-breaking-space character double-encoded, not user text).
+  // Confirmed patterns (2026-07): "Â " in the teaser, "â”¬Ã¡" once "Expand Post"
+  // is clicked — same underlying separator, two renderings. Stripped narrowly by
+  // exact string match only (NOT a general Latin-1 reinterpretation pass, which
+  // would also mangle legitimate accented text e.g. Vietnamese names/comments).
+  const cleanBody = s => s.replace(/â”¬Ã¡/g, "").replace(/Â(?=[\s\n]|$)/g, "");
+
   // Case number: document.title is reliably "Case: <CODE>" on the case page.
   // Require the colon form + a leading digit so the Cases LIST view (title
   // "Cases") can't false-match and yield a junk id like "s". Fall back to a
@@ -58,7 +67,7 @@
     // Second named link is the timestamp unless it's the "Expand Post" control.
     const tsCandidate = named[1] && named[1] !== "Expand Post" ? named[1] : (named[2] || "");
     const bodyEl = a.querySelector(".feedBodyInner, .cuf-feedBodyText, [class*='feedBody']");
-    const body = bodyEl ? txt(bodyEl) : txt(a);
+    const body = cleanBody(bodyEl ? txt(bodyEl) : txt(a));
     return {
       id: a.id || ("c" + (i + 1)),
       timestamp: tsCandidate,
