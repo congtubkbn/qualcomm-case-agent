@@ -8,7 +8,10 @@
     "sync": "node .claude/skills/qualcomm-case-agent/scripts/scheduler.mjs --once",
     "watch": "node .claude/skills/qualcomm-case-agent/scripts/scheduler.mjs",
     "web": "node web/server.mjs --scheduler",
-    "llm:check": "node .claude/skills/qualcomm-case-agent/scripts/enrich_local.mjs --check"
+    "llm:check": "node .claude/skills/qualcomm-case-agent/scripts/enrich_local.mjs --check",
+    "docs": "node tools/gen_design.mjs",
+    "docs:check": "node tools/gen_design.mjs --check",
+    "docs:hook": "git config core.hooksPath tools/hooks"
   },
   "engines": { "node": ">=18" }
 }
