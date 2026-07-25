@@ -96,6 +96,14 @@ data/runs.json                  # last verdict per case (the dashboard reads thi
 
 All of `data/` is git-ignored — case content is Qualcomm NDA material, kept local only.
 
+## Design docs
+
+[`docs/DESIGN.md`](docs/DESIGN.md) is the architecture reference: constraints, the decisions and the
+alternatives they beat, data model, runtime flows, invariants, failure modes and the improvement
+backlog. Its module/API section is generated from the source — `npm run docs` regenerates it,
+`npm run docs:hook` installs the pre-commit hook that keeps it current, `npm run docs:check` fails
+when it is stale.
+
 ## Requirements
 
 - Windows (the auth helpers are PowerShell + DPAPI), Node.js ≥18

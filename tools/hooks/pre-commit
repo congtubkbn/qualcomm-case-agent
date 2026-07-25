@@ -1,0 +1,20 @@
+#!/bin/sh
+# Keep docs/DESIGN.md §7 in sync with the source on every commit.
+# Install once per clone:  npm run docs:hook
+#
+# Only runs when a scanned source file is part of this commit, so a docs-only or
+# data-only commit stays instant. If the generated block changes, it is added to
+# the SAME commit — the doc can never lag the code it describes by a commit.
+set -e
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+case "$staged" in
+  *.claude/skills/qualcomm-case-agent/scripts/*|*web/*|*tests/*|*tools/*|*package.json*) ;;
+  *) exit 0 ;;
+esac
+
+node tools/gen_design.mjs
+if ! git diff --quiet -- docs/DESIGN.md; then
+  git add docs/DESIGN.md
+  echo "pre-commit: refreshed docs/DESIGN.md (generated section) and staged it"
+fi
