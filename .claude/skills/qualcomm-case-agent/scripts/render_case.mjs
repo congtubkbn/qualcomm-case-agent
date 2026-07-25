@@ -185,6 +185,20 @@ const esc = s => S(s).replace(/[&<>"']/g, m =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 const nl2br = s => esc(s).replace(/\n/g, '<br>');
 
+// Comment bodies and attachment links come from the live Chatter feed of a
+// SHARED support portal — other companies on the same case can post them, not
+// just the signed-in account. `esc()` only escapes HTML metacharacters, which
+// does not stop a `javascript:`/`data:` URI from surviving into `href="..."`
+// verbatim. Whitelist the scheme (or accept a relative/local path) before it
+// ever reaches an href; anything else renders inert.
+const SAFE_HREF_RE = /^(?:https?:|mailto:|tel:)/i;
+const safeHref = s => {
+  const v = S(s).trim();
+  if (!v) return '';
+  if (/^[/#?]/.test(v)) return v;
+  return SAFE_HREF_RE.test(v) ? v : '#';
+};
+
 function html() {
   const badge = (label, v) => S(v) ? `<span class="badge"><b>${esc(label)}</b> ${esc(v)}</span>` : '';
   const mismatch = data.displayedCommentCount != null &&
@@ -229,7 +243,7 @@ function html() {
     const details = (logs.length || atts.length) ? `
       <details><summary>Analysis log / attachments</summary>
         ${logs.map(l => `<pre>${esc(l)}</pre>`).join('')}
-        ${atts.length ? `<ul>${atts.map(a => `<li><a href="${esc(a.href)}">${esc(a.name) || 'file'}</a></li>`).join('')}</ul>` : ''}
+        ${atts.length ? `<ul>${atts.map(a => `<li><a href="${esc(safeHref(a.href))}">${esc(a.name) || 'file'}</a></li>`).join('')}</ul>` : ''}
       </details>` : '';
     const a = commentAnalysis(c.id);
     const esum = a ? `<div class="esum">
@@ -290,7 +304,7 @@ a{color:#6ea8fe}
   ${S(data.description) ? `<div class="card"><h2>Description</h2><p>${nl2br(data.description)}</p></div>` : ''}
   <h2 style="color:var(--acc)">Comments (newest first)</h2>
   ${commentCards}
-  ${S(data.url) ? `<p style="color:var(--mut)"><a href="${esc(data.url)}">${esc(data.url)}</a></p>` : ''}
+  ${S(data.url) ? `<p style="color:var(--mut)"><a href="${esc(safeHref(data.url))}">${esc(data.url)}</a></p>` : ''}
 </main></body></html>`;
 }
 
