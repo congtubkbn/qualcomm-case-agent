@@ -30,6 +30,21 @@
   var byText = function (sel, re) {
     return qsa(sel).filter(function (e) { return re.test(txt(e)); });
   };
+  // Plain `el.click()` can silently no-op on Lightning/Aura controls whose real
+  // handler listens for pointer/mouse events rather than the synthetic click
+  // event .click() dispatches — observed as the same "Expand Post" label
+  // getting re-clicked tick after tick without ever actually expanding. Fire
+  // the fuller event sequence a real interaction produces, then .click() too
+  // as a harmless belt-and-suspenders fallback.
+  var fire = function (el) {
+    ['pointerdown', 'mousedown', 'pointerup', 'mouseup'].forEach(function (type) {
+      try {
+        var Ctor = (/^pointer/.test(type) && window.PointerEvent) ? window.PointerEvent : window.MouseEvent;
+        el.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, composed: true, view: window }));
+      } catch (e) { /* Ctor unsupported in this environment — click() below still fires */ }
+    });
+    el.click();
+  };
 
   var articles = qsa('article');
 
@@ -69,7 +84,7 @@
     var art = e.closest('article');
     var idx = art ? articles.indexOf(art) : -1;
     if (anchorIdx >= 0 && idx >= anchorIdx) { result.remainingExpand++; return; }
-    e.click();
+    fire(e);
     result.clickedExpand++;
   });
 
@@ -77,7 +92,7 @@
   // only while the anchor is still off-screen.
   if (anchorIdx < 0) {
     var more = byText('button, a', /^View More/i)[0];
-    if (more) { more.click(); result.clickedViewMore = 1; }
+    if (more) { fire(more); result.clickedViewMore = 1; }
   }
 
   // Description panel is a full-run concern — on an update run it is cached.
@@ -85,7 +100,7 @@
     var desc = byText('button', /^Description$/i).filter(function (b) {
       return b.getAttribute('aria-expanded') === 'false';
     })[0];
-    if (desc) { desc.click(); result.clickedDescription = 1; }
+    if (desc) { fire(desc); result.clickedDescription = 1; }
   }
 
   return result;

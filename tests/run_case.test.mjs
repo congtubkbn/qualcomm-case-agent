@@ -18,7 +18,15 @@
 // an earlier test.
 
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
+
+// run() (unlike findCaseLink/landOnCase) reads/writes under DATA_DIR — pin it
+// to an empty throwaway root so "no cached case" is deterministic, same as
+// pipeline.test.mjs does for the same _paths.mjs singleton.
+process.env.QUALCOMM_ROOT = mkdtempSync(join(tmpdir(), 'qc-run-'));
 
 const SCRIPTS = new URL('../.claude/skills/qualcomm-case-agent/scripts/', import.meta.url);
 const BROWSER_URL = new URL('browser.mjs', SCRIPTS);
@@ -157,5 +165,65 @@ describe('landOnCase', () => {
     const res = await landOnCase('08438355');
     assert.equal(res.state, 'STUB');
     assert.match(res.reason, /retry search exposed no case link/);
+  });
+});
+
+describe('run() expand-loop stuck detection', () => {
+  // Case 08503838 in the wild: 7 of 11 comments were persisted with a literal
+  // trailing "Expand Post" — the click fired every tick (so the idle-break
+  // never triggered) but never actually expanded the post, and the loop just
+  // ran out its round budget and fell through to extraction silently. This
+  // reproduces that with a fully mocked browser: expand_step.js reports a
+  // click every single tick, forever.
+  it('reports blocked+retryable instead of silently extracting a half-expanded feed', async (t) => {
+    const stuckTick = { clickedExpand: 1, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
+    const stableFeed = { articles: 5, displayed: 5, anchorIdx: -1, top: { author: 'A', bodyStart: 'x' } };
+    mockBrowser(t, [
+      { state: 'READY' },                                          // pollReadiness (initial search)
+      { state: 'FOUND', href: REAL_HREF, fields: { title: 't' } },  // findCaseLink (direct, in run())
+      { state: 'FOUND', href: REAL_HREF, fields: { title: 't' } },  // findCaseLink (inside landOnCase)
+      { state: 'READY' },                                          // pollReadiness (inside landOnCase)
+      { state: 'ON_CASE', href: REAL_HREF },                        // confirm landing
+      stableFeed, stableFeed,                                       // probeFeed: stable on first re-check
+      ...Array.from({ length: 40 }, () => stuckTick),               // main expand loop: EXPAND_ROUNDS, never idles
+      ...Array.from({ length: 5 }, () => stuckTick),                // STUCK_RETRY_ROUNDS grace: still stuck
+    ]);
+    const { run } = await importRunCase();
+    const v = await run('08438355', { mode: 'auto', enrich: 'none', noPdf: true });
+    assert.equal(v.status, 'blocked');
+    assert.equal(v.retryable, true);
+    assert.match(v.reason, /Expand Post/);
+    assert.equal(v.expandRounds, 40);
+  });
+
+  it('recovers if the stuck control finally lets go during the grace retries', async (t) => {
+    const stuckTick = { clickedExpand: 1, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
+    const idleTick = { clickedExpand: 0, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
+    const stableFeed = { articles: 5, displayed: 5, anchorIdx: -1, top: { author: 'A', bodyStart: 'x' } };
+    const { evalFileCalls } = mockBrowser(t, [
+      { state: 'READY' },
+      { state: 'FOUND', href: REAL_HREF, fields: { title: 't' } },
+      { state: 'FOUND', href: REAL_HREF, fields: { title: 't' } },
+      { state: 'READY' },
+      { state: 'ON_CASE', href: REAL_HREF },
+      stableFeed, stableFeed,
+      ...Array.from({ length: 40 }, () => stuckTick),  // exhausts the round budget
+      idleTick,                                        // grace retry 1: finally converges
+      { comments: [{ author: 'A', body: 'ok', timestamp: 't' }] }, // extract_case.js
+    ]);
+    // Normally intake() (CLI entry, bypassed when calling run() directly in
+    // tests) creates this dir before PHASE 2's raw-file write needs it.
+    mkdirSync(join(process.env.QUALCOMM_ROOT, 'data', 'cases', '08438355'), { recursive: true });
+    const { run } = await importRunCase();
+    const v = await run('08438355', { mode: 'auto', enrich: 'none', noPdf: true });
+    // Recovered past the stuck check — it went on to actually extract and
+    // finalize for real (scrape_case.mjs is a real child process here, not
+    // mocked). The point of this test is only that it did NOT give up with
+    // the stuck verdict once the grace retry saw the control finally idle.
+    assert.ok(!(v.status === 'blocked' && v.retryable), 'must not report the stuck verdict once a grace retry goes idle');
+    assert.ok(!/round budget/.test(v.reason || ''));
+    const names = evalFileCalls.map(c => c.path);
+    // 2 feed-probe reads (PROBE mode) + 40 round-budget ticks + exactly 1 grace retry.
+    assert.equal(names.filter(n => n === 'expand_step.js').length, 43);
   });
 });

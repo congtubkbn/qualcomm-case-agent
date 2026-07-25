@@ -21,6 +21,11 @@
 //
 // "blocked" is never downgraded to "no-update": a tool failure means
 // inconclusive, not "confirmed unchanged" (SKILL.md PHASE 1.5B hard rule).
+//
+// `retryable: true` on a `blocked` verdict marks a transient capture glitch
+// (e.g. a stuck expand loop) worth hammering again soon — scheduler.mjs skips
+// stamping lastRunAt for these so the case stays due next sweep tick instead
+// of waiting out the full interval, bounded by MAX_RETRYABLE_ATTEMPTS.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -38,6 +43,8 @@ const FEED_PROBE_ROUNDS = 15; // x 2s = 30s ceiling — Chatter feed hydration i
                                // slower than page readiness right after a fresh
                                // login (cold Lightning component bootstrap)
 const EXPAND_ROUNDS = 40;    // pagination + expansion ticks
+const STUCK_RETRY_ROUNDS = 5; // x2s extra grace once the round budget runs out
+                               // while still clicking "Expand Post" every tick
 
 export const STATUS_EXIT = {
   created: 0, updated: 0, 'no-update': 0,
@@ -168,7 +175,7 @@ export async function landOnCase(code) {
   return { state: 'STUB', reason: 'case link navigation never routed past the Lightning stub page' };
 }
 
-async function run(code, opts) {
+export async function run(code, opts) {
   const caseDir = join(DATA_DIR, code);
   const casePath = join(caseDir, 'case.json');
   // Strip a possible leading BOM (e.g. a cache hand-edited on Windows) — same
@@ -282,6 +289,31 @@ async function run(code, opts) {
     await sleep(r.clickedViewMore ? 2000 : 800);
   }
 
+  // The round budget can run out while a control is STILL being clicked every
+  // tick (idleTicks never reached 2) — a click that never actually expands its
+  // post (e.g. the synthetic click missed the framework's real handler) looks
+  // identical to real progress here, since the label never changes and gets
+  // "clicked" again next tick. Extracting now would silently persist a
+  // truncated body ending in the literal "Expand Post" control label (observed
+  // on case 08503838: 7 of 11 comments). Give it a few slower, dedicated
+  // retries; only give up loud — never fall through to extraction quiet.
+  if (rounds >= EXPAND_ROUNDS && idleTicks < 2) {
+    let stillStuck = true;
+    for (let i = 0; i < STUCK_RETRY_ROUNDS; i++) {
+      await sleep(2000);
+      const r = evalFile(page('expand_step.js'), { __ANCHOR: anchor });
+      if (!r.clickedExpand && !r.clickedViewMore && !r.clickedDescription) { stillStuck = false; break; }
+    }
+    if (stillStuck) {
+      return {
+        status: 'blocked',
+        retryable: true,
+        reason: 'expand loop exhausted its round budget while still clicking "Expand Post" — one or more posts are likely still collapsed',
+        expandRounds: rounds,
+      };
+    }
+  }
+
   // --- PHASE 2: extract from the DOM exactly as expansion left it.
   const raw = evalFile(page('extract_case.js'));
   if (!raw || !Array.isArray(raw.comments)) {
@@ -301,7 +333,10 @@ async function run(code, opts) {
   const oldHash = cached ? cached.hash : null;
   const fin = node('scrape_case.mjs', [code, rawPath, ...(merge ? ['--merge'] : []), ...flags]);
   const v = fin.json || {};
-  if (fin.code === 5) return { status: 'blocked', reason: v.reason || 'incomplete capture', finalize: v, expandRounds: rounds };
+  // A short/collapsed capture is the same class of transient glitch as the
+  // stuck-expand-loop check above — retryable, not a persistent structural
+  // failure, so the scheduler should retry it soon rather than wait a full interval.
+  if (fin.code === 5) return { status: 'blocked', retryable: true, reason: v.reason || 'incomplete capture', finalize: v, expandRounds: rounds };
   if (fin.code !== 0) return { status: 'error', reason: v.reason || fin.err || `scrape_case exited ${fin.code}`, finalize: v };
 
   // The finalizer reports the genuinely new ids whenever a cache existed — on a

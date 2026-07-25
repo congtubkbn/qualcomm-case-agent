@@ -12,6 +12,12 @@
 // human-only. So when a run comes back `auth-required` the sweep STOPS and
 // flags it — retrying on a lapsed session just burns attempts and hides the
 // one fact the user needs to see on the dashboard.
+//
+// `blocked, retryable: true` (a stuck expand loop / short capture — see
+// run_case.mjs) is the opposite: worth hammering again soon, not waiting out
+// the full interval. Handled like `busy` below — lastRunAt is NOT stamped, so
+// the case stays due next tick — but bounded by MAX_RETRYABLE_ATTEMPTS so a
+// genuinely stuck case doesn't drive Chrome every minute forever.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -22,6 +28,10 @@ import { DATA_DIR, PROJECT_ROOT } from './_paths.mjs';
 const SCRIPTS = fileURLToPath(new URL('.', import.meta.url));
 export const WATCHLIST_PATH = join(PROJECT_ROOT, 'data', 'watchlist.json');
 export const RUNS_PATH = join(PROJECT_ROOT, 'data', 'runs.json');
+
+const MAX_RETRYABLE_ATTEMPTS = 5; // consecutive un-stamped retries before a
+                                    // retryable blocked falls back to a normal
+                                    // blocked (stamped, waits out the interval)
 
 const DEFAULT_WATCHLIST = {
   intervalMinutes: 240,
@@ -54,6 +64,15 @@ export function dueCases(watchlist, runs, now = Date.now()) {
   });
 }
 
+/** Should this verdict keep the case "due" (skip stamping lastRunAt) instead
+ *  of waiting out the normal interval? Only `retryable` verdicts, and only up
+ *  to MAX_RETRYABLE_ATTEMPTS in a row — past that it reads as a persistent
+ *  problem, not a passing glitch, so it falls back to the normal stamp+wait. */
+export function retryDecision(verdict, priorRetries) {
+  const retry = Boolean(verdict.retryable) && priorRetries < MAX_RETRYABLE_ATTEMPTS;
+  return { retry, retryCount: retry ? priorRetries + 1 : 0 };
+}
+
 /** Run one case through the full pipeline. Returns the verdict object. */
 export function runCase(code, watchlist) {
   const args = [join(SCRIPTS, 'run_case.mjs'), code, '--enrich', watchlist.enrich || 'none'];
@@ -82,6 +101,12 @@ export function sweep({ only = null } = {}) {
     // Re-read before writing: a dashboard-spawned run may have written its own
     // verdict while this sweep was busy capturing — merge, don't clobber.
     const runs = readJson(RUNS_PATH, {});
+    const { retry, retryCount } = retryDecision(v, runs[c.code]?.retryCount || 0);
+    if (retry) {
+      runs[c.code] = { ...runs[c.code], status: v.status, reason: v.reason, retryCount };
+      writeJson(RUNS_PATH, runs);
+      continue;
+    }
     runs[c.code] = {
       lastRunAt: new Date().toISOString(),
       status: v.status,
@@ -89,6 +114,7 @@ export function sweep({ only = null } = {}) {
       newComments: v.newComments,
       commentCount: v.commentCount,
       elapsedMs: v.elapsedMs,
+      retryCount,
     };
     writeJson(RUNS_PATH, runs);
     if (v.status === 'auth-required') break;   // human must sign in; stop the sweep

@@ -139,7 +139,7 @@ describe('enrich_local.mjs', async () => {
 });
 
 describe('scheduler.mjs', async () => {
-  const { dueCases } = await import(new URL('scheduler.mjs', SCRIPTS));
+  const { dueCases, retryDecision } = await import(new URL('scheduler.mjs', SCRIPTS));
   const now = Date.parse('2026-07-01T12:00:00.000Z');
   const wl = { intervalMinutes: 60, cases: [
     { code: '1', }, { code: '2' }, { code: '3', enabled: false }, { code: '4', intervalMinutes: 600 },
@@ -156,6 +156,23 @@ describe('scheduler.mjs', async () => {
 
   it('treats a never-run case as due', () => {
     assert.deepEqual(dueCases({ intervalMinutes: 60, cases: [{ code: '9' }] }, {}, now).map(c => c.code), ['9']);
+  });
+
+  it('retryDecision: keeps a retryable verdict due (no stamp) below the attempt cap', () => {
+    const r = retryDecision({ status: 'blocked', retryable: true }, 0);
+    assert.equal(r.retry, true);
+    assert.equal(r.retryCount, 1);
+  });
+
+  it('retryDecision: falls back to stamping once the attempt cap is reached', () => {
+    const r = retryDecision({ status: 'blocked', retryable: true }, 5);
+    assert.equal(r.retry, false);
+    assert.equal(r.retryCount, 0, 'resets so a later fresh run starts counting from zero again');
+  });
+
+  it('retryDecision: a non-retryable verdict always stamps immediately', () => {
+    assert.deepEqual(retryDecision({ status: 'blocked' }, 0), { retry: false, retryCount: 0 });
+    assert.deepEqual(retryDecision({ status: 'created' }, 0), { retry: false, retryCount: 0 });
   });
 });
 

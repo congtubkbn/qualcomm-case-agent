@@ -70,6 +70,26 @@ export function computeHash(raw) {
   return createHash('sha256').update(lines.join('\n'), 'utf8').digest('hex');
 }
 
+// A post whose "Expand Post" control never got clicked (or got clicked but
+// never actually expanded — see run_case.mjs's stuck-loop detection) still
+// extracts fine, just with the collapsed teaser text plus the control's own
+// label trailing the body (Chatter renders it as a sibling INSIDE the same
+// container extract_case.js reads). This is root-cause-agnostic: it catches a
+// stuck click loop, a selector drift, or any other way a post ends up
+// half-captured, by looking at the one thing that's always true of a genuine
+// full expansion — the label is gone from the body.
+const COLLAPSED_BODY_RE = /\bExpand Post\s*$/i;
+
+// Only check comments NEW to this capture — a --merge (and a full re-capture
+// of a cache) deliberately leaves OLD posts collapsed (see expand_step.js) and
+// keeps their cached verbatim bodies, so those legitimately still carry the
+// label in the freshly re-extracted DOM. Checking the whole list would reject
+// every routine update run.
+export function findCollapsed(comments, newIds) {
+  const fresh = new Set(newIds);
+  return (comments || []).filter(c => fresh.has(c.id) && COLLAPSED_BODY_RE.test(c.body));
+}
+
 // captured < displayed => the agent must expand more / re-extract (do NOT persist
 // a partial capture). displayed == null => portal showed no total; persist with a warning.
 export function countAssert(capturedCount, displayedCount) {
@@ -241,10 +261,12 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
   // Update run (--merge): the cached case with only the NEW comments prepended.
   let out;
   let mergeInfo = null;
+  let newIds = [];
   if (merge) {
-    const { merged, newIds } = mergeComments(cached.comments || [], fresh.comments);
+    const merge0 = mergeComments(cached.comments || [], fresh.comments);
+    newIds = merge0.newIds;
     // Start from the cache: enrichment and every already-captured field survive.
-    out = { ...cached, comments: merged };
+    out = { ...cached, comments: merge0.merged };
     // Fresh page values that are always current truth:
     if (raw.displayedCommentCount != null) out.displayedCommentCount = raw.displayedCommentCount;
     if (String(raw.url || '').trim()) out.url = raw.url;
@@ -263,12 +285,28 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
     // capture is not proof it is gone for good. This is the same dedup as
     // --merge; a full run can only grow the comment list, never shrink it.
     const cachedComments = cached ? (cached.comments || []) : [];
-    const { merged, newIds } = mergeComments(cachedComments, fresh.comments);
-    out = { ...raw, comments: merged };
+    const merge0 = mergeComments(cachedComments, fresh.comments);
+    newIds = merge0.newIds;
+    out = { ...raw, comments: merge0.merged };
     if (cached) {
       if (cached.enrichment) out.enrichment = cached.enrichment;
       mergeInfo = { newIds, oldHash: cached.hash, cached };
     }
+  }
+
+  // Hard gate: a genuinely NEW comment that still carries the "Expand Post"
+  // control label is a half-captured post, whatever the cause. Reject rather
+  // than persist it — a truncated body silently baked into the cache is worse
+  // than a capture that fails loud and gets retried.
+  const collapsed = findCollapsed(out.comments, newIds);
+  if (collapsed.length) {
+    emit({
+      code: EXIT.INCOMPLETE,
+      reason: `${collapsed.length} new comment(s) still show a collapsed "Expand Post" control — expansion incomplete, not persisting`,
+      collapsedAuthors: collapsed.map(c => c.author),
+      caseCode,
+    });
+    process.exit(EXIT.INCOMPLETE);
   }
 
   // Completeness gate BEFORE any write — a short capture is not persisted.

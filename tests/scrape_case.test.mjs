@@ -46,6 +46,23 @@ describe('computeHash', () => {
   });
 });
 
+describe('findCollapsed', () => {
+  it('flags a NEW comment still carrying the "Expand Post" control label', () => {
+    const fresh = m.assignIds([comment('Alice', 'long body...\n\nExpand Post')]).comments;
+    assert.equal(m.findCollapsed(fresh, [fresh[0].id]).length, 1);
+  });
+
+  it('ignores an OLD comment left deliberately collapsed (not in newIds)', () => {
+    const cached = m.assignIds([comment('Bob', 'old body...\n\nExpand Post')]).comments;
+    assert.equal(m.findCollapsed(cached, []).length, 0);
+  });
+
+  it('does not false-positive on a body that merely mentions the phrase mid-sentence', () => {
+    const fresh = m.assignIds([comment('Alice', 'Please click Expand Post to see more, then reply.')]).comments;
+    assert.equal(m.findCollapsed(fresh, [fresh[0].id]).length, 0);
+  });
+});
+
 describe('countAssert', () => {
   it('blocks an under-capture, allows equal or over (nested replies)', () => {
     assert.equal(m.countAssert(4, 5).ok, false);
@@ -325,6 +342,31 @@ describe('finalize (child process)', () => {
     assert.equal(runFinalize(root, { ...RAW, title: '' }).exit, m.EXIT.INCOMPLETE);
 
     assert.equal(readFileSync(casePath(root), 'utf8'), good, 'a rejected capture must not touch the cached case');
+  });
+
+  it('rejects a full capture whose new comment is still collapsed ("Expand Post" not clicked)', () => {
+    const root = fixture();
+    const collapsedRaw = {
+      ...RAW,
+      comments: [comment('Carol', 'long protocol trace...\n\nExpand Post'), ...RAW.comments],
+    };
+    const { exit, verdict } = runFinalize(root, collapsedRaw);
+    assert.equal(exit, m.EXIT.INCOMPLETE);
+    assert.deepEqual(verdict.collapsedAuthors, ['Carol']);
+  });
+
+  it('does not re-reject an OLD comment that was already cached collapsed', () => {
+    const root = fixture();
+    // Case already has a cached comment that (from a prior broken run) still
+    // ends in "Expand Post" — an update run must not block on it forever,
+    // only on GENUINELY NEW comments.
+    writeFileSync(casePath(root), JSON.stringify({
+      ...RAW, comments: m.assignIds([comment('Dave', 'old trace...\n\nExpand Post'), ...RAW.comments]).comments,
+    }), 'utf8');
+    const partial = { ...RAW, displayedCommentCount: 3, comments: [comment('Carol', 'a fully expanded new post'), comment('Alice', 'RRC reject on n78')] };
+    const { exit, verdict } = runFinalize(root, partial, ['--merge']);
+    assert.equal(exit, m.EXIT.OK);
+    assert.equal(verdict.newComments, 1);
   });
 
   it('rejects --merge with no cached case rather than writing a partial one', () => {
