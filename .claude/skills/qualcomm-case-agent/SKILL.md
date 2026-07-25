@@ -92,8 +92,15 @@ analysis inline) · `--no-pdf`.
 | `auth-required` | 3 | saved Okta session lapsed | run `okta_login.ps1` (Recovery 1 → `references/login-flow.md`). **Branch on ITS exit: `2` = already authenticated (MFA skipped) → re-run the command NOW, no OTP; `0` = do the email OTP, then re-run.** Do not wait for an OTP the script did not ask for. |
 | `not-found` | 4 | search returned nothing for this code | STOP — wrong code, or the account cannot see it |
 | `blocked` | 5 | page never rendered / capture short | load `references/manual-flow.md` and finish by hand; `reason` says where it stopped |
-| `busy` | 6 | another capture holds the lock (`data/.capture.lock`) | wait for it to finish, then re-run; a hung run's lock goes stale after 30 min |
+| `busy` | 6 | another capture holds the lock (`data/.capture.lock`) | wait ~30s, re-run **once**; still `busy` after 2 retries → treat like `blocked`: stop and report, do not spin-loop |
 | `error` | 1 | bad invocation or script failure | fix per `reason`; do not retry blindly |
+
+> **A non-zero exit here is BY DESIGN for `auth-required`/`not-found`/`blocked`/`busy` — it is not
+> a crash.** Whatever ran the command (Bash tool, Cline `execute_command`, a background-task
+> wrapper) may still surface it as a generic "failed" result. **Ignore that label — always branch
+> on the `status` field inside stdout's JSON line, never on the shell exit-status label alone.**
+> Seeing "failed" is not license to retry blindly, apologize, or report an error the table above
+> already names as a normal outcome.
 
 > `blocked` is never "no update". A tool failure means inconclusive — reporting an unchanged
 > case on a failed probe is the one wrong answer here.
