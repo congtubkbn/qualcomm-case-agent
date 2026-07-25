@@ -171,7 +171,13 @@ export async function landOnCase(code) {
 async function run(code, opts) {
   const caseDir = join(DATA_DIR, code);
   const casePath = join(caseDir, 'case.json');
-  const cached = existsSync(casePath) ? JSON.parse(readFileSync(casePath, 'utf8')) : null;
+  // Strip a possible leading BOM (e.g. a cache hand-edited on Windows) — same
+  // defensive read as scrape_case.mjs and render_case.mjs do for this same file.
+  let cached = null;
+  if (existsSync(casePath)) {
+    const t = readFileSync(casePath, 'utf8');
+    cached = JSON.parse(t.charCodeAt(0) === 0xFEFF ? t.slice(1) : t);
+  }
   const mode = opts.mode === 'auto' ? (cached ? 'update' : 'full') : opts.mode;
   const merge = mode === 'update' && !!cached;
   const anchor = merge ? anchorOf(cached) : null;
@@ -370,7 +376,16 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
   // One capture at a time: every path (interactive, sweep, dashboard Sync now)
   // drives the same Chrome — a second run reports `busy` instead of colliding.
-  const lock = acquireLock();
+  // Guarded: an fs error here (disk full, permission) must still emit the ONE
+  // JSON verdict line the whole contract promises, not an uncaught crash with
+  // empty stdout and nothing for the caller to branch on.
+  let lock;
+  try {
+    lock = acquireLock();
+  } catch (e) {
+    process.stdout.write(JSON.stringify({ code, status: 'error', reason: `lock acquisition failed: ${e.message}` }) + '\n');
+    process.exit(1);
+  }
   if (!lock.ok) {
     process.stdout.write(JSON.stringify({
       code, status: 'busy',
