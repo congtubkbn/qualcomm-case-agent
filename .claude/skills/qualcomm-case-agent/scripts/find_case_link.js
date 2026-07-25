@@ -69,5 +69,12 @@
     if (best) fields.title = best;
   }
 
+  // Salesforce Lightning search-result anchors carry a generic stub href
+  // (`/s/case/Case/Default`); the real SFID route is only reached via the
+  // framework's click-delegated router, which requires a TRUSTED click event
+  // (CDP/OS-level), not a script-dispatched one and not a plain `open(href)`
+  // navigation (both land on the stub). Mark the exact element so the caller
+  // can issue a real `agent-browser click` on it without a full snapshot.
+  hit.setAttribute('data-cq-hit', '1');
   return { state: 'FOUND', href: hit.href, exact: exact, fields: fields, rows: links.length };
 })()

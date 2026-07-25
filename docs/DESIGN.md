@@ -274,8 +274,8 @@ sequenceDiagram
   else EMPTY
     R-->>A: not-found (exit 4)
   else READY
-    R->>P: find_case_link.js → href + title/status/priority/customer
-    R->>B: open href
+    R->>P: find_case_link.js → href + title/status/priority/customer + marks row (data-cq-hit)
+    R->>B: click "[data-cq-hit='1']" — trusted click; open(href) lands on Lightning stub /s/case/Case/Default
     R->>P: expand_step.js (PROBE) → articles, displayed, anchorIdx, top
     alt update run and anchor still on top and displayed unchanged
       R-->>A: no-update (exit 0) — STOP, nothing written

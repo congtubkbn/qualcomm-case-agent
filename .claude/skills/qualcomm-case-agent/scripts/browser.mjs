@@ -106,6 +106,7 @@ export function parseResult(stdout) {
 }
 
 export function open(url) { return ab(['open', url], { timeout: 180000 }); }
+export function click(selector) { return ab(['click', selector], { timeout: 30000 }); }
 export function pdf(path) { return ab(['pdf', path], { timeout: 180000 }); }
 
 /** Ask the CDP endpoint directly — the one signal that says whether the

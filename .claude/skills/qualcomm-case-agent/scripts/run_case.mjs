@@ -29,7 +29,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
 import { intake } from './intake.mjs';
 import { acquireLock, releaseLock } from './lock.mjs';
-import { BrowserError, ensureChrome, evalFile, open, pdf, sleep } from './browser.mjs';
+import { BrowserError, click, ensureChrome, evalFile, open, pdf, sleep } from './browser.mjs';
 
 const SCRIPTS = fileURLToPath(new URL('.', import.meta.url));
 const PORTAL = 'https://support.qualcomm.com';
@@ -116,7 +116,10 @@ async function run(code, opts) {
   }
   const header = link.fields || {};
   if (link.state === 'FOUND') {
-    open(link.href);
+    // Real (trusted) click on the marked row — `open(link.href)` lands on the
+    // Lightning stub route (`/s/case/Case/Default`); only a genuine click
+    // event drives the framework's router to the actual SFID case page.
+    click("[data-cq-hit='1']");
     const after = await pollReadiness();
     if (after.state === 'AUTH') {
       return { status: 'auth-required', reason: 'session lapsed while opening the case', url: after.url };

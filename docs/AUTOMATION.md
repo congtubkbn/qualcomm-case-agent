@@ -44,7 +44,7 @@ The measured baseline (`OPTIMIZATION_ANALYSIS.md`, flow 1784759542159, case 0860
 | Cost centre | Before | After |
 |---|---|---|
 | Skill activation | 15,592 tok (42,439 B of SKILL.md) | ~4,700 tok (12,789 B — phases moved to `references/manual-flow.md`, loaded only on `blocked`) |
-| `snapshot -c` / `-i` dumps to find `@ref`s | dozens; the home-page snapshot alone is ~35k chars ≈ 12k tok | **0** — `find_case_link.js` and `expand_step.js` click inside the page and return counters |
+| `snapshot -c` / `-i` dumps to find `@ref`s | dozens; the home-page snapshot alone is ~35k chars ≈ 12k tok | **0** — `find_case_link.js` marks the row DOM-side, `browser.mjs` fires one trusted CDP click on it, `expand_step.js` clicks inside the page — no `@ref` snapshot needed |
 | Click → wait → re-snapshot per "Expand Post" / "View More" | 1 turn each (~15 on a 9-post case) | **0** — one in-page loop |
 | Error/retry turns from shell quoting | 5 errors, ~50 s + retry tokens | **0** — Node spawns with an argv array; nothing crosses a shell |
 | Reading the pipeline's own scripts to debug | ~3.2k tok | 0 |
