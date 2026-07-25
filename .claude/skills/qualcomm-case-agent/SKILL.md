@@ -101,7 +101,8 @@ analysis inline) · `--no-pdf`.
 > **Known limit of the fast no-update probe:** a new *nested reply under an old post* doesn't move
 > the top post, so an update run can report `no-update` while one exists. If the user says there IS
 > an update (they saw a notification), re-run with `--mode full` — the merge dedupe is the
-> definitive check.
+> definitive check. A full re-capture keeps the existing `enrichment` and still reports only the
+> genuinely new ids in `newCommentIds`, so it costs one analysis per new comment, not a whole thread.
 
 **Do NOT `Read` `case.json` to find out what happened.** The verdict line already carries the
 counts, ids and paths; the file is the size of the whole case. Read only the comment bodies you
