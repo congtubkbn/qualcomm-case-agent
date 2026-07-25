@@ -89,7 +89,7 @@ analysis inline) · `--no-pdf`.
 | `created` | 0 | new case captured | PHASE 3 (enrich all comments) → PHASE 5 |
 | `updated` | 0 | new comments merged (`newComments`, `newCommentIds`) | PHASE 3 on **those ids only** → PHASE 5 |
 | `no-update` | 0 | nothing new since `since` | PHASE 5: report "no update", STOP |
-| `auth-required` | 3 | saved Okta session lapsed | drive Recovery 1 → `references/login-flow.md`, then re-run the command ONCE |
+| `auth-required` | 3 | saved Okta session lapsed | run `okta_login.ps1` (Recovery 1 → `references/login-flow.md`). **Branch on ITS exit: `2` = already authenticated (MFA skipped) → re-run the command NOW, no OTP; `0` = do the email OTP, then re-run.** Do not wait for an OTP the script did not ask for. |
 | `not-found` | 4 | search returned nothing for this code | STOP — wrong code, or the account cannot see it |
 | `blocked` | 5 | page never rendered / capture short | load `references/manual-flow.md` and finish by hand; `reason` says where it stopped |
 | `busy` | 6 | another capture holds the lock (`data/.capture.lock`) | wait for it to finish, then re-run; a hung run's lock goes stale after 30 min |
@@ -114,6 +114,19 @@ are about to analyze.
 
 **Trigger:** verdict `created`, or `updated` (analyze only `newCommentIds`).
 **Goal:** engineer-grade analysis in `data.enrichment`. Raw fields and `hash` are NEVER mutated.
+
+**Gate before reading the file.** The verdict line already has `commentCount` / `newComments` —
+that's enough to decide whether to ask. Do NOT open `case.json` first and decide after; the read
+itself is the token cost this gate exists to avoid.
+- Small (`newComments` ≤ ~5 and no long QXDM/log dumps expected): proceed straight to step 1, no
+  prompt — matches "no policy check" spirit for routine cases.
+- Large (`newComments` > ~5, or case history shows big log-heavy comments): ask the user first
+  whether to run full analysis now. **Use the tool native to the running agent — never a plain
+  text question:** Claude Code → `AskUserQuestion`; Cline → `ask_followup_question` (see
+  "Running Under Other Agents" below). Offer options like: full enrich now / enrich later /
+  summary-only (skip per-comment `commentAnalyses`, case-level fields only).
+- If the user declines or doesn't answer yet: still finish PHASE 5 reporting capture succeeded,
+  just note enrichment is pending.
 
 1. Read `data/cases/<CODE>/case.json`.
 2. New comment ids = `comments[].id` not already in `enrichment.commentAnalyses`.

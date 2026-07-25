@@ -75,6 +75,22 @@
   // (CDP/OS-level), not a script-dispatched one and not a plain `open(href)`
   // navigation (both land on the stub). Mark the exact element so the caller
   // can issue a real `agent-browser click` on it without a full snapshot.
+  //
+  // Clear any PRIOR mark first: the app shell (nav bar etc.) survives
+  // Lightning's soft navigation across calls, so a mark left by an earlier
+  // low-hydration read that fell back to `links[0]` (e.g. the nav's own
+  // "Cases" link, whose href is this very stub) sticks around. With two
+  // elements sharing the attribute, `agent-browser click "[data-cq-hit='1']"`
+  // (a plain querySelector, DOM order) can hit the stale nav link instead of
+  // the real row — reproduced live: it silently no-ops on a nav item instead
+  // of routing anywhere.
+  qsa('[data-cq-hit]').forEach(function (el) { el.removeAttribute('data-cq-hit'); });
   hit.setAttribute('data-cq-hit', '1');
+  // This anchor is `target="_blank"` (Lightning search-result rows open
+  // records in a new tab). A CDP-trusted click on it either gets popup-
+  // blocked or opens a tab agent-browser never attaches to — either way the
+  // original tab's URL never changes, indistinguishable from a plain routing
+  // failure. Force it to navigate the current tab instead.
+  hit.removeAttribute('target');
   return { state: 'FOUND', href: hit.href, exact: exact, fields: fields, rows: links.length };
 })()

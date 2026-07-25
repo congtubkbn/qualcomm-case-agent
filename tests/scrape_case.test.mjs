@@ -252,6 +252,24 @@ describe('finalize (child process)', () => {
     assert.equal(index['08603854'].enrichedAt, '2026-07-02T00:00:00.000Z');
   });
 
+  // A hard open()/reload can reset the Chatter feed to a thinner default view
+  // than what was already captured (see run_case.mjs's landOnCase comment).
+  // Before the union-merge fix, a FULL (non--merge) re-capture replaced
+  // `comments` outright with whatever the fresh extraction found — silently
+  // dropping a comment the cache already had confirmed.
+  it('does not drop a cached comment when a FULL re-capture comes back thinner', () => {
+    const root = fixture();
+    runFinalize(root, RAW); // caches both Alice and Bob
+    const thinner = { ...RAW, displayedCommentCount: 2, comments: [comment('Bob', 'Initial report')] };
+    const { exit, verdict } = runFinalize(root, thinner);
+
+    assert.equal(exit, m.EXIT.OK);
+    const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
+    assert.equal(saved.comments.length, 2, 'Alice must survive a thinner full re-capture');
+    assert.ok(saved.comments.some(c => c.author === 'Alice'));
+    assert.deepEqual(verdict.newCommentIds, [], 'nothing genuinely new — the cache already had both');
+  });
+
   it('migrates a legacy positional-id cache instead of mis-attaching analyses', () => {
     const root = fixture();
     writeFileSync(casePath(root), JSON.stringify({

@@ -81,6 +81,93 @@ async function pollReadiness() {
   return probe || { state: 'BLANK' };
 }
 
+// Lightning's un-routed case stub (`/s/case/Case/Default`). readiness.js's
+// READY signal (lightning-base-formatted-text etc.) fires on this shell too,
+// so a click that fails to route (element detached mid-CDP-click, timing miss)
+// looks identical to a real landing unless we check the path explicitly.
+export const STUB_PATH_RE = /\/s\/case\/Case\/Default(?:$|[/?#])/i;
+const HREF_RESOLVE_ROUNDS = 5; // x600ms — Lightning fills in the row's real
+                                // SFID href ASYNCHRONOUSLY after the row itself
+                                // renders; reading `.href` too early returns the
+                                // generic `.../Case/Default` stub regardless of
+                                // how navigation is triggered afterward (this is
+                                // the actual root cause — not the click type).
+const ROUTE_SETTLE_ROUNDS = 6; // x1s = 6s ceiling for the delegated-router
+                                // click fallback to swap the URL; widest right
+                                // after a fresh Okta re-auth, cold SPA.
+
+/** find_case_link.js right after READY can catch the results table a tick
+ *  into its own render: only the first row's anchor exists yet, href still
+ *  the generic stub, header cells empty (`fields: {}` — which then fails
+ *  scrape_case.mjs's title gate downstream). Poll until the row carries a
+ *  resolved href AND a title, or give up after HREF_RESOLVE_ROUNDS and
+ *  return whatever it last had. */
+export async function findCaseLink(code) {
+  let link = evalFile(page('find_case_link.js'), { __CODE: code });
+  for (let i = 0; i < HREF_RESOLVE_ROUNDS && link && link.state === 'FOUND'
+       && (!link.fields?.title || STUB_PATH_RE.test(new URL(link.href).pathname)); i++) {
+    await sleep(600);
+    link = evalFile(page('find_case_link.js'), { __CODE: code });
+  }
+  return link;
+}
+
+/** Land on the real case page. Primary: wait for the row to hydrate
+ *  (findCaseLink), then `open()` its resolved href directly — a plain HTTP
+ *  navigation, immune to whatever makes the delegated-router click
+ *  unreliable (observed in the wild: a CDP-trusted click, even a raw
+ *  mouse-event sequence or a focus+Enter key activation, can silently no-op
+ *  on this anchor with no console error). Fallback: the trusted click, for
+ *  the rare case a direct nav still lands on the stub. One full retry from a
+ *  fresh search load before giving up — same shape as PHASE 1's Recovery 2.
+ *
+ *  A hard `open()` can reset the Chatter feed component to a thinner default
+ *  view than a soft SPA transition would — scrape_case.mjs's full-capture
+ *  path unions fresh comments with the cache instead of replacing it, so
+ *  that never loses data; it only means an update may need `--mode full`
+ *  more than once to fully re-paginate a long thread. */
+export async function landOnCase(code) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const link = await findCaseLink(code);
+    if (link && link.href && !STUB_PATH_RE.test(new URL(link.href).pathname)) {
+      open(link.href);
+      const after = await pollReadiness();
+      if (after.state === 'AUTH') return { state: 'AUTH', url: after.url };
+      const onCase = evalFile(page('find_case_link.js'), { __CODE: code });
+      if (onCase && onCase.state === 'ON_CASE'
+          && !STUB_PATH_RE.test(new URL(onCase.href).pathname)) {
+        return { state: 'OK', href: onCase.href };
+      }
+    }
+
+    // Direct nav still on the stub — fall back to the delegated-router click.
+    try {
+      click("[data-cq-hit='1']");
+    } catch (e) { if (attempt === 1) throw e; }
+
+    for (let i = 0; i < ROUTE_SETTLE_ROUNDS; i++) {
+      const after = evalFile(page('readiness.js'));
+      if (after.state === 'AUTH') return { state: 'AUTH', url: after.url };
+      const onCase = evalFile(page('find_case_link.js'), { __CODE: code });
+      if (onCase && onCase.state === 'ON_CASE'
+          && !STUB_PATH_RE.test(new URL(onCase.href).pathname)) {
+        return { state: 'OK', href: onCase.href };
+      }
+      await sleep(1000);
+    }
+
+    if (attempt === 0) {
+      open(`${PORTAL}/s/global-search/${code}`);
+      const ready = await pollReadiness();
+      if (ready.state === 'AUTH') return { state: 'AUTH', url: ready.url };
+      if (ready.state !== 'READY') return { state: 'STUB', reason: `retry search state=${ready.state}` };
+      const relink = await findCaseLink(code);
+      if (!relink || relink.state !== 'FOUND') return { state: 'STUB', reason: 'retry search exposed no case link' };
+    }
+  }
+  return { state: 'STUB', reason: 'case link navigation never routed past the Lightning stub page' };
+}
+
 async function run(code, opts) {
   const caseDir = join(DATA_DIR, code);
   const casePath = join(caseDir, 'case.json');
@@ -110,19 +197,21 @@ async function run(code, opts) {
   }
 
   // --- PHASE 1 cont.: resolve the case URL browser-side (no snapshot needed).
-  const link = evalFile(page('find_case_link.js'), { __CODE: code });
+  const link = await findCaseLink(code);
   if (!link || link.state === 'NO_LINK') {
     return { status: 'not-found', reason: `search rendered but exposed no case link for ${code}` };
   }
   const header = link.fields || {};
   if (link.state === 'FOUND') {
-    // Real (trusted) click on the marked row — `open(link.href)` lands on the
-    // Lightning stub route (`/s/case/Case/Default`); only a genuine click
-    // event drives the framework's router to the actual SFID case page.
-    click("[data-cq-hit='1']");
-    const after = await pollReadiness();
-    if (after.state === 'AUTH') {
-      return { status: 'auth-required', reason: 'session lapsed while opening the case', url: after.url };
+    // The row's href resolves to the real SFID asynchronously after render;
+    // landOnCase() waits for that then navigates straight to it, falling
+    // back to a trusted click only if it's still unresolved.
+    const landed = await landOnCase(code);
+    if (landed.state === 'AUTH') {
+      return { status: 'auth-required', reason: 'session lapsed while opening the case', url: landed.url };
+    }
+    if (landed.state !== 'OK') {
+      return { status: 'blocked', reason: landed.reason || 'case link click did not route to the real case page', probe: landed };
     }
   }
 
@@ -131,12 +220,31 @@ async function run(code, opts) {
   // bootstrap: `articles` goes truthy (1) well before the rest arrive. Waiting
   // for merely non-zero races the feed and truncates the capture to whatever
   // loaded first — wait for the count to hold steady across two ticks instead.
-  let probe = evalFile(page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
-  for (let i = 0; i < FEED_PROBE_ROUNDS; i++) {
-    const prevArticles = probe ? probe.articles : 0;
-    await sleep(2000);
-    probe = evalFile(page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
-    if (probe && probe.articles && probe.articles === prevArticles) break;
+  const probeFeed = async () => {
+    let p = evalFile(page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
+    for (let i = 0; i < FEED_PROBE_ROUNDS; i++) {
+      const prevArticles = p ? p.articles : 0;
+      await sleep(2000);
+      p = evalFile(page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
+      if (p && p.articles && p.articles === prevArticles) break;
+    }
+    return p;
+  };
+
+  let probe = await probeFeed();
+  if (!probe || !probe.articles) {
+    // Cold-login Chatter component can fail to bootstrap at all on the first
+    // render even though the case page itself is READY. One same-URL reload
+    // (Recovery 2 style) recovers this without escalating to `blocked`.
+    const onCase = evalFile(page('find_case_link.js'), { __CODE: code });
+    if (onCase && onCase.href) {
+      open(onCase.href);
+      const reloaded = await pollReadiness();
+      if (reloaded.state === 'AUTH') {
+        return { status: 'auth-required', reason: 'session lapsed on feed-reload retry', url: reloaded.url };
+      }
+      probe = await probeFeed();
+    }
   }
   if (!probe || !probe.articles) {
     return { status: 'blocked', reason: 'case page has no Chatter feed articles — wrong page or feed never loaded', probe };
@@ -148,10 +256,23 @@ async function run(code, opts) {
     };
   }
 
+  // Pagination/expand controls (esp. "View More Posts") can mount a tick after
+  // the feed's article count itself settles — the same hydration lag as the
+  // search-row and case-link races above. Breaking on the FIRST idle tick can
+  // stop before that control ever appears, silently truncating the capture
+  // (observed: a 6-comment case extracted as 2). Require two consecutive idle
+  // ticks before concluding there is nothing left to expand.
   let rounds = 0;
+  let idleTicks = 0;
   for (; rounds < EXPAND_ROUNDS; rounds++) {
     const r = evalFile(page('expand_step.js'), { __ANCHOR: anchor });
-    if (!r.clickedExpand && !r.clickedViewMore && !r.clickedDescription) break;
+    if (!r.clickedExpand && !r.clickedViewMore && !r.clickedDescription) {
+      idleTicks++;
+      if (idleTicks >= 2) break;
+      await sleep(1000);
+      continue;
+    }
+    idleTicks = 0;
     await sleep(r.clickedViewMore ? 2000 : 800);
   }
 

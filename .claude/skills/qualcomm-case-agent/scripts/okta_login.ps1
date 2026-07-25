@@ -18,8 +18,9 @@
   RUN from anywhere (paths resolve via _paths.ps1 from the script's own location):
     powershell -ExecutionPolicy Bypass -File .claude\skills\qualcomm-case-agent\scripts\okta_login.ps1
 
-  EXIT CODES: 0 password submitted (do OTP) | 3 not attached / no Okta form |
-              4 qid.bin missing (run capture snippet first)
+  EXIT CODES: 0 password submitted (do OTP) | 2 already authenticated (MFA
+              skipped — continue capture NOW, no OTP) | 3 not attached / no Okta
+              form / wrong password | 4 qid.bin missing (run capture snippet first)
 #>
 param(
   [string]$Username = "the.thoi@samsung.com",
@@ -53,8 +54,9 @@ if ($snap -notmatch '(Username|Qualcomm ID|Password|Sign In|Verify)') {
   $snap = (AB snapshot -i | Out-String)
 }
 if ($snap -match 'dashboard' -or $snap -notmatch '(Username|Qualcomm ID|Password|Sign In|Verify)') {
-  Write-Host "Session appears valid (no Okta form). Nothing to do."
-  exit 0
+  Write-Host ">>> AUTHENTICATED -- session already valid (no Okta form). No password, no OTP."
+  Write-Host ">>> Continue the capture NOW: re-run run_case.mjs."
+  exit 2
 }
 
 # --- Step 1: username screen -> Next ---
@@ -84,13 +86,32 @@ $pw = $null; [GC]::Collect()
 AB click "input[type='submit']" | Out-Host
 Start-Sleep -Seconds 3
 
-# --- Verify the password actually advanced us past the credential step ---
-# Okta identifier-first bounces a WRONG/EMPTY password BACK to the username screen
-# (it will NOT say "wrong password" on the password page). Detect that bounce so we
-# don't falsely tell the user to look for an OTP that never appears.
-$post = (AB snapshot -i | Out-String)
-$looksOtp  = $post -match '(verification code|Send me an email|Get a verification|Enter a code|Verify)'
+# --- Classify the post-password state: authenticated / OTP / bounce ---
+# There are THREE outcomes after Verify, not two:
+#   (a) AUTHENTICATED — Okta skipped MFA (remembered device / still-warm session)
+#       and dropped us straight back on support.qualcomm.com. Waiting for an OTP
+#       here hangs forever: none is sent. Tell the caller to continue NOW (exit 2).
+#   (b) OTP screen — human pastes the 6-digit email code (exit 0).
+#   (c) BOUNCE — Okta identifier-first sends a WRONG/EMPTY password BACK to the
+#       username screen (it will NOT say "wrong password" on the password page) (exit 3).
+$post  = (AB snapshot -i | Out-String)
+$host2 = (AB eval "location.hostname" 2>&1 | Out-String).Trim()
+
+# The host is the authority: only "support.qualcomm.com" (or portal chrome in the
+# snapshot) proves we cleared the WHOLE Okta flow. Absence of "account.qualcomm.com"
+# alone is NOT enough — a failed eval must never masquerade as authenticated.
+$onPortal  = ($host2 -match 'support\.qualcomm\.com') -or ($post -match 'dashboard|My Cases')
+$looksOtp  = $post -match '(Send me an email|Get a verification|Enter a verification code|verification code|Enter Code)'
 $looksUser = $post -match "(name=.?identifier|Username|Qualcomm ID|Sign In)"
+
+# (a) Already through Okta -> live session, no OTP.
+if ($onPortal) {
+  Write-Host "`n>>> AUTHENTICATED -- past MFA already (host: $host2). No OTP needed."
+  Write-Host ">>> Continue the capture NOW: re-run run_case.mjs. Do NOT wait for an OTP."
+  exit 2
+}
+
+# (c) Bounced back to the username screen = signature of a wrong/empty password.
 if ($looksUser -and -not $looksOtp) {
   Write-Host "`nERROR: bounced back to the USERNAME screen after submitting the password."
   Write-Host "       This is Okta's signature for a WRONG or EMPTY password in qid.bin."
@@ -101,7 +122,7 @@ if ($looksUser -and -not $looksOtp) {
   exit 3
 }
 
-# --- Hand off to human for email OTP ---
+# (b) Still on Okta with an OTP prompt -> hand off to the human.
 Write-Host "`n--- post-password DOM ---"
 Write-Host $post
 Write-Host "`n>>> Password accepted. Complete the email OTP in the Chrome window:"

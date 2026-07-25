@@ -144,10 +144,22 @@ Confirmed screen sequence (refs are illustrative — re-snapshot each run):
 | 3b | "Verify with your email" | — | click "Enter a verification code instead" |
 | 3c | "Verify with your email" | textbox "Enter Code" | **human pastes 6-digit OTP**, click "Verify" |
 
-`okta_login.ps1` handles screens 1–2 (the secret-bearing part) and exits 0. The agent then drives
-3 → 3b → 3c by snapshot refs; the **human pastes the email OTP**. Stable selectors used by the
-script: username `input[name='identifier']`, password `input[type='password']`, submit
-`input[type='submit']`.
+`okta_login.ps1` handles screens 1–2 (the secret-bearing part), then classifies the post-password
+state and exits with a code that tells you what to do next:
+
+| exit | meaning | next step |
+|------|---------|-----------|
+| `0` | on the OTP screen | drive 3 → 3b → 3c by snapshot refs; **human pastes the email OTP**, then re-run `run_case.mjs` |
+| `2` | **AUTHENTICATED** — MFA was skipped (remembered device / warm session); already on `support.qualcomm.com` | **re-run `run_case.mjs` immediately. Do NOT wait for an OTP — none is sent.** |
+| `3` | bounced to username = wrong/empty password, OR not attached | fix per the printed message (usually re-capture `qid.bin`), retry once |
+| `4` | `qid.bin` missing | run `capture_password.ps1` first |
+
+The exit-2 path is the common case whenever the profile session is still partly warm: password
+auto-fills, Okta trusts the device, and you land straight back in the portal. Treating that as
+"OTP pending" hangs the flow waiting for a code that never arrives — always branch on the exit code.
+
+Stable selectors used by the script: username `input[name='identifier']`, password
+`input[type='password']`, submit `input[type='submit']`.
 
 Manual equivalent (if the helper is unavailable) — decrypt and fill by selector, no echo. Prefer
 `okta_login.ps1`: it resolves `qid.bin` via `_paths.ps1` (CWD-independent). The `$QcSecretPath` line

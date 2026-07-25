@@ -255,19 +255,19 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
     }
     mergeInfo = { newIds, oldHash: cached.hash, cached };
   } else {
-    // Full capture: raw fields are complete by definition and replace the cache.
-    out = { ...raw, comments: fresh.comments };
+    // Full capture: header/description/etc. are complete by definition and
+    // replace the cache. Comments are UNIONED with whatever is already
+    // cached, not replaced — a thinner fresh extraction (Chatter feed lazy-
+    // load stopping short, a transient portal hiccup) must never silently
+    // DROP comments already confirmed to exist; a comment missing from one
+    // capture is not proof it is gone for good. This is the same dedup as
+    // --merge; a full run can only grow the comment list, never shrink it.
+    const cachedComments = cached ? (cached.comments || []) : [];
+    const { merged, newIds } = mergeComments(cachedComments, fresh.comments);
+    out = { ...raw, comments: merged };
     if (cached) {
-      // Content ids mean the cached analyses re-attach to the same comments with
-      // no remapping. Keys for comments that vanished from the feed are kept —
-      // a comment missing from one capture is not proof it is gone for good.
       if (cached.enrichment) out.enrichment = cached.enrichment;
-      const had = new Set((cached.comments || []).map(c => c.id));
-      mergeInfo = {
-        newIds: fresh.comments.filter(c => !had.has(c.id)).map(c => c.id),
-        oldHash: cached.hash,
-        cached,
-      };
+      mergeInfo = { newIds, oldHash: cached.hash, cached };
     }
   }
 
