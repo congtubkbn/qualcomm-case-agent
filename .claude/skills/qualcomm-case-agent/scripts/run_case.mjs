@@ -165,7 +165,10 @@ async function run(code, opts) {
   if (fin.code === 5) return { status: 'blocked', reason: v.reason || 'incomplete capture', finalize: v, expandRounds: rounds };
   if (fin.code !== 0) return { status: 'error', reason: v.reason || fin.err || `scrape_case exited ${fin.code}`, finalize: v };
 
-  const newComments = merge ? (v.newComments ?? 0) : v.commentCount;
+  // The finalizer reports the genuinely new ids whenever a cache existed — on a
+  // forced full re-capture too, so that path costs one analysis per NEW comment
+  // instead of re-analyzing the whole thread. No cache at all => everything is new.
+  const newComments = v.newComments ?? v.commentCount;
   const changed = merge
     ? Boolean(v.changed || v.headerChanged)
     : Boolean(!oldHash || oldHash !== v.hash);
@@ -199,6 +202,7 @@ async function run(code, opts) {
     newComments,
     newCommentIds: v.newCommentIds,
     hash: v.hash,
+    ...(v.idCollisions ? { idCollisions: v.idCollisions } : {}),
     title: header.title || undefined,
     dir: caseDir,
     expandRounds: rounds,

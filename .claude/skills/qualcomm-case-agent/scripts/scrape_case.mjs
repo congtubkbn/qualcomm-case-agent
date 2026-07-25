@@ -21,6 +21,20 @@
 // prefix), preserves `enrichment`, and recomputes the hash. It never blanks
 // a cached field from a thinner fresh capture.
 //
+// COMMENT IDENTITY is content-derived (`commentId` = hash of author + body
+// prefix), assigned HERE for every persisted comment. Ids used to be positional
+// (`c1`, `c2`, … from the extractor), which meant a full re-capture of a thread
+// that gained a post re-keyed every comment — and `enrichment.commentAnalyses`
+// is keyed by comment id, so the analyses would silently re-attach to the WRONG
+// comments. Content ids are stable across runs and independent of position, so
+// a cached analysis lands back on the comment it was written for. A cache still
+// carrying legacy ids is migrated on read (`migrateIds`).
+//
+// Because of that, `enrichment` now survives a FULL re-capture of a cached case
+// too, not just a --merge run: `--mode full` is the documented remedy when the
+// fast no-update probe may have missed a nested reply, and it must not cost the
+// user every analysis in the case.
+//
 // Why a script at all (vs the agent writing JSON directly): the SHA-256 hash
 // (incremental "no update" detection) and the _index.json merge must be
 // deterministic and identical across runs — that belongs in code, not the model.
@@ -42,11 +56,15 @@ export const EXIT = {
 
 // Hash only the raw, verbatim fields (never enrichment) so re-enriching a case
 // does not change its identity. Stable field order = stable hash across runs.
+// `id` is deliberately NOT hashed: it is derived from the author + body that are
+// already in here, so hashing it would add nothing but a dependency on the id
+// scheme. (Caches written before ids became content-derived therefore re-hash
+// once on their next capture — one no-op `updated` verdict, no data change.)
 export function computeHash(raw) {
   const lines = [
     String(raw.displayedCommentCount ?? ''),
     ...raw.comments.map(c =>
-      `${c.id}|${c.timestamp}|${c.author}|${c.body}|${(c.analysisLog || []).join('|')}`
+      `${c.timestamp}|${c.author}|${c.body}|${(c.analysisLog || []).join('|')}`
     ),
   ];
   return createHash('sha256').update(lines.join('\n'), 'utf8').digest('hex');
@@ -81,7 +99,7 @@ export function parseHeaderFlags(argv) {
   return out;
 }
 
-// ---- Merge helpers (update run) ----
+// ---- Identity + merge helpers ----
 
 // Stable identity for dedup across runs. Timestamps are EXCLUDED on purpose:
 // Chatter shows relative times ("13h ago") that drift between runs. Author +
@@ -93,30 +111,72 @@ export function commentKey(c) {
   return `${norm(c.author)}|${norm(c.body).slice(0, 120)}`;
 }
 
+// Content-derived comment id: the same comment gets the same id in every run,
+// whatever position it now occupies in the feed. This is what makes the
+// enrichment mapping survive a full re-capture.
+export function commentId(c) {
+  return `c${createHash('sha256').update(commentKey(c), 'utf8').digest('hex').slice(0, 12)}`;
+}
+
+// Assign content ids to a comment list. Two comments with the same key are a
+// genuine ambiguity (the same author posting the same opening 120 chars twice),
+// so they are kept as distinct comments with a `-N` suffix and REPORTED rather
+// than silently collapsed into one.
+export function assignIds(comments) {
+  const used = new Map();
+  const collisions = [];
+  const out = (comments || []).map(c => {
+    const base = commentId(c);
+    const n = (used.get(base) || 0) + 1;
+    used.set(base, n);
+    if (n > 1) collisions.push(base);
+    return { ...c, id: n === 1 ? base : `${base}-${n}` };
+  });
+  return { comments: out, collisions };
+}
+
+// Bring a cached case written with the old positional ids (c1, c2, …) or with
+// raw DOM ids onto content ids, carrying the enrichment mapping across with it —
+// per-comment analyses, the legacy flat summaries, and caseFlow back-references.
+// A cache already on content ids is returned untouched.
+export function migrateIds(cached) {
+  const before = cached.comments || [];
+  const { comments } = assignIds(before);
+  const remap = new Map();
+  before.forEach((c, i) => { if (c.id !== comments[i].id) remap.set(c.id, comments[i].id); });
+  if (!remap.size) return cached;
+
+  const out = { ...cached, comments };
+  const e = cached.enrichment;
+  if (e && typeof e === 'object') {
+    const rekey = obj => Object.fromEntries(
+      Object.entries(obj || {}).map(([k, v]) => [remap.get(k) || k, v]));
+    out.enrichment = { ...e };
+    if (e.commentAnalyses) out.enrichment.commentAnalyses = rekey(e.commentAnalyses);
+    if (e.commentSummaries) out.enrichment.commentSummaries = rekey(e.commentSummaries);
+    if (Array.isArray(e.caseFlow)) {
+      out.enrichment.caseFlow = e.caseFlow.map(s =>
+        (s && Array.isArray(s.refComments))
+          ? { ...s, refComments: s.refComments.map(id => remap.get(id) || id) }
+          : s);
+    }
+  }
+  return out;
+}
+
 // Prepend the raw comments not already cached (feed order is newest-first).
 // Cached comments are kept verbatim — an update run never rewrites old bodies.
-// New comments get ids that cannot collide with cached ones.
+// Both lists must already carry content ids (see assignIds), so dedup is an id
+// lookup rather than a second, separately-drifting heuristic.
 export function mergeComments(cachedComments, rawComments) {
-  const seen = new Set(cachedComments.map(commentKey));
-  const usedIds = new Set(cachedComments.map(c => c.id));
-  let next = 0;
-  for (const id of usedIds) {
-    const m = /^c(\d+)$/.exec(id);
-    if (m) next = Math.max(next, Number(m[1]));
-  }
+  const have = new Set((cachedComments || []).map(c => c.id));
   const fresh = [];
-  for (const c of rawComments) {
-    const k = commentKey(c);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    let id = c.id;
-    if (!id || usedIds.has(id)) {
-      do { id = `c${++next}`; } while (usedIds.has(id));
-    }
-    usedIds.add(id);
-    fresh.push({ ...c, id });
+  for (const c of rawComments || []) {
+    if (have.has(c.id)) continue;
+    have.add(c.id);
+    fresh.push(c);
   }
-  return { merged: [...fresh, ...cachedComments], newIds: fresh.map(c => c.id) };
+  return { merged: [...fresh, ...(cachedComments || [])], newIds: fresh.map(c => c.id) };
 }
 
 // ---- Index path ----
@@ -151,25 +211,38 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
     process.exit(EXIT.INCOMPLETE);
   }
 
-  // `out` is the object that gets persisted. Full capture: the raw itself.
-  // Update run (--merge): the cached case with only the NEW comments prepended.
-  let out = raw;
-  let mergeInfo = null;
-  if (merge) {
-    const casePath = join(DATA_DIR, caseCode, 'case.json');
-    if (!existsSync(casePath)) {
-      emit({ code: EXIT.BAD_ARGS, reason: `--merge but no cached case.json at ${casePath} — run a full extraction (no --merge) first`, caseCode });
-      process.exit(EXIT.BAD_ARGS);
-    }
-    let cached;
+  // Read the cache once — BOTH paths need it now. A full capture no longer
+  // ignores it: `enrichment` is model-produced and unrecoverable, so it must
+  // survive a re-capture of a case we already hold.
+  const casePath = join(DATA_DIR, caseCode, 'case.json');
+  let cached = null;
+  if (existsSync(casePath)) {
     try {
       const t = readFileSync(casePath, 'utf8');
-      cached = JSON.parse(t.charCodeAt(0) === 0xFEFF ? t.slice(1) : t);
+      cached = migrateIds(JSON.parse(t.charCodeAt(0) === 0xFEFF ? t.slice(1) : t));
     } catch (e) {
-      emit({ code: EXIT.BAD_ARGS, reason: `cached case.json parse error: ${e.message}`, caseCode });
-      process.exit(EXIT.BAD_ARGS);
+      if (merge) {
+        emit({ code: EXIT.BAD_ARGS, reason: `cached case.json parse error: ${e.message}`, caseCode });
+        process.exit(EXIT.BAD_ARGS);
+      }
+      // Full capture over an unreadable cache: the fresh pull replaces it wholesale.
+      process.stderr.write(`Warning: cached case.json unreadable (${e.message}), replacing it\n`);
     }
-    const { merged, newIds } = mergeComments(cached.comments || [], raw.comments);
+  }
+  if (merge && !cached) {
+    emit({ code: EXIT.BAD_ARGS, reason: `--merge but no cached case.json at ${casePath} — run a full extraction (no --merge) first`, caseCode });
+    process.exit(EXIT.BAD_ARGS);
+  }
+
+  // Identity is assigned HERE, in code, for every comment we persist.
+  const fresh = assignIds(raw.comments);
+
+  // `out` is the object that gets persisted. Full capture: the raw itself.
+  // Update run (--merge): the cached case with only the NEW comments prepended.
+  let out;
+  let mergeInfo = null;
+  if (merge) {
+    const { merged, newIds } = mergeComments(cached.comments || [], fresh.comments);
     // Start from the cache: enrichment and every already-captured field survive.
     out = { ...cached, comments: merged };
     // Fresh page values that are always current truth:
@@ -181,6 +254,21 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
       if (!String(out[k] || '').trim() && String(raw[k] || '').trim()) out[k] = raw[k];
     }
     mergeInfo = { newIds, oldHash: cached.hash, cached };
+  } else {
+    // Full capture: raw fields are complete by definition and replace the cache.
+    out = { ...raw, comments: fresh.comments };
+    if (cached) {
+      // Content ids mean the cached analyses re-attach to the same comments with
+      // no remapping. Keys for comments that vanished from the feed are kept —
+      // a comment missing from one capture is not proof it is gone for good.
+      if (cached.enrichment) out.enrichment = cached.enrichment;
+      const had = new Set((cached.comments || []).map(c => c.id));
+      mergeInfo = {
+        newIds: fresh.comments.filter(c => !had.has(c.id)).map(c => c.id),
+        oldHash: cached.hash,
+        cached,
+      };
+    }
   }
 
   // Completeness gate BEFORE any write — a short capture is not persisted.
@@ -248,10 +336,15 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
     syncedAt: out.extractedAt,
     commentCount: out.comments.length,
     hash: out.hash,
+    // Enrichment now survives a re-capture, so the index must not claim the case
+    // is unanalyzed just because it was pulled again.
+    ...(out.enrichment?.enrichedAt ? { enrichedAt: out.enrichment.enrichedAt } : {}),
   };
   writeFileSync(INDEX_PATH, JSON.stringify(index, null, 2), 'utf8');
 
-  // Update-run verdict fields the agent branches on:
+  // Verdict fields the agent branches on. Emitted whenever a cached case existed,
+  // including a FULL re-capture of one — a re-pull that adds two comments to a
+  // 30-comment case should only cost two analyses, not thirty.
   //   newComments > 0                      -> PHASE 3 (enrich new ids) + PHASE 4
   //   newComments 0 but headerChanged      -> skip PHASE 3, re-render (PHASE 4)
   //   newComments 0, !headerChanged, !changed -> "no update", STOP
@@ -273,6 +366,8 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
     hash: out.hash,
     path: outPath,
     ...mergeVerdict,
+    // Ambiguous identity is surfaced, never resolved silently (see assignIds).
+    ...(fresh.collisions.length ? { idCollisions: fresh.collisions.length } : {}),
     ...(assertion.warning || thinHeader.length
       ? { warning: [assertion.warning, thinHeader.length ? `empty header fields: ${thinHeader.join(', ')}` : '']
           .filter(Boolean).join('; ') }

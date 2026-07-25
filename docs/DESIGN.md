@@ -159,9 +159,9 @@ that is what makes it reviewable.
 | D4 | **`agent-browser eval -b <base64>`** for every page script | `eval --stdin`, `<` redirection, inline JS | `--stdin` **silently returns `null`** when fed from a PowerShell pipe (reproduced live, `OPTIMIZATION_ANALYSIS.md` §3); base64 has no shell metacharacters, so the nested-quote class of bug disappears too | 8191-char cmd.exe ceiling → `browser.mjs` strips comments and refuses payloads > 7000 b64 chars |
 | D5 | **Node `spawnSync` with an argv array; on Windows one hand-built `cmd.exe` line rejecting metacharacters** | `shell: true`, PowerShell wrappers | Five distinct quoting failures in one flow (`OPTIMIZATION_ANALYSIS.md` §1). An argv array is not re-tokenized on POSIX; on Windows the metachar check turns a silent mangling into a loud error | A path containing `& \| < > ^ " % !` fails fast rather than being escaped (§11, I7) |
 | D6 | **The agent↔code contract is one JSON line + a distinct exit code per outcome** | Prose output, or the agent reading `case.json` | Machine-checkable, cheap, and it lets the scheduler branch on the same contract with no model in the loop; distinct exits let cron/Task Scheduler alert correctly | The verdict schema is now public API for three consumers (skill, scheduler, dashboard) |
-| D7 | **Incremental sync via SHA-256 over verbatim fields only** (`computeHash`) | Timestamp comparison; hashing the whole file | Enrichment must not change a case's identity, or every re-analysis would look like a change. Stable field order ⇒ stable hash across runs | The hash includes positional comment ids (§11, I2) |
+| D7 | **Incremental sync via SHA-256 over verbatim fields only** (`computeHash`) | Timestamp comparison; hashing the whole file | Enrichment must not change a case's identity, or every re-analysis would look like a change. Stable field order ⇒ stable hash across runs | The hash covers relative timestamps, which drift, so a full re-capture can hash differently with no real change (§11, I16) |
 | D8 | **Anchor-based incremental expansion** — stop paginating at the newest cached comment | Always full expansion | An update run on a 40-comment case touches only the new posts; the cached bodies are kept verbatim rather than re-scraped | Nested replies under old posts can hide from the probe (§11, I5) |
-| D9 | **Merge policy: cache is authoritative for old content; the fresh page only fills blanks; CLI header flags win on an update** | Overwrite with the fresh capture | An update capture is deliberately *partial* — old posts stay collapsed. Overwriting would truncate good cached data. But Status/Priority genuinely change over a case's life, so those are taken from the fresh search row | Merge identity depends on `commentKey` heuristics (§11, I2) |
+| D9 | **Merge policy: cache is authoritative for old content; the fresh page only fills blanks; CLI header flags win on an update** | Overwrite with the fresh capture | An update capture is deliberately *partial* — old posts stay collapsed. Overwriting would truncate good cached data. But Status/Priority genuinely change over a case's life, so those are taken from the fresh search row | Merge identity depends on the `commentKey` heuristic (§11, I3) |
 | D10 | **Fail-closed completeness gates before any write**: 0 comments → `INCOMPLETE`; captured < displayed → `INCOMPLETE`; empty title → `INCOMPLETE` | Persist and warn | A failed pull must never overwrite a good cached case, and an empty title is "a failed pull dressed as success" | A legitimately odd case (no title on an archived record) is rejected; the manual flow exists for that |
 | D11 | **`blocked` is never downgraded to `no-update`** | Treat a probe failure as "nothing changed" | "Unchanged" is a positive finding. Reporting it on a failed probe is the one wrong answer this tool can give a user — it is silent data loss | Some runs end inconclusive and need a human |
 | D12 | **Plain JSON files as the entire datastore** (`case.json`, `_index.json`, `watchlist.json`, `runs.json`) | SQLite / an embedded DB | Single-writer, single-desktop, human-inspectable, diff-able, trivially backed up, and readable by an agent with a Read tool. A DB would add a dependency and a migration story for no gain at this scale | Read-modify-write races between scheduler and dashboard (mitigated, not eliminated — §11, I6) |
@@ -171,6 +171,7 @@ that is what makes it reviewable.
 | D16 | **Dashboard binds `127.0.0.1` and additionally verifies `Host`/`Origin`** | Bind-only | Binding alone does not stop a malicious page on the same machine (CSRF) or DNS rebinding. Artifacts are served from a fixed whitelist, so no path traversal reaches the cache | Any *local process* can still drive the API — accepted on a single-user desktop |
 | D17 | **The skill lives in the repo** (`.claude/skills/…`), harness-agnostic, references loaded on demand | A global/installed skill; one monolithic runbook | The runbook travels with the code it drives, so they cannot drift apart across machines; on-demand references cut activation from ~15.6k to ~4.7k tokens | Two harness entry points to maintain (`SKILL.md`, `.clinerules/`) |
 | D18 | **Paths resolve by walking up to a marker** (`_paths.mjs` / `_paths.ps1`), never from CWD | `../..` relative paths | A scheduled task, a dashboard child process and an interactive run all start in different directories but must agree on one cache. Re-nesting the skill does not break it | A `QUALCOMM_ROOT` escape hatch is needed for layouts with no `.git` |
+| D19 | **Comment identity is content-derived** (`commentId` = hash of author + body prefix), assigned in the finalizer, and **`enrichment` survives every re-capture** | Positional ids from the extractor; trusting the Chatter DOM id | `enrichment.commentAnalyses` is keyed by comment id, so a positional id meant a full re-capture re-keyed every comment and re-attached each analysis to the *wrong* one — and a full re-capture dropped `enrichment` outright. Deriving the id from the content that defines the comment makes both problems disappear: the cached analysis lands back on the comment it was written for, whatever position it now holds | Two comments with the same author and same opening 120 chars are ambiguous; they are kept distinct with a `-N` suffix and reported as `idCollisions` rather than resolved silently. Caches on the old scheme are migrated on read (`migrateIds`) and re-hash once |
 
 ---
 
@@ -187,7 +188,8 @@ that is what makes it reviewable.
   "url": "https://support.qualcomm.com/s/case/<SFID>/<slug>",
   "displayedCommentCount": 11,            // portal's own top-level total, or null
   "comments": [                            // NEWEST FIRST, verbatim, never truncated
-    { "id": "c1", "timestamp": "…", "company": "", "author": "…", "role": "",
+    { "id": "c9f2a1b7c4d0",                // content id — sha256(author + body prefix), see below
+      "timestamp": "…", "company": "", "author": "…", "role": "",
       "body": "…", "analysisLog": [], "attachments": [] }
   ],
   "hash": "<sha256 over verbatim fields only>",
@@ -199,12 +201,26 @@ that is what makes it reviewable.
 **Invariant:** raw fields and `hash` are written by `scrape_case.mjs` alone. Analysis never mutates
 them. That is what lets a case be re-analyzed any number of times without looking "changed".
 
+**Comment identity (D19).** `id` is derived from the comment's own content — `commentId(c)` =
+`sha256(author + whitespace-normalized body prefix)` — and assigned by the finalizer for every
+persisted comment, whatever the extractor supplied. Two consequences the whole cache depends on:
+the same comment keeps the same id across every capture regardless of its position in the feed, so
+`enrichment.commentAnalyses[<id>]` re-attaches to the comment it was written for; and a duplicate
+identity is a real ambiguity, so it is kept as a separate comment with a `-N` suffix and counted in
+the verdict's `idCollisions` instead of being merged away. A cache written with the old positional
+ids (`c1`, `c2`, …) is migrated on read by `migrateIds`, which re-keys `commentAnalyses`,
+`commentSummaries` and `caseFlow[].refComments` in the same pass.
+
 ### 5.2 `enrichment` — the analysis region
 
 Case level, regenerated in full on every pass (new comments can change the conclusion):
 `engineerSummary`, `currentStatus`, `rootCause`, `caseFlow[]` (oldest→newest debug narrative with
 `refComments`), `openQuestions[]`, `recommendedActions[]`, `tags[]`, `timeline[]` (newest-first),
 `enrichedAt`, `enrichedBy`.
+
+Case-level fields and per-comment analyses **survive every re-capture of a cached case**, full or
+incremental — enrichment is model-produced and unrecoverable, so the finalizer carries it forward
+rather than letting a fresh pull replace the file wholesale.
 
 Per comment, keyed by comment id and **incremental** (existing ids are preserved):
 `commentAnalyses[<id>] = { summary, role, keyPoints[], citations[], answered }` where `role` ∈
@@ -330,7 +346,7 @@ immediately — a 10-minute capture must never block the event loop).
 <!-- BEGIN GENERATED: reference -->
 
 > Generated by `npm run docs` from the source tree — **do not edit by hand**.
-> Source fingerprint `c42fe9dfbf91` over 24 files.
+> Source fingerprint `c87be84b0ebf` over 25 files.
 > Stale block ⇒ `npm run docs:check` fails.
 
 #### Pipeline scripts
@@ -354,9 +370,9 @@ immediately — a 10-minute capture must never block the event loop).
 | `.claude/skills/qualcomm-case-agent/scripts/recover_chrome.ps1` | 43 | Recovery 0 as ONE script (was a raw PowerShell block pasted into SKILL.md, which errored when the agent ran it through the Bash tool: 'Where-Object' is not recognized ...). |
 | `.claude/skills/qualcomm-case-agent/scripts/register_task.ps1` | 48 | put the scheduler on Windows Task Scheduler. |
 | `.claude/skills/qualcomm-case-agent/scripts/render_case.mjs` | 368 | deterministic renderer for the Qualcomm Case Management Agent. |
-| `.claude/skills/qualcomm-case-agent/scripts/run_case.mjs` | 258 | the whole capture pipeline as ONE deterministic command. |
+| `.claude/skills/qualcomm-case-agent/scripts/run_case.mjs` | 262 | the whole capture pipeline as ONE deterministic command. |
 | `.claude/skills/qualcomm-case-agent/scripts/scheduler.mjs` | 124 | unattended, scheduled capture of the watched cases. |
-| `.claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs` | 299 | Persistence post-processor for the AGENT-DRIVEN extraction. |
+| `.claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs` | 394 | Persistence post-processor for the AGENT-DRIVEN extraction. |
 
 Exported API — pipeline scripts:
 
@@ -401,6 +417,9 @@ Exported API — pipeline scripts:
 | `scrape_case.mjs` | `HEADER_KEYS` | value | Header fields the agent already holds in-context from the PHASE 1 search row. |
 | `scrape_case.mjs` | `parseHeaderFlags(argv)` | function | Parse ` title "..."` style flags into an overrides object. |
 | `scrape_case.mjs` | `commentKey(c)` | function | Stable identity for dedup across runs. |
+| `scrape_case.mjs` | `commentId(c)` | function | Content-derived comment id: the same comment gets the same id in every run, whatever position it now occupies in the feed. |
+| `scrape_case.mjs` | `assignIds(comments)` | function | Assign content ids to a comment list. |
+| `scrape_case.mjs` | `migrateIds(cached)` | function | Bring a cached case written with the old positional ids (c1, c2, …) or with raw DOM ids onto content ids, carrying the enrichment mapping across with it — per-comment analyses, the legacy flat summaries, and caseFlow back-references. |
 | `scrape_case.mjs` | `mergeComments(cachedComments, rawComments)` | function | Prepend the raw comments not already cached (feed order is newest-first). |
 
 #### Dashboard
@@ -421,6 +440,7 @@ Exported API — dashboard:
 | File | Lines | Purpose |
 |---|---|---|
 | `tests/pipeline.test.mjs` | 213 | Unit tests for the headless pipeline's pure logic + a dashboard smoke test. |
+| `tests/scrape_case.test.mjs` | 328 | Tests for the finalizer — the module that decides what gets persisted. |
 
 #### Doc tooling
 
@@ -460,7 +480,7 @@ Exported API — doc tooling:
 
 | Command | Runs |
 |---|---|
-| `npm run test` | `node --test tests/pipeline.test.mjs` |
+| `npm run test` | `node --test tests/pipeline.test.mjs tests/scrape_case.test.mjs` |
 | `npm run case` | `node .claude/skills/qualcomm-case-agent/scripts/run_case.mjs` |
 | `npm run sync` | `node .claude/skills/qualcomm-case-agent/scripts/scheduler.mjs --once` |
 | `npm run watch` | `node .claude/skills/qualcomm-case-agent/scripts/scheduler.mjs` |
@@ -489,6 +509,8 @@ These are the properties a reviewer should check any change against. Most were p
 | V7 | No JS payload crosses a shell | `browser.mjs` argv-array spawn + `eval -b` + metachar rejection |
 | V8 | Paths never depend on CWD | `_paths.mjs` / `_paths.ps1` walk-up |
 | V9 | stdout of `run_case.mjs` is exactly one JSON line; everything else is stderr | Single `process.stdout.write` at the end |
+| V10 | Comment identity is content-derived, so an analysis never re-attaches to a different comment | `commentId` / `assignIds` in the finalizer; `migrateIds` for legacy caches; unit tests |
+| V11 | A capture never destroys enrichment — no path replaces a cached case's analysis with a fresh raw pull | `finalize()` carries `cached.enrichment` forward on both paths; child-process regression test |
 
 ---
 
@@ -503,7 +525,7 @@ These are the properties a reviewer should check any change against. Most were p
 | Another capture running | `busy` (6) | Concurrent sweep/dashboard/interactive run | Retry later; stale lock auto-releases after 30 min |
 | Chrome not on CDP 9222 | `blocked` via `BrowserError` | Chrome closed or the bundled-Chromium trap (D1) | `ensureChrome()` launches it; `recover_chrome.ps1` for the daemon-wedged case |
 | Local LLM returns non-JSON | not a verdict — `failed` counter | Small-model drift | Comment left unanalyzed; never a fabricated analysis (D14) |
-| New nested reply under an old post | `no-update` ⚠ | The probe watches the top post (D8) | Documented; `--mode full` is the definitive check — **but see I1 before using it** |
+| New nested reply under an old post | `no-update` ⚠ | The probe watches the top post (D8) | Documented; `--mode full` is the definitive check, and it preserves the analysis (D19) |
 
 ---
 
@@ -530,42 +552,52 @@ These are the properties a reviewer should check any change against. Most were p
 
 Ordered by risk. Each item names the mechanism, not just the symptom.
 
-### P0 — data-integrity
+### Resolved
 
-**I1. `--mode full` on an already-cached case silently destroys `enrichment`.**
-`run_case.mjs` sets `merge = mode === 'update' && !!cached`, so a forced full run calls
-`scrape_case.mjs` without `--merge`; `finalize()` then persists `out = raw`, and the raw capture has
-no `enrichment` key. Every per-comment analysis and the case-level synthesis are lost, while
-`_index.json` keeps a stale `enrichedAt`. This is reachable through a *documented* instruction —
+**I1. `--mode full` on an already-cached case silently destroyed `enrichment`. — FIXED (D19).**
+`run_case.mjs` sets `merge = mode === 'update' && !!cached`, so a forced full run called
+`scrape_case.mjs` without `--merge`; `finalize()` then persisted `out = raw`, and the raw capture has
+no `enrichment` key. Every per-comment analysis and the case-level synthesis were lost, while
+`_index.json` kept a stale `enrichedAt`. It was reachable through a *documented* instruction —
 `SKILL.md` recommends `--mode full` as the definitive check when the fast probe may have missed a
-nested reply (§9). Fix: in `finalize()`, always carry `cached.enrichment` forward when a cached case
-exists, independent of `--merge`; treat `--merge` as "how to merge comments", not "whether to
-preserve analysis".
+nested reply (§9). `finalize()` now reads the cache on **both** paths and carries `cached.enrichment`
+forward; `--merge` decides how comments are merged, never whether the analysis survives. The index
+keeps `enrichedAt`, and the verdict reports the genuinely new ids on a full re-capture too, so a
+re-pull costs one analysis per new comment rather than a whole thread. Regression-tested through a
+real child-process run in `tests/scrape_case.test.mjs`.
 
-**I2. Comment ids are positional, so identity is not stable across a full re-capture.**
-`extract_case.js` uses `a.id || ("c" + (i + 1))`. If the feed article carries no DOM id, a comment's
-identity is its position — so a full re-capture of a thread that gained a post re-keys every
-comment, and `enrichment.commentAnalyses` (keyed by id) would attach the wrong analysis to the wrong
-comment. It also makes `hash` position-dependent. Fix, in order: (a) determine whether the Chatter
-`<article id>` is stable across loads and prefer it; (b) otherwise derive the id from
-`commentKey(c)` (author + normalized body prefix) so identity is content-derived, matching what the
-merge already uses; (c) re-key existing caches on read.
+**I2. Comment ids were positional, so identity was not stable across a full re-capture. — FIXED (D19).**
+`extract_case.js` uses `a.id || ("c" + (i + 1))`, so without a DOM id a comment's identity was its
+position: a full re-capture of a thread that gained a post re-keyed every comment, and
+`enrichment.commentAnalyses` (keyed by id) would attach each analysis to the wrong comment — which
+is what made I1's fix unsafe on its own. Ids are now content-derived (`commentId` = sha256 of
+`commentKey`), assigned in the finalizer for every persisted comment, so they no longer depend on
+the extractor or on position. Legacy caches are re-keyed on read by `migrateIds`, which moves
+`commentAnalyses`, `commentSummaries` and `caseFlow[].refComments` with them. `computeHash` no
+longer includes the id (it is derived from content already in the hash), so a cache written before
+this change re-hashes once — one no-op `updated` verdict, no data change.
+
+**I4. `scrape_case.mjs` was the least-tested module and the most consequential. — FIXED.**
+`tests/scrape_case.test.mjs` now covers the pure helpers (hash stability under re-enrichment and
+across id schemes, the completeness gates, header-flag parsing, identity, id assignment, legacy
+migration, the merge matrix) plus `finalize()` itself, spawned against a throwaway cache root — the
+only honest way to test a function that ends in `process.exit`, and the only way to catch I1, which
+shows up in the file it writes rather than in a return value. The suite asserts the negative cases
+too: a short, empty or untitled capture must leave the cached case byte-identical.
+
+### P0 — data-integrity
 
 **I3. `commentKey` dedupe is a heuristic with two known collisions.**
 Identity is `author + first 120 chars of normalized body`. An edit inside those 120 characters makes
-an old comment look new (duplicate); two genuinely distinct short comments by the same author
-collapse into one (silent loss on merge). Timestamps are excluded on purpose — Chatter renders
-relative times that drift. Fix: fold in a stable DOM id when I2 lands, and count/report suspected
-collisions in the verdict rather than resolving them silently.
+an old comment look new (duplicate); two genuinely distinct short comments by the same author share
+an identity. Timestamps are excluded on purpose — Chatter renders relative times that drift.
+Partially addressed by D19: a duplicate identity inside one capture is now kept as a distinct
+comment (`-N` suffix) and counted as `idCollisions` in the verdict instead of being collapsed. Still
+open: an *edit* to an old comment's opening 120 characters still reads as a new comment on the next
+merge. Fix: prefer a stable Chatter DOM id if one proves stable across loads, and treat a
+near-duplicate (same author, high body similarity) as an edit rather than an insertion.
 
 ### P1 — assurance and completeness
-
-**I4. `scrape_case.mjs` is the least-tested module and the most consequential.**
-`computeHash`, `countAssert`, `parseHeaderFlags`, `commentKey` and `mergeComments` are all exported
-for testing, and none are covered by `tests/pipeline.test.mjs` (which covers browser, run_case,
-lock, enrich_local, scheduler and the dashboard). Every P0 item above lives in that file. Fix: table
-tests for the merge matrix — new-only, overlapping, id collision, blank-filling, header-flag
-precedence, hash stability under re-enrichment.
 
 **I5. `analysisLog`, `attachments`, `company` and `role` are promised but never populated.**
 `extract_case.js` hard-codes them empty; the renderer, the enrichment prompts and `SKILL.md` all
@@ -581,7 +613,9 @@ before writing, but the window is real, and a crash mid-write truncates the file
 temp file and `rename()` (atomic on both platforms); keep the re-read.
 
 **I7. No CI.** `npm test` runs only when someone remembers. A GitHub Actions workflow now runs the
-tests and the doc freshness check (§12) — extend it with lint and, once I4 lands, coverage.
+tests and the doc freshness check (§12) — extend it with lint and coverage. Note that `npm test`
+lists its test files explicitly: a new `tests/*.test.mjs` must be added there to run at all (Node's
+`--test` glob support is newer than this project's `engines` floor).
 
 ### P2 — robustness and operability
 
@@ -608,6 +642,11 @@ tests and the doc freshness check (§12) — extend it with lint and, once I4 la
 - **I15. Renderer duplication.** Four formats each re-walk the same shape in `render_case.mjs`; a
   new enrichment field must be added in four places. Fix: a single section model that each format
   serializes — only worth doing when the next field is added.
+- **I16. `computeHash` covers relative timestamps, which drift.** Chatter renders "2 days ago", so a
+  full re-capture can produce a different hash for an unchanged case and report `updated` with zero
+  new comments. Merge runs are unaffected (cached timestamps are never rewritten). Fix: exclude
+  `timestamp` from the hash — identity is already carried by author + body — or normalize the
+  relative form to an absolute date at extraction time, which would be worth more on its own.
 
 ### Not-a-bug (deliberate, documented)
 
