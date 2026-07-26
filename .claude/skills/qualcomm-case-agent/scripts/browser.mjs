@@ -47,7 +47,7 @@ function ab(args, { timeout = 120000, allowFail = false } = {}) {
   if (r.error && r.error.code === 'ENOENT') {
     throw new BrowserError('agent-browser not found on PATH (npm i -g agent-browser)');
   }
-  if (r.error) throw new BrowserError(`agent-browser failed: ${r.error.message}`);
+  if (r.error && !allowFail) throw new BrowserError(`agent-browser failed: ${r.error.message}`);
   if (r.status !== 0 && !allowFail) {
     throw new BrowserError(
       `agent-browser ${args[0]} exited ${r.status}`,

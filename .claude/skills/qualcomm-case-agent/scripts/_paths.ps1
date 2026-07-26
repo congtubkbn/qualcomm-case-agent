@@ -27,11 +27,28 @@
 # $PSScriptRoot here = the scripts\ dir (resolves to THIS file's folder even when dot-sourced).
 $QcSkillRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
+function Resolve-QcWorktreeMainRoot {
+  param([string]$D)
+  $p = Join-Path $D '.git'
+  if (-not (Test-Path $p -PathType Leaf)) { return $null }   # dir, or missing
+  $line = Get-Content $p -Raw | Select-String '^gitdir:\s*(.+?)\s*$'
+  if (-not $line) { return $null }
+  $gitdir = $line.Matches[0].Groups[1].Value -replace '\\', '/'
+  $i = $gitdir.IndexOf('/worktrees/')
+  if ($i -lt 0) { return $null }
+  return Split-Path ($gitdir.Substring(0, $i)) -Parent   # .../.git -> main repo root
+}
+
 function Find-QcProjectRoot {
   param([string]$Start)
   $d = $Start
   while ($d) {
-    if (Test-Path (Join-Path $d '.git'))        { return $d }   # repo root
+    # A git *worktree* has .git as a FILE (a "gitdir: ..." pointer) -- resolve
+    # it straight back to the main repo root so a worktree shares ONE data\
+    # tree with its checkout instead of silently forking its own empty cache.
+    $mainRoot = Resolve-QcWorktreeMainRoot $d
+    if ($mainRoot) { return $mainRoot }
+    if (Test-Path (Join-Path $d '.git') -PathType Container) { return $d }   # repo root
     if (Test-Path (Join-Path $d 'data\cases'))  { return $d }   # established cache = root
     $parent = Split-Path $d -Parent
     if ($parent -eq $d) { break }   # reached filesystem root

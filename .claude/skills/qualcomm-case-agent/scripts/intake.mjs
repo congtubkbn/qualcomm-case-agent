@@ -31,7 +31,10 @@ export function intake(raw) {
   if (!fs.existsSync(idx)) {
     fs.writeFileSync(idx, '{}');
   } else {
-    try { JSON.parse(fs.readFileSync(idx, 'utf8')); }
+    try {
+      const t = fs.readFileSync(idx, 'utf8');
+      JSON.parse(t.charCodeAt(0) === 0xFEFF ? t.slice(1) : t);
+    }
     catch (e) { throw new Error(`corrupt _index.json — ${e.message}`); }
   }
   return code;

@@ -10,18 +10,45 @@
 //     (.git or an existing data/cases), not by counting a fixed number of '..'.
 //   - Escape hatch: env QUALCOMM_ROOT pins the project root for odd layouts.
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url)); // scripts/
 export const SKILL_ROOT = resolve(here, '..');        // qualcomm-case-agent/
 
+// A real checkout has `.git` as a DIRECTORY. A git *worktree* has `.git` as a
+// FILE (a `gitdir: <path>/.git/worktrees/<name>` pointer). Worktrees do NOT
+// share a working directory with the main checkout, so their own `data/`
+// starts out empty — no secrets, no chrome-profile, no case cache. Resolve
+// the pointer straight back to the main repo root so every worktree shares
+// ONE `data/` tree with the checkout it belongs to (confirmed bug: without
+// this, a worktree silently forks its own cache — a fully captured real case
+// ended up stranded in a worktree-local data/cases/, invisible to the main
+// project and any other worktree).
+function resolveWorktreeMainRoot(d) {
+  const p = join(d, '.git');
+  if (!existsSync(p) || statSync(p).isDirectory()) return null;
+  const m = readFileSync(p, 'utf8').match(/^gitdir:\s*(.+?)\s*$/m);
+  if (!m) return null;
+  const gitdir = m[1].replace(/\\/g, '/');
+  const i = gitdir.indexOf('/worktrees/');
+  if (i === -1) return null;
+  return dirname(gitdir.slice(0, i)); // .../.git -> main repo root
+}
+
+function isGitRepoDir(d) {
+  const p = join(d, '.git');
+  return existsSync(p) && statSync(p).isDirectory();
+}
+
 function findProjectRoot(start) {
   let d = start;
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    if (existsSync(join(d, '.git')) || existsSync(join(d, 'data', 'cases'))) return d;
+    const mainRoot = resolveWorktreeMainRoot(d);
+    if (mainRoot) return mainRoot;
+    if (isGitRepoDir(d) || existsSync(join(d, 'data', 'cases'))) return d;
     const parent = dirname(d);
     if (parent === d) return null; // filesystem root
     d = parent;
