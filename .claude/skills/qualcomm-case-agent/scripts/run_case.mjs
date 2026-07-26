@@ -45,6 +45,9 @@ const FEED_PROBE_ROUNDS = 15; // x 2s = 30s ceiling — Chatter feed hydration i
 const EXPAND_ROUNDS = 40;    // pagination + expansion ticks
 const STUCK_RETRY_ROUNDS = 5; // x2s extra grace once the round budget runs out
                                // while still clicking "Expand Post" every tick
+const SETTLE_ROUNDS = 8;      // x1s ceiling (incl. 2 mandatory confirm reads)
+                               // for any post still showing "Expand Post" to
+                               // get a real click and settle before extraction
 
 export const STATUS_EXIT = {
   created: 0, updated: 0, 'no-update': 0,
@@ -312,6 +315,48 @@ export async function run(code, opts) {
         expandRounds: rounds,
       };
     }
+  }
+
+  // expand_step.js's in-page synthetic events (pointerdown/mousedown/up +
+  // .click()) can silently no-op on the Chatter "Expand Post" control even
+  // though byText() found and "fired" it every tick — Aura's real handler
+  // just doesn't respond to dispatched events for this control (confirmed on
+  // case 08417053: a real CDP-level click on the identical element expands it
+  // immediately; 5 consecutive full automated runs relying on fire() alone
+  // never expanded it once, deterministically, not a timing flake). Fall back
+  // to a real trusted click — the same mechanism already used for the case-
+  // link route above — on any post still showing the label once the tick
+  // loop above has given up.
+  //
+  // The detection MUST be a separate, non-firing read (check_collapsed.js),
+  // not another call to expand_step.js: calling fire() has an observable
+  // side effect on this control's rendered text even when it doesn't
+  // actually expand it, so a settle-check that itself re-fires on every call
+  // was self-poisoning its own reading (measured: reads 0 right after firing,
+  // 3 on an untouched read of the identical DOM at the same instant).
+  // `a.cuf-more` alone always resolves to the FIRST DOM match regardless of
+  // visibility — once that one is clicked (and hidden), re-clicking the same
+  // selector keeps hitting the now-hidden element and never advances to the
+  // next post (observed: case 08417053, only 1 of 3 collapsed posts recovered
+  // across the whole retry budget). Scope to the still-visible one each round.
+  //
+  // A single clean read isn't trustworthy either (observed: case 08324806,
+  // the very first check_collapsed.js read after the tick loop reported 0
+  // while the DOM still needed one more click, same class of transient
+  // mis-read as the tick loop's own idle detection above) — require 2
+  // consecutive clean reads before concluding nothing is left, same
+  // philosophy as probeFeed()'s steady-count check and the tick loop's own
+  // idleTicks >= 2 above.
+  let cleanReads = 0;
+  for (let i = 0; i < SETTLE_ROUNDS && cleanReads < 2; i++) {
+    const s = evalFile(page('check_collapsed.js'), { __ANCHOR: anchor });
+    if (s.stillCollapsed) {
+      cleanReads = 0;
+      try { click('a.cuf-more:not(.hidden)'); } catch { /* nothing left visible to click — fine */ }
+    } else {
+      cleanReads++;
+    }
+    await sleep(1000);
   }
 
   // --- PHASE 2: extract from the DOM exactly as expansion left it.

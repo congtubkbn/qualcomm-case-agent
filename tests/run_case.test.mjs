@@ -209,6 +209,8 @@ describe('run() expand-loop stuck detection', () => {
       stableFeed, stableFeed,
       ...Array.from({ length: 40 }, () => stuckTick),  // exhausts the round budget
       idleTick,                                        // grace retry 1: finally converges
+      { stillCollapsed: 0 },                           // post-loop settle check 1/2: clean
+      { stillCollapsed: 0 },                           // post-loop settle check 2/2: clean, confirmed
       { comments: [{ author: 'A', body: 'ok', timestamp: 't' }] }, // extract_case.js
     ]);
     // Normally intake() (CLI entry, bypassed when calling run() directly in
@@ -225,5 +227,8 @@ describe('run() expand-loop stuck detection', () => {
     const names = evalFileCalls.map(c => c.path);
     // 2 feed-probe reads (PROBE mode) + 40 round-budget ticks + exactly 1 grace retry.
     assert.equal(names.filter(n => n === 'expand_step.js').length, 43);
+    // The post-loop settle check is a separate, non-firing read — 2 consecutive
+    // clean reads required before it stops.
+    assert.equal(names.filter(n => n === 'check_collapsed.js').length, 2);
   });
 });
