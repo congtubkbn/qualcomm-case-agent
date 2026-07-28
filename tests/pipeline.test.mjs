@@ -35,7 +35,26 @@ function fixtureRoot() {
 process.env.QUALCOMM_ROOT = fixtureRoot();
 
 describe('browser.mjs', async () => {
-  const { stripComments, parseResult } = await import(new URL('browser.mjs', SCRIPTS));
+  const { stripComments, parseResult, buildPayload } = await import(new URL('browser.mjs', SCRIPTS));
+
+  // P0 regression. Page scripts read their parameters as `typeof __X !== 'undefined'`.
+  // Injected as top-level `var`s, those became PAGE GLOBALS that outlived the
+  // call: once probeFeed ran one `__PROBE: true` tick, every later expand tick
+  // still saw __PROBE === true, returned at the probe short-circuit and clicked
+  // NOTHING — for the rest of the run, silently, reported as "nothing left to
+  // expand". Indirect eval here reproduces the CDP Runtime.evaluate scope
+  // exactly (global), so the leak is real if it comes back.
+  it('scopes injected vars to the call — never leaks them into the page', () => {
+    const probe = '(function(){ return (typeof __PROBE !== "undefined") ? __PROBE : "absent"; })()';
+    assert.equal((0, eval)(buildPayload(probe, { __PROBE: true })), true);
+    assert.equal((0, eval)(buildPayload(probe, {})), 'absent');
+    assert.equal(typeof globalThis.__PROBE, 'undefined');
+  });
+
+  it('passes each var through as a real value, not a string', () => {
+    const src = '(function(){ return __ANCHOR.bodyStart; })()';
+    assert.equal((0, eval)(buildPayload(src, { __ANCHOR: { bodyStart: 'RRC reject' } })), 'RRC reject');
+  });
 
   it('strips comment lines but keeps code containing //-like text', () => {
     const src = '// header\n\nvar u = "a[href*=\\"/s/case/\\"]";\n// tail\nreturn u;';
@@ -62,14 +81,23 @@ describe('run_case.mjs', async () => {
   });
 
   it('reports no-update only when the anchor is still the top post', () => {
-    assert.equal(isNoUpdate({ anchorIdx: 0, displayed: 2, top: { author: 'Alice' } }, cached), true);
-    assert.equal(isNoUpdate({ anchorIdx: 1, displayed: 3, top: { author: 'Carol' } }, cached), false);
-    assert.equal(isNoUpdate({ anchorIdx: 0, displayed: 3, top: { author: 'Alice' } }, cached), false);
+    assert.equal(isNoUpdate({ anchorIdx: 0, pendingExpand: 0, pendingMoreComments: 0, top: { author: 'Alice' } }, cached), true);
+    assert.equal(isNoUpdate({ anchorIdx: 1, pendingExpand: 0, pendingMoreComments: 0, top: { author: 'Carol' } }, cached), false);
+  });
+
+  // The probe clicks nothing, so an unexpanded control is unread content: a new
+  // nested reply lives behind "More comments" under an OLD post and never moves
+  // the top post (case 08503838). Unread content => inconclusive, not unchanged.
+  it('refuses to call a feed unchanged while anything is still unexpanded', () => {
+    assert.equal(isNoUpdate({ anchorIdx: 0, pendingExpand: 0, pendingMoreComments: 1, top: { author: 'Alice' } }, cached), false);
+    assert.equal(isNoUpdate({ anchorIdx: 0, pendingExpand: 2, pendingMoreComments: 0, top: { author: 'Alice' } }, cached), false);
   });
 
   it('never lets a failed probe read as unchanged', () => {
     assert.equal(isNoUpdate(null, cached), false);
     assert.equal(isNoUpdate({ anchorIdx: -1, top: null }, cached), false);
+    // A probe that predates the pending-control counters cannot prove anything.
+    assert.equal(isNoUpdate({ anchorIdx: 0, top: { author: 'Alice' } }, cached), false);
   });
 
   it('maps blocked/auth/busy statuses to distinct non-zero exits', () => {

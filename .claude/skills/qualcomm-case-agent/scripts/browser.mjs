@@ -73,14 +73,30 @@ function winLine(args) {
  */
 export function evalFile(scriptPath, vars = {}, opts = {}) {
   const src = stripComments(readFileSync(scriptPath, 'utf8'));
-  const preamble = Object.entries(vars)
-    .map(([k, v]) => `var ${k} = ${JSON.stringify(v)};`)
-    .join('\n');
-  const b64 = Buffer.from(preamble ? `${preamble}\n${src}` : src, 'utf8').toString('base64');
+  const b64 = Buffer.from(buildPayload(src, vars), 'utf8').toString('base64');
   if (WIN && b64.length > 7000) {
     throw new BrowserError(`page script too large for cmd.exe (${b64.length} b64 chars): ${scriptPath}`);
   }
   return parseResult(ab(['eval', '-b', b64], opts));
+}
+
+/**
+ * Wrap a page script (always a single IIFE expression) in a function scope that
+ * declares its parameters.
+ *
+ * The parameters MUST be function-scoped. Declared at top level — which is where
+ * CDP's Runtime.evaluate puts them — a `var __PROBE = true` becomes a property of
+ * the page's global object and SURVIVES the call. Every page script reads its
+ * parameters as `typeof __X !== 'undefined'`, so one leaked `__PROBE: true` probe
+ * tick left every later expand tick short-circuiting at the probe branch: it
+ * clicked nothing, reported nothing clicked, and the caller read that as "nothing
+ * left to expand". Whole feeds went unexpanded with no error anywhere.
+ */
+export function buildPayload(src, vars = {}) {
+  const preamble = Object.entries(vars)
+    .map(([k, v]) => `var ${k} = ${JSON.stringify(v)};`)
+    .join('\n');
+  return `(function(){\n${preamble}\nreturn ${src}\n})()`;
 }
 
 /** Drop whole-line `//` comments and blank lines. A line whose first non-space
@@ -108,6 +124,12 @@ export function parseResult(stdout) {
 export function open(url) { return ab(['open', url], { timeout: 180000 }); }
 export function click(selector) { return ab(['click', selector], { timeout: 30000 }); }
 export function pdf(path) { return ab(['pdf', path], { timeout: 180000 }); }
+
+/** Full-page PNG of the feed exactly as expansion left it — the visual evidence
+ *  that every "Expand Post" / "More comments" really did get clicked. Written
+ *  next to case.json so a capture can be audited after the fact, which the
+ *  counters alone cannot do (they are produced by the same code they attest to). */
+export function screenshot(path) { return ab(['screenshot', path, '--full'], { timeout: 120000 }); }
 
 /** Ask the CDP endpoint directly — the one signal that says whether the
  *  persistent-profile Chrome is actually up, independent of the daemon. */

@@ -39,10 +39,30 @@
     }
   }
 
+  // Mirror expand_step.js's skip rule exactly, or the settle check would keep
+  // demanding clicks for posts expand_step.js deliberately never clicks (or,
+  // worse, stay quiet about a revealed reply it DOES click). Cached-and-below-
+  // the-anchor is the only skip; a post absent from the run's baseline was
+  // revealed by a "More comments" click and counts wherever it sits.
+  var baseline = window.__qcExpandBaseline || null;
+  var prefixes = articles.map(function (a) { return bodyOf(a).slice(0, 60); });
+  var skipAsCached = function (idx) {
+    if (!(anchorIdx >= 0 && idx >= anchorIdx)) return false;
+    return !baseline || baseline.indexOf(prefixes[idx]) >= 0;
+  };
+
   var stillCollapsed = articles.reduce(function (n, art, idx) {
-    if (anchorIdx >= 0 && idx >= anchorIdx) return n;
+    if (skipAsCached(idx)) return n;
     return /Expand Post\s*$/i.test(bodyOf(art)) ? n + 1 : n;
   }, 0);
 
-  return { stillCollapsed: stillCollapsed };
+  // Same class of issue as "Expand Post": fire()'s synthetic events can no-op
+  // on the per-post "N more comments" nested-reply pagination link too, and
+  // unlike Expand Post this had NO settle-check at all — a click that never
+  // actually loaded the reply looked identical to "nothing left to expand"
+  // (observed: case 08503838, a reply dropped out of case.json with no error).
+  var byText = function (sel, re) { return qsa(sel).filter(function (e) { return re.test(txt(e)); }); };
+  var stillHasMoreComments = byText('a, button', /^(view\s+)?\d*\s*more\s+comments?$/i).length;
+
+  return { stillCollapsed: stillCollapsed, stillHasMoreComments: stillHasMoreComments };
 })()

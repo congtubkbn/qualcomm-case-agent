@@ -113,7 +113,7 @@ DOM verified after login with a real Chrome session. These are the structures th
 | → author | first `<a>` inside the article | e.g. "Mai Ngoc" |
 | → timestamp | second named `<a>` (skip if it is "Expand Post") | e.g. "June 16, 2026 at 8:08 PM" / "13h ago" |
 | → body (clean) | **`.feedBodyInner`** (alias `.cuf-feedBodyText`) | gives JUST the post text — excludes the author/timestamp header and the Like/Comment/views footer. Far cleaner than whole-article `innerText` |
-| Feed item count | `status "N Chatter Feed Items"` (role=status) inside Feed region | use as `displayedCommentCount`. Note: counts top-level items; nested replies are extra `article`s, so captured count can exceed it (assert is `>=`) |
+| Feed item count | `status "N Chatter Feed Items"` (role=status) inside Feed region — **the count must PRECEDE the phrase** | use as `displayedCommentCount`. Chatter also renders a per-item `status "Chatter Feed Item <n>"` region; matching the first digit of the first matching region stored that item ordinal as a "total" (08503838 recorded 2 for 11 comments). Match `/(\d+)\s+Chatter\s+Feed\s+Items?/i` or store `null` — a wrong total is worse than none. Counts top-level items; nested replies are extra `article`s, so captured count can exceed it (assert is `>=`) |
 | Attachments | inline `image "successcase"`/`"failurecase"` as `clickable` inside article | screenshot images; no `a[href]` |
 
 ## The extractor script

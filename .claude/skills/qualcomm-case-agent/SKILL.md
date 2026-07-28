@@ -54,6 +54,7 @@ Scripts and references live under `.claude/skills/qualcomm-case-agent/`.
 | `browser.mjs` | agent-browser wrapper: argv-array spawn, `eval -b`, CDP attach |
 | `readiness.js` · `find_case_link.js` · `expand_step.js` · `extract_case.js` | page scripts run via `eval -b` |
 | `scrape_case.mjs` | finalizer — assert, hash, write `case.json` + index (`--merge` = update run) |
+| `check_collapsed.js` · `verify_case.mjs` | completeness gates — unexpanded-control read, post-capture QA (run automatically; `node verify_case.mjs --all` re-checks every cache) |
 | `render_case.mjs` | `case.json` → report.md + md + html + txt |
 | `enrich_local.mjs` | PHASE 3 on a local 4–7 GB LLM (see `docs/LOCAL_LLM.md`) |
 | `scheduler.mjs` · `register_task.ps1` | unattended sweeps of `data/watchlist.json` |
@@ -105,11 +106,27 @@ analysis inline) · `--no-pdf`.
 > `blocked` is never "no update". A tool failure means inconclusive — reporting an unchanged
 > case on a failed probe is the one wrong answer here.
 
-> **Known limit of the fast no-update probe:** a new *nested reply under an old post* doesn't move
-> the top post, so an update run can report `no-update` while one exists. If the user says there IS
-> an update (they saw a notification), re-run with `--mode full` — the merge dedupe is the
-> definitive check. A full re-capture keeps the existing `enrichment` and still reports only the
-> genuinely new ids in `newCommentIds`, so it costs one analysis per new comment, not a whole thread.
+**Every `created` / `updated` verdict is verified and carries its evidence.** Before returning,
+`run_case.mjs` runs `verify_case.mjs` against what it just persisted (`verified: true`, any
+`verifyWarnings`); a failure comes back as `blocked` + `retryable`, never as success. The verdict's
+`evidence` block — also persisted as `capture` in `case.json` — records `pendingExpand` /
+`pendingMoreComments` (both must be 0), the per-control `clicks` tally, and `screenshot`, a
+full-page PNG of the feed as extraction saw it (`capture.png`, or `probe.png` on a `no-update`).
+**To check a capture really did click every "Expand Post" / "More comments", read that PNG** — the
+counters are produced by the same code they attest to, the image is not.
+
+> **The fast no-update probe now refuses to guess.** It clicks nothing, so it only reports
+> `no-update` when the newest cached comment is still the top post AND zero "Expand Post" /
+> "More comments" controls remain. Anything still hiding content falls through to a real expand +
+> merge pass, because a new *nested reply under an old post* never moves the top post (case
+> 08503838). If you still suspect a miss, `--mode full` re-paginates the whole thread; it keeps the
+> existing `enrichment` and reports only genuinely new ids in `newCommentIds`, so it costs one
+> analysis per new comment, not a whole thread.
+
+> `displayedCommentCount` is a portal render counter, not a completeness signal, and is **not**
+> hashed. It used to be, which made an unchanged case report `updated` with `newComments: 0`
+> whenever the badge drifted. `newComments: 0` on an `updated` verdict now means only header fields
+> (Status/Priority/…) changed — there is nothing new to enrich.
 
 **Do NOT `Read` `case.json` to find out what happened.** The verdict line already carries the
 counts, ids and paths; the file is the size of the whole case. Read only the comment bodies you

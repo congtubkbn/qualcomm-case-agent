@@ -60,9 +60,14 @@ export const EXIT = {
 // already in here, so hashing it would add nothing but a dependency on the id
 // scheme. (Caches written before ids became content-derived therefore re-hash
 // once on their next capture — one no-op `updated` verdict, no data change.)
+// displayedCommentCount is NOT hashed: it comes from a portal-rendered status
+// badge that drifts between reads of an identical thread (observed on 08503838:
+// 8 -> 2 with all 11 bodies unchanged), so hashing it turned pure render noise
+// into a phantom `updated` verdict carrying newComments: 0. The hash covers
+// verbatim comment content only — the thing an "is this case changed?" question
+// is actually asking about.
 export function computeHash(raw) {
   const lines = [
-    String(raw.displayedCommentCount ?? ''),
     ...raw.comments.map(c =>
       `${c.timestamp}|${c.author}|${c.body}|${(c.analysisLog || []).join('|')}`
     ),
@@ -269,6 +274,8 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
     out = { ...cached, comments: merge0.merged };
     // Fresh page values that are always current truth:
     if (raw.displayedCommentCount != null) out.displayedCommentCount = raw.displayedCommentCount;
+    // Capture evidence always describes THIS run, never the previous one.
+    if (raw.capture) out.capture = raw.capture;
     if (String(raw.url || '').trim()) out.url = raw.url;
     // Everything else from the partial capture only FILLS BLANKS — a collapsed
     // Description/Detail panel must never clobber a good cached value.

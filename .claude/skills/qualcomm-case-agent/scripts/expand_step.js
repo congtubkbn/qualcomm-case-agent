@@ -48,6 +48,13 @@
 
   var articles = qsa('article');
 
+  // Trigger LWC IntersectionObserver: Chatter lazy-mounts nested components 
+  // (like "More comments") only when the parent article enters the viewport.
+  // CDP doesn't trigger scroll naturally, so we force them into view.
+  articles.forEach(function (a) {
+    try { a.scrollIntoView({ behavior: 'instant', block: 'nearest' }); } catch(e) {}
+  });
+
   // Locate the cached anchor post. Match on a 40-char body prefix: relative
   // timestamps ("2 days ago") drift between runs, body text does not.
   var anchorIdx = -1;
@@ -58,34 +65,87 @@
     }
   }
 
+  // Same strict badge parse as extract_case.js: the count must PRECEDE the
+  // phrase. Chatter's per-item "Chatter Feed Item <n>" status region otherwise
+  // reads back as a bogus feed total (see extract_case.js).
   var displayed = null;
-  var st = qsa("[role='status']").filter(function (s) { return /Chatter Feed Item/i.test(txt(s)); })[0];
-  if (st) { var m = txt(st).match(/(\d+)/); displayed = m ? Number(m[1]) : null; }
+  var statuses = qsa("[role='status']");
+  for (var si = 0; si < statuses.length; si++) {
+    var m = txt(statuses[si]).match(/(\d+)\s+Chatter\s+Feed\s+Items?\b/i);
+    if (m) { displayed = Number(m[1]); break; }
+  }
 
   var top = articles[0]
     ? { author: txt(articles[0].querySelector('a')), bodyStart: bodyOf(articles[0]).slice(0, 80) }
     : null;
+
+  // A post keeps its "Expand Post" anchor in the DOM after it expands (Chatter
+  // only hides it), and a hidden-but-laid-out anchor still matches byText — so
+  // matching on the control alone counted 11 "pending" controls on a feed with
+  // 3 collapsed posts, re-clicked all 11 every tick, and the tick loop could
+  // never reach an idle tick. Gate on the one signal that means the content is
+  // genuinely still hidden: the post body itself ends with the control's label.
+  var collapsedArticle = function (art) { return !!art && /Expand Post\s*$/i.test(bodyOf(art)); };
+  var expandControls = byText('a, button', /^Expand Post$/i)
+    .filter(function (e) { return collapsedArticle(e.closest('article')); });
+  // Nested-reply pagination is NEVER anchor-skipped: a reply added to an OLD
+  // post renders as an <article> BELOW the anchor, so skipping it there is how
+  // a new reply stays invisible to every update run (case 08503838).
+  var moreCommentControls = byText('a, button', /^(view\s+)?\d*\s*more\s+comments?$/i);
+
+  // Baseline = the posts on screen BEFORE this run expanded anything, kept on
+  // `window` across ticks (same tab, no reload mid-expansion). PROBE ticks keep
+  // refreshing it while the feed lazy-loads; the first clicking tick freezes it.
+  // A post that is NOT in the baseline was revealed by a "More comments" click
+  // this run — i.e. it is new content, so it must be expanded even though it
+  // sits below the anchor. Without this, the anchor skip (which exists so old
+  // cached bodies are never re-extracted and re-identified) would also swallow
+  // every freshly revealed reply.
+  var prefixes = articles.map(function (a) { return bodyOf(a).slice(0, 60); });
+  if (PROBE || !window.__qcExpandBaseline) window.__qcExpandBaseline = prefixes.slice();
+  var baseline = window.__qcExpandBaseline;
+
+  var skipAsCached = function (e) {
+    var art = e.closest('article');
+    var idx = art ? articles.indexOf(art) : -1;
+    if (!(anchorIdx >= 0 && idx >= anchorIdx)) return false;
+    return baseline.indexOf(prefixes[idx]) >= 0;
+  };
 
   var result = {
     articles: articles.length,
     displayed: displayed,
     anchorIdx: anchorIdx,
     top: top,
+    // Controls that still hide content THIS run is responsible for. The PROBE
+    // tick reports them before clicking anything, which is what lets the fast
+    // no-update check refuse to call a feed unchanged while content is hidden.
+    pendingExpand: expandControls.filter(function (e) { return !skipAsCached(e); }).length,
+    pendingMoreComments: moreCommentControls.length,
     clickedExpand: 0,
     clickedViewMore: 0,
     clickedDescription: 0,
+    clickedMoreComments: 0,
     remainingExpand: 0,
   };
   if (PROBE) return result;
 
   // Expand posts. Incremental run: only those ABOVE the anchor — old posts stay
   // collapsed and the --merge dedupe keeps their cached verbatim bodies.
-  byText('a, button', /^Expand Post$/i).forEach(function (e) {
-    var art = e.closest('article');
-    var idx = art ? articles.indexOf(art) : -1;
-    if (anchorIdx >= 0 && idx >= anchorIdx) { result.remainingExpand++; return; }
+  expandControls.forEach(function (e) {
+    if (skipAsCached(e)) { result.remainingExpand++; return; }
     fire(e);
     result.clickedExpand++;
+  });
+
+  // Per-post nested-reply pagination ("More comments" under a post's Like/
+  // Comment row). Unlike "View More Posts" this is scoped to one post's
+  // thread, not a whole-feed page load, so all currently-visible instances
+  // are safe to click in the same tick — new replies it reveals (and any of
+  // their own truncated bodies) get picked up by next tick's re-run.
+  moreCommentControls.forEach(function (e) {
+    fire(e);
+    result.clickedMoreComments++;
   });
 
   // Pagination: one "View More Posts" per tick (each click loads a page), and

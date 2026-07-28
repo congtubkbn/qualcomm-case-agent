@@ -34,7 +34,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
 import { intake } from './intake.mjs';
 import { acquireLock, releaseLock } from './lock.mjs';
-import { BrowserError, click, ensureChrome, evalFile, open, pdf, sleep } from './browser.mjs';
+import { BrowserError, click, ensureChrome, evalFile, open, pdf, screenshot, sleep } from './browser.mjs';
+import { verifyCase } from './verify_case.mjs';
 
 const SCRIPTS = fileURLToPath(new URL('.', import.meta.url));
 const PORTAL = 'https://support.qualcomm.com';
@@ -46,6 +47,7 @@ const EXPAND_ROUNDS = 40;    // pagination + expansion ticks
 const STUCK_RETRY_ROUNDS = 5; // x2s extra grace once the round budget runs out
                                // while still clicking "Expand Post" every tick
 const SETTLE_ROUNDS = 8;      // x1s ceiling (incl. 2 mandatory confirm reads)
+const POST_EXPAND_SETTLE_ROUNDS = 15; // x2s ceiling — see article-count settle note below
                                // for any post still showing "Expand Post" to
                                // get a real click and settle before extraction
 
@@ -63,12 +65,40 @@ export function anchorOf(cached) {
   return c ? { author: c.author, bodyStart: norm(c.body).slice(0, 80) } : null;
 }
 
-/** Unchanged iff the feed total AND the top post both still match the cache. */
+/**
+ * Unchanged iff the newest cached comment is still the top post AND nothing on
+ * the feed is still hiding content.
+ *
+ * The probe tick clicks nothing, so any surviving "Expand Post" / "More
+ * comments" control is content this check has not read — and a new nested reply
+ * lives behind exactly such a control, under an OLD post, without moving the top
+ * post (case 08503838, a reply that no update run could ever see). Unread
+ * content makes the answer inconclusive, not "unchanged", so fall through to a
+ * real expand + merge pass, which is the definitive comparison.
+ *
+ * `displayedCommentCount` is deliberately NOT consulted: the portal counter it
+ * comes from drifts between reads of an identical thread (see extract_case.js),
+ * so it can neither confirm nor deny a change.
+ */
 export function isNoUpdate(probe, cached) {
   if (!cached || !probe || !probe.top) return false;
   if (probe.anchorIdx !== 0) return false;
-  const displayedSame = probe.displayed == null || probe.displayed === cached.displayedCommentCount;
-  return displayedSame;
+  // A probe from before these counters existed proves nothing either way.
+  if (typeof probe.pendingExpand !== 'number' || typeof probe.pendingMoreComments !== 'number') return false;
+  return probe.pendingExpand === 0 && probe.pendingMoreComments === 0;
+}
+
+/** Best-effort page screenshot. Evidence is worth having, never worth failing a
+ *  good capture for, so a screenshot error degrades to `null` (verify_case.mjs
+ *  reports the missing file as a warning, not an error). */
+function shoot(dir, name) {
+  try {
+    screenshot(join(dir, name));
+    return name;
+  } catch (e) {
+    process.stderr.write(`screenshot failed (${name}): ${e.message}\n`);
+    return null;
+  }
 }
 
 function node(script, args) {
@@ -266,9 +296,13 @@ export async function run(code, opts) {
     return { status: 'blocked', reason: 'case page has no Chatter feed articles — wrong page or feed never loaded', probe };
   }
   if (merge && isNoUpdate(probe, cached)) {
+    // Screenshot the untouched feed too: "no update" is a claim about what the
+    // page showed, and this is the only artifact that can back it up later.
+    const shot = shoot(caseDir, 'probe.png');
     return {
       status: 'no-update', since: cached.extractedAt,
-      commentCount: cached.comments.length, displayed: probe.displayed,
+      commentCount: cached.comments.length,
+      evidence: { articles: probe.articles, pendingExpand: 0, pendingMoreComments: 0, screenshot: shot },
     };
   }
 
@@ -280,9 +314,16 @@ export async function run(code, opts) {
   // ticks before concluding there is nothing left to expand.
   let rounds = 0;
   let idleTicks = 0;
+  // Click tally, persisted with the capture: the verdict says a case is
+  // complete, this says what was actually done to make it so.
+  const clicks = { expand: 0, viewMore: 0, moreComments: 0, description: 0 };
   for (; rounds < EXPAND_ROUNDS; rounds++) {
     const r = evalFile(page('expand_step.js'), { __ANCHOR: anchor });
-    if (!r.clickedExpand && !r.clickedViewMore && !r.clickedDescription) {
+    clicks.expand += r.clickedExpand || 0;
+    clicks.viewMore += r.clickedViewMore || 0;
+    clicks.moreComments += r.clickedMoreComments || 0;
+    clicks.description += r.clickedDescription || 0;
+    if (!r.clickedExpand && !r.clickedViewMore && !r.clickedDescription && !r.clickedMoreComments) {
       idleTicks++;
       if (idleTicks >= 2) break;
       await sleep(1000);
@@ -300,20 +341,20 @@ export async function run(code, opts) {
   // truncated body ending in the literal "Expand Post" control label (observed
   // on case 08503838: 7 of 11 comments). Give it a few slower, dedicated
   // retries; only give up loud — never fall through to extraction quiet.
+  // It does NOT return blocked here. The trusted-click settle loop below is the
+  // one mechanism known to actually expand this control, so bailing out at the
+  // first sign of a stuck synthetic click made the recovery unreachable exactly
+  // when it was needed. Give the tick loop its grace retries, then fall through
+  // and let the settle loop (and, failing that, the extraction-time gate) decide.
   if (rounds >= EXPAND_ROUNDS && idleTicks < 2) {
-    let stillStuck = true;
     for (let i = 0; i < STUCK_RETRY_ROUNDS; i++) {
       await sleep(2000);
       const r = evalFile(page('expand_step.js'), { __ANCHOR: anchor });
-      if (!r.clickedExpand && !r.clickedViewMore && !r.clickedDescription) { stillStuck = false; break; }
-    }
-    if (stillStuck) {
-      return {
-        status: 'blocked',
-        retryable: true,
-        reason: 'expand loop exhausted its round budget while still clicking "Expand Post" — one or more posts are likely still collapsed',
-        expandRounds: rounds,
-      };
+      clicks.expand += r.clickedExpand || 0;
+      clicks.viewMore += r.clickedViewMore || 0;
+      clicks.moreComments += r.clickedMoreComments || 0;
+      clicks.description += r.clickedDescription || 0;
+      if (!r.clickedExpand && !r.clickedViewMore && !r.clickedDescription && !r.clickedMoreComments) break;
     }
   }
 
@@ -347,23 +388,102 @@ export async function run(code, opts) {
   // consecutive clean reads before concluding nothing is left, same
   // philosophy as probeFeed()'s steady-count check and the tick loop's own
   // idleTicks >= 2 above.
+  //
+  // The budget scales with the work: this loop clicks ONE control per round
+  // (`a.cuf-more:not(.hidden)` always resolves to the first still-visible one),
+  // so a feed with 11 collapsed posts cannot be cleared in 8 rounds — the fixed
+  // budget is why case 08503838 kept extracting with 3 posts still collapsed.
   let cleanReads = 0;
-  for (let i = 0; i < SETTLE_ROUNDS && cleanReads < 2; i++) {
+  let lastCheck = null;
+  let settleCap = SETTLE_ROUNDS;
+  for (let i = 0; i < settleCap && cleanReads < 2; i++) {
     const s = evalFile(page('check_collapsed.js'), { __ANCHOR: anchor });
-    if (s.stillCollapsed) {
+    if (i === 0) settleCap = Math.max(SETTLE_ROUNDS, (s.stillCollapsed || 0) * 3 + 6);
+    lastCheck = s;
+    if (s.stillCollapsed || s.stillHasMoreComments) {
       cleanReads = 0;
       try { click('a.cuf-more:not(.hidden)'); } catch { /* nothing left visible to click — fine */ }
+      // "More comments" nested-reply pagination has no known trusted-click
+      // selector yet (unlike Expand Post's a.cuf-more) — re-fire the
+      // synthetic-event path as the only available retry.
+      if (s.stillHasMoreComments) evalFile(page('expand_step.js'), { __ANCHOR: anchor });
     } else {
       cleanReads++;
     }
     await sleep(1000);
   }
 
+  // Anything this loop could not clear (a collapsed post, an unopened reply
+  // thread) is caught by the extraction-time gate below — one place, with the
+  // evidence and screenshot attached, instead of two half-informed exits.
+
+  // The case page keeps a CometD/Streaming-API worker alive (confirmed via
+  // /json/list: a `streaming-v2/CometdWorkerJs.js` shared_worker on the case
+  // tab), which live-pushes Chatter activity and makes the LWC framework
+  // intermittently tear down and rebuild parts of the feed's DOM tree — NOT
+  // gated by any click, scroll, or pagination control. A raw article-count
+  // read can land mid-rebuild and see a partial tree (observed on case
+  // 08503838: consecutive reads with zero clicks in between returning 11, 4,
+  // 12, 17, 11 on the SAME tab). probeFeed() only guards the count BEFORE
+  // expansion starts; without an equivalent guard here, extraction can run
+  // during one of these dips and silently persist a partial capture — the
+  // exact failure mode that dropped a reply to "...SMs_emm_rrc_handler.c.7z"
+  // entirely out of case.json with no error. Requiring only 2 consecutive
+  // matching reads is not enough — the flicker can span several ticks — so
+  // this requires 3, spread across a longer window (same steady-count
+  // philosophy as probeFeed/idleTicks/cleanReads above, just with a bigger
+  // budget to outlast a render cycle instead of a click).
+  let articleReads = 0;
+  let lastArticles = -1;
+  for (let i = 0; i < POST_EXPAND_SETTLE_ROUNDS && articleReads < 3; i++) {
+    const p = evalFile(page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
+    const n = p ? p.articles : lastArticles;
+    if (n === lastArticles) {
+      articleReads++;
+    } else {
+      articleReads = 0;
+      lastArticles = n;
+      evalFile(page('expand_step.js'), { __ANCHOR: anchor });
+    }
+    await sleep(2000);
+  }
+
   // --- PHASE 2: extract from the DOM exactly as expansion left it.
+  //
+  // One last non-firing read FIRST: the article-settle loop above can click
+  // again, so the settle loop's `lastCheck` is not necessarily what the DOM
+  // looks like at extraction time. Evidence has to describe the state the
+  // extractor actually ran on, or it is decoration.
+  const finalCheck = evalFile(page('check_collapsed.js'), { __ANCHOR: anchor }) || {};
+  if (finalCheck.stillCollapsed || finalCheck.stillHasMoreComments) {
+    return {
+      status: 'blocked',
+      retryable: true,
+      reason: `feed still hides content at extraction time (${finalCheck.stillCollapsed || 0} collapsed post(s), ${finalCheck.stillHasMoreComments || 0} unopened reply thread(s))`,
+      expandRounds: rounds,
+      evidence: { ...finalCheck, clicks, screenshot: shoot(caseDir, 'capture.png') },
+    };
+  }
+
+  // Visual evidence of the fully-expanded feed, taken BEFORE extraction so the
+  // PNG and case.json describe the same DOM.
+  const shotName = shoot(caseDir, 'capture.png');
+
   const raw = evalFile(page('extract_case.js'));
   if (!raw || !Array.isArray(raw.comments)) {
     return { status: 'blocked', reason: 'extractor returned no comments array', raw: typeof raw };
   }
+  // Travels with the raw capture so scrape_case.mjs can persist it into
+  // case.json — an audit trail that outlives the run's stderr.
+  raw.capture = {
+    articles: raw.comments.length,
+    pendingExpand: finalCheck.stillCollapsed ?? null,
+    pendingMoreComments: finalCheck.stillHasMoreComments ?? null,
+    expandRounds: rounds,
+    clicks,
+    screenshot: shotName,
+    mode,
+  };
   const rawPath = join(caseDir, 'case.raw.json');
   writeFileSync(rawPath, JSON.stringify(raw), 'utf8');   // Node writes UTF-8, never a BOM
 
@@ -415,9 +535,29 @@ export async function run(code, opts) {
     } catch (e) { artifacts.pdf = false; artifacts.pdfError = e.message; }
   }
 
+  // --- PHASE 4.5: QA gate. verify_case.mjs re-reads only what was persisted, so
+  // it catches anything the capture path could have let through (a collapsed
+  // body, a rendered file the data never reached, colliding ids) independently
+  // of the code that produced it. It used to be an opt-in script nothing called,
+  // which is how a capture could report success without anything checking it.
+  const verified = verifyCase(code, caseDir);
+  if (!verified.ok) {
+    return {
+      status: 'blocked',
+      retryable: true,
+      reason: `post-capture verification failed: ${verified.errors[0]}`,
+      verifyErrors: verified.errors,
+      dir: caseDir,
+      expandRounds: rounds,
+    };
+  }
+
   return {
     status: cached ? 'updated' : 'created',
     commentCount: v.commentCount,
+    verified: true,
+    ...(verified.warnings.length ? { verifyWarnings: verified.warnings } : {}),
+    evidence: raw.capture,
     newComments,
     newCommentIds: v.newCommentIds,
     hash: v.hash,

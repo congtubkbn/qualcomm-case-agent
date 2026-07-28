@@ -32,11 +32,19 @@ describe('computeHash', () => {
 
   it('changes when verbatim content changes', () => {
     assert.notEqual(m.computeHash(base), m.computeHash({ ...base, comments: [comment('Alice', 'RRC reject on n41')] }));
-    assert.notEqual(m.computeHash(base), m.computeHash({ ...base, displayedCommentCount: 3 }));
     assert.notEqual(
       m.computeHash(base),
       m.computeHash({ ...base, comments: [comment('Alice', 'RRC reject on n78', { analysisLog: ['0xB0C0'] })] }),
     );
+  });
+
+  // displayedCommentCount is a portal-rendered counter, not case content: it
+  // drifts between reads of an identical thread (observed on 08503838: 8 -> 2
+  // with all 11 bodies unchanged). Hashing it turned that drift into a phantom
+  // `updated` verdict carrying newComments: 0.
+  it('ignores displayedCommentCount — a portal counter, not content', () => {
+    assert.equal(m.computeHash(base), m.computeHash({ ...base, displayedCommentCount: 3 }));
+    assert.equal(m.computeHash(base), m.computeHash({ ...base, displayedCommentCount: null }));
   });
 
   it('does not depend on the comment id scheme', () => {

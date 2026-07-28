@@ -84,6 +84,27 @@ export function verifyCase(code, dir = join(DATA_DIR, code)) {
     }
   }
 
+  // Capture evidence — what the expander actually left behind. A capture that
+  // persisted while a control was still hiding content looks complete in the
+  // JSON (case 08503838 lost a nested reply with no error anywhere), so the
+  // counters are the only thing that can catch it after the fact.
+  if (!c.capture) {
+    warnings.push('no capture evidence block (cache written before run_case.mjs recorded it)');
+  } else {
+    const { pendingExpand, pendingMoreComments, screenshot } = c.capture;
+    if (pendingExpand > 0) {
+      errors.push(`capture left ${pendingExpand} post(s) still showing "Expand Post" — content is missing from this case`);
+    }
+    if (pendingMoreComments > 0) {
+      errors.push(`capture left ${pendingMoreComments} reply thread(s) still showing "more comments" — nested replies are missing from this case`);
+    }
+    if (!screenshot) {
+      warnings.push('capture recorded no screenshot — the expansion cannot be visually audited');
+    } else if (!existsSync(join(dir, screenshot))) {
+      warnings.push(`capture claims a screenshot (${screenshot}) that is not on disk`);
+    }
+  }
+
   for (const f of RENDERED_FILES) {
     const p = join(dir, f);
     if (!existsSync(p)) { errors.push(`${f} was not rendered`); continue; }

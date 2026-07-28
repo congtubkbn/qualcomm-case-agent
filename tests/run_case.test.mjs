@@ -42,6 +42,7 @@ function mockBrowser(t, evalFileQueue) {
       sleep: async () => {},
       ensureChrome: async () => {},
       pdf: () => {},
+      screenshot: () => {},
       BrowserError: class BrowserError extends Error {},
       evalFile: (path, vars) => {
         evalFileCalls.push({ path: path.split(/[\\/]/).pop(), vars });
@@ -187,13 +188,20 @@ describe('run() expand-loop stuck detection', () => {
       stableFeed, stableFeed,                                       // probeFeed: stable on first re-check
       ...Array.from({ length: 40 }, () => stuckTick),               // main expand loop: EXPAND_ROUNDS, never idles
       ...Array.from({ length: 5 }, () => stuckTick),                // STUCK_RETRY_ROUNDS grace: still stuck
+      // Trusted-click settle loop: 2 posts collapsed => budget 2*3+6 = 12 rounds,
+      // and the trusted click never clears them either.
+      ...Array.from({ length: 12 }, () => ({ stillCollapsed: 2, stillHasMoreComments: 0 })),
+      // Article-count settle (3 matching reads; the first also costs a re-expand).
+      stableFeed, stuckTick, stableFeed, stableFeed, stableFeed,
+      { stillCollapsed: 2, stillHasMoreComments: 0 },               // extraction-time gate: still hiding content
     ]);
     const { run } = await importRunCase();
     const v = await run('08438355', { mode: 'auto', enrich: 'none', noPdf: true });
     assert.equal(v.status, 'blocked');
     assert.equal(v.retryable, true);
-    assert.match(v.reason, /Expand Post/);
+    assert.match(v.reason, /collapsed post/);
     assert.equal(v.expandRounds, 40);
+    assert.equal(v.evidence.stillCollapsed, 2);
   });
 
   it('recovers if the stuck control finally lets go during the grace retries', async (t) => {
@@ -209,9 +217,16 @@ describe('run() expand-loop stuck detection', () => {
       stableFeed, stableFeed,
       ...Array.from({ length: 40 }, () => stuckTick),  // exhausts the round budget
       idleTick,                                        // grace retry 1: finally converges
-      { stillCollapsed: 0 },                           // post-loop settle check 1/2: clean
-      { stillCollapsed: 0 },                           // post-loop settle check 2/2: clean, confirmed
-      { comments: [{ author: 'A', body: 'ok', timestamp: 't' }] }, // extract_case.js
+      { stillCollapsed: 0, stillHasMoreComments: 0 },   // post-loop settle check 1/2: clean
+      { stillCollapsed: 0, stillHasMoreComments: 0 },   // post-loop settle check 2/2: clean, confirmed
+      // Article-count settle: 3 consecutive matching reads, and the first read
+      // (which can't match the -1 seed) also costs one non-PROBE expand tick.
+      stableFeed, idleTick, stableFeed, stableFeed, stableFeed,
+      { stillCollapsed: 0, stillHasMoreComments: 0 },   // final pre-extraction evidence read
+      // extract_case.js — carries the fields the finalizer and the QA gate both
+      // require, so this run reaches a real, verified persist.
+      { caseNumber: '08438355', title: 't', status: 'Open', url: REAL_HREF,
+        comments: [{ author: 'A', body: 'ok', timestamp: 't' }] },
     ]);
     // Normally intake() (CLI entry, bypassed when calling run() directly in
     // tests) creates this dir before PHASE 2's raw-file write needs it.
@@ -224,11 +239,18 @@ describe('run() expand-loop stuck detection', () => {
     // the stuck verdict once the grace retry saw the control finally idle.
     assert.ok(!(v.status === 'blocked' && v.retryable), 'must not report the stuck verdict once a grace retry goes idle');
     assert.ok(!/round budget/.test(v.reason || ''));
+    // A success verdict must carry the QA gate's result and the click evidence —
+    // a capture that cannot show what it clicked cannot be audited later.
+    assert.equal(v.verified, true);
+    assert.equal(v.evidence.pendingExpand, 0);
+    assert.equal(v.evidence.pendingMoreComments, 0);
+    assert.ok(v.evidence.clicks.expand >= 1);
     const names = evalFileCalls.map(c => c.path);
-    // 2 feed-probe reads (PROBE mode) + 40 round-budget ticks + exactly 1 grace retry.
-    assert.equal(names.filter(n => n === 'expand_step.js').length, 43);
+    // 2 feed-probe reads (PROBE mode) + 40 round-budget ticks + 1 grace retry
+    // + the article-count settle loop (4 reads and 1 re-expand).
+    assert.equal(names.filter(n => n === 'expand_step.js').length, 48);
     // The post-loop settle check is a separate, non-firing read — 2 consecutive
-    // clean reads required before it stops.
-    assert.equal(names.filter(n => n === 'check_collapsed.js').length, 2);
+    // clean reads required before it stops — plus one final read at extraction.
+    assert.equal(names.filter(n => n === 'check_collapsed.js').length, 3);
   });
 });

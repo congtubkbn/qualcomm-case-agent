@@ -80,12 +80,18 @@
     };
   }).filter(c => c.body.length > 0);
 
-  // Displayed total: "N Chatter Feed Items" status badge in the Feed region.
+  // Displayed total: the "N Chatter Feed Items" status badge in the Feed region.
+  // The count MUST precede the phrase. Chatter also renders a per-item status
+  // region reading "Chatter Feed Item <n>", and taking the first digit of the
+  // first matching region turned that item ordinal into a bogus "total" (case
+  // 08503838 stored 2 for an 11-comment thread; every cached case was wrong).
+  // A number that means nothing is worse than none: null makes countAssert warn
+  // and the renderer skip its completeness line, instead of both asserting
+  // confidently against noise.
   let displayedCommentCount = null;
-  const feedStatus = qsa("[role='status']").find(s => /Chatter Feed Item/i.test(txt(s)));
-  if (feedStatus) {
-    const m = txt(feedStatus).match(/(\d+)/);
-    displayedCommentCount = m ? Number(m[1]) : null;
+  for (const s of qsa("[role='status']")) {
+    const m = txt(s).match(/(\d+)\s+Chatter\s+Feed\s+Items?\b/i);
+    if (m) { displayedCommentCount = Number(m[1]); break; }
   }
 
   // title / status / priority / customer live on the case Detail tab and the
