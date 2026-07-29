@@ -29,7 +29,7 @@ need three things the portal does not give them:
 | C1 | **No API.** The portal exposes no case API to this account; the DOM is the interface. | Browser automation is the only transport. |
 | C2 | **Okta SSO with email OTP.** The 6-digit code arrives in a mailbox no automation here can read. | Full unattended auth is *impossible*; the design must degrade to "ask the human once", not retry-loop. |
 | C3 | **NDA content.** Case bodies, logs and customer names are confidential. | Cache stays local + git-ignored; no external LLM endpoint; dashboard is loopback-only. |
-| C4 | **Model tokens are the dominant cost.** The measured baseline was 123k input tokens for one case (`OPTIMIZATION_ANALYSIS.md`), almost all of it browser choreography. | Anything deterministic must leave the model's context entirely. |
+| C4 | **Model tokens are the dominant cost.** The measured baseline was 123k input tokens for one case (flow 1784759542159), almost all of it browser choreography. | Anything deterministic must leave the model's context entirely. |
 | C5 | **Windows + PowerShell host, driven by more than one agent harness** (Claude Code, Cline). | No shell-quoted payloads; no bash-only idioms; every step must be a single plain command. |
 | C6 | **Fidelity over convenience.** A truncated comment is worse than no comment. | Capture is verbatim; completeness is asserted before persisting; analysis lives in a separate field. |
 
@@ -156,8 +156,8 @@ that is what makes it reviewable.
 | D1 | **Real system Chrome over CDP 9222 with a persistent `--user-data-dir`** | Playwright's bundled Chromium; a fresh headless context per run | The bundled build's CDP handshake broke (`os error 10060`); more fundamentally, the Okta session must *survive between runs* (C2) — a persistent, OS-trusted, signed browser profile is what makes MFA one-time (~30 days) instead of per-run | A real desktop session is required; the machine must be logged in; profile is user-bound and non-portable |
 | D2 | **Capture is deterministic code; only interpretation reaches a model** (§3.1) | Agent-drives-browser choreography | C4: ~123k → ~5k tokens per case, and it makes the *same* pipeline usable with no model at all (scheduler) | The pipeline must encode DOM knowledge that a model could have improvised; DOM drift becomes a code change |
 | D3 | **In-page click loops** (`expand_step.js`) instead of snapshot→ref→click | `agent-browser snapshot -c` + one click per control | Removes the dominant token cost and ~15 round-trips per case; the loop is trivially bounded | The page script cannot ask for help; it must be defensive and return diagnostics |
-| D4 | **`agent-browser eval -b <base64>`** for every page script | `eval --stdin`, `<` redirection, inline JS | `--stdin` **silently returns `null`** when fed from a PowerShell pipe (reproduced live, `OPTIMIZATION_ANALYSIS.md` §3); base64 has no shell metacharacters, so the nested-quote class of bug disappears too | 8191-char cmd.exe ceiling → `browser.mjs` strips comments and refuses payloads > 7000 b64 chars |
-| D5 | **Node `spawnSync` with an argv array; on Windows one hand-built `cmd.exe` line rejecting metacharacters** | `shell: true`, PowerShell wrappers | Five distinct quoting failures in one flow (`OPTIMIZATION_ANALYSIS.md` §1). An argv array is not re-tokenized on POSIX; on Windows the metachar check turns a silent mangling into a loud error | A path containing `& \| < > ^ " % !` fails fast rather than being escaped (§11, I7) |
+| D4 | **`agent-browser eval -b <base64>`** for every page script | `eval --stdin`, `<` redirection, inline JS | `--stdin` **silently returns `null`** when fed from a PowerShell pipe (reproduced live, flow 1784759542159 §3); base64 has no shell metacharacters, so the nested-quote class of bug disappears too | 8191-char cmd.exe ceiling → `browser.mjs` strips comments and refuses payloads > 7000 b64 chars |
+| D5 | **Node `spawnSync` with an argv array; on Windows one hand-built `cmd.exe` line rejecting metacharacters** | `shell: true`, PowerShell wrappers | Five distinct quoting failures in one flow (flow 1784759542159 §1). An argv array is not re-tokenized on POSIX; on Windows the metachar check turns a silent mangling into a loud error | A path containing `& \| < > ^ " % !` fails fast rather than being escaped (§11, I7) |
 | D6 | **The agent↔code contract is one JSON line + a distinct exit code per outcome** | Prose output, or the agent reading `case.json` | Machine-checkable, cheap, and it lets the scheduler branch on the same contract with no model in the loop; distinct exits let cron/Task Scheduler alert correctly | The verdict schema is now public API for three consumers (skill, scheduler, dashboard) |
 | D7 | **Incremental sync via SHA-256 over verbatim fields only** (`computeHash`) | Timestamp comparison; hashing the whole file | Enrichment must not change a case's identity, or every re-analysis would look like a change. Stable field order ⇒ stable hash across runs | The hash covers relative timestamps, which drift, so a full re-capture can hash differently with no real change (§11, I16) |
 | D8 | **Anchor-based incremental expansion** — stop paginating at the newest cached comment | Always full expansion | An update run on a 40-comment case touches only the new posts; the cached bodies are kept verbatim rather than re-scraped | Nested replies under old posts can hide from the probe (§11, I5) |
@@ -237,8 +237,7 @@ rendering — a deliberate backward-compatibility affordance, not dead code.
 | `data/watchlist.json` | user / dashboard | `{ intervalMinutes, enrich, pdf, cases[{code, enabled, intervalMinutes?}] }` — the only place that decides how often a case is pulled |
 | `data/runs.json` | `scheduler.mjs` | `<CODE> → { lastRunAt, status, reason, newComments, commentCount, elapsedMs }` plus `_sweep` |
 | `data/.capture.lock` | `lock.mjs` | `{ pid, at }` — advisory, stale after 30 min or a dead PID |
-| `data/.secrets/qid.bin` | `capture_password.ps1` | DPAPI (CurrentUser) ciphertext of the portal password. The only durable copy; decrypts only for that Windows user on that machine |
-| `data/chrome-profile/` | Chrome | The Okta session. This is what makes MFA one-time |
+| `data/chrome-profile/` | Chrome | Persistent `--user-data-dir` — cookies/tokens for the Okta session. This is what makes sign-in one-time; no password is stored anywhere by this project (see §10) |
 | `data/cases/<CODE>/case.raw.json` | `run_case.mjs` | Scratch capture; deleted by `scrape_case.mjs` on the success path |
 
 All of `data/` is git-ignored (C3).
@@ -346,43 +345,38 @@ immediately — a 10-minute capture must never block the event loop).
 <!-- BEGIN GENERATED: reference -->
 
 > Generated by `npm run docs` from the source tree — **do not edit by hand**.
-> Source fingerprint `9aafc46fe45e` over 28 files.
+> Source fingerprint `aeb31bfe3b1a` over 28 files.
 > Stale block ⇒ `npm run docs:check` fails.
 
 #### Pipeline scripts
 
 | File | Lines | Purpose |
 |---|---|---|
-| `.claude/skills/qualcomm-case-agent/scripts/_paths.mjs` | 38 | single source of truth for skill paths (Node / ESM). |
-| `.claude/skills/qualcomm-case-agent/scripts/_paths.ps1` | 57 | single source of truth for skill paths (PowerShell). |
-| `.claude/skills/qualcomm-case-agent/scripts/browser.mjs` | 165 | thin Node wrapper around the `agent-browser` CLI. |
-| `.claude/skills/qualcomm-case-agent/scripts/capture_password.ps1` | 47 | One-time DPAPI capture of the Qualcomm ID password into data\.secrets\qid.bin. |
-| `.claude/skills/qualcomm-case-agent/scripts/connect_chrome.ps1` | 142 | launch REAL system Chrome detached with a CDP port + dedicated persistent profile, ready for 'agent-browser connect <port>'. |
+| `.claude/skills/qualcomm-case-agent/scripts/_paths.mjs` | 63 | single source of truth for skill paths (Node / ESM). |
+| `.claude/skills/qualcomm-case-agent/scripts/_paths.ps1` | 67 | single source of truth for skill paths (PowerShell). |
+| `.claude/skills/qualcomm-case-agent/scripts/browser.mjs` | 187 | thin Node wrapper around the `agent-browser` CLI. |
+| `.claude/skills/qualcomm-case-agent/scripts/check_collapsed.js` | 69 | Pure read: how many non-anchor posts still end in the "Expand Post" label right now. |
+| `.claude/skills/qualcomm-case-agent/scripts/connect_chrome.ps1` | 143 | launch REAL system Chrome detached with a CDP port + dedicated persistent profile, ready for 'agent-browser connect <port>'. |
 | `.claude/skills/qualcomm-case-agent/scripts/enrich_local.mjs` | 249 | PHASE 3 (enrichment) on a LOCAL model. |
-| `.claude/skills/qualcomm-case-agent/scripts/expand_step.js` | 108 | PHASE 1.5 (A and B) as ONE browser-side tick, called in a loop from run_case.mjs. |
-| `.claude/skills/qualcomm-case-agent/scripts/extract_case.js` | 113 | Default case extractor for PHASE 2. |
+| `.claude/skills/qualcomm-case-agent/scripts/expand_step.js` | 168 | PHASE 1.5 (A and B) as ONE browser-side tick, called in a loop from run_case.mjs. |
+| `.claude/skills/qualcomm-case-agent/scripts/extract_case.js` | 119 | Default case extractor for PHASE 2. |
 | `.claude/skills/qualcomm-case-agent/scripts/find_case_link.js` | 97 | PHASE 1 "click the search result" — done browser-side instead of by the agent. |
-| `.claude/skills/qualcomm-case-agent/scripts/intake.mjs` | 48 | Intake guard: validate case code + prep cache dirs. |
+| `.claude/skills/qualcomm-case-agent/scripts/intake.mjs` | 51 | Intake guard: validate case code + prep cache dirs. |
 | `.claude/skills/qualcomm-case-agent/scripts/lock.mjs` | 46 | one capture at a time, machine-wide. |
-| `.claude/skills/qualcomm-case-agent/scripts/okta_login.ps1` | 131 | drive Qualcomm Okta identifier-first login through the password step using the DPAPI-stored credential. |
 | `.claude/skills/qualcomm-case-agent/scripts/readiness.js` | 62 | PHASE 1 readiness probe. |
-| `.claude/skills/qualcomm-case-agent/scripts/readiness.ps1` | 9 | — |
 | `.claude/skills/qualcomm-case-agent/scripts/recover_chrome.ps1` | 43 | Recovery 0 as ONE script (was a raw PowerShell block pasted into SKILL.md, which errored when the agent ran it through the Bash tool: 'Where-Object' is not recognized ...). |
 | `.claude/skills/qualcomm-case-agent/scripts/register_task.ps1` | 48 | put the scheduler on Windows Task Scheduler. |
 | `.claude/skills/qualcomm-case-agent/scripts/render_case.mjs` | 382 | deterministic renderer for the Qualcomm Case Management Agent. |
-| `.claude/skills/qualcomm-case-agent/scripts/run_case.mjs` | 445 | the whole capture pipeline as ONE deterministic command. |
+| `.claude/skills/qualcomm-case-agent/scripts/run_case.mjs` | 630 | the whole capture pipeline as ONE deterministic command. |
 | `.claude/skills/qualcomm-case-agent/scripts/scheduler.mjs` | 150 | unattended, scheduled capture of the watched cases. |
-| `.claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs` | 432 | Persistence post-processor for the AGENT-DRIVEN extraction. |
+| `.claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs` | 439 | Persistence post-processor for the AGENT-DRIVEN extraction. |
+| `.claude/skills/qualcomm-case-agent/scripts/verify_case.mjs` | 160 | post-capture QA gate for run_case.mjs's output. |
 
 Exported API — pipeline scripts:
 
 | Module | Export | Kind | Contract |
 |---|---|---|---|
-| `_paths.mjs` | `SKILL_ROOT` | value |  |
-| `_paths.mjs` | `PROJECT_ROOT` | value |  |
-| `_paths.mjs` | `DATA_DIR` | value |  |
-| `_paths.mjs` | `SECRET_PATH` | value |  |
-| `_paths.mjs` | `PROFILE_DIR` | value |  |
+| `verify_case.mjs` | `verifyCase(code, dir = join(DATA_DIR, code))` | function |  |
 
 #### Dashboard
 
@@ -395,10 +389,11 @@ Exported API — pipeline scripts:
 | File | Lines | Purpose |
 |---|---|---|
 | `tests/intake.test.mjs` | 121 | QA coverage for intake.mjs — the skill's INPUT CONTRACT gate. |
-| `tests/pipeline.test.mjs` | 230 | Unit tests for the headless pipeline's pure logic + a dashboard smoke test. |
+| `tests/pipeline.test.mjs` | 258 | Unit tests for the headless pipeline's pure logic + a dashboard smoke test. |
 | `tests/render_case.test.mjs` | 201 | QA coverage for render_case.mjs — previously untested. |
-| `tests/run_case.test.mjs` | 230 | Tests for run_case.mjs's browser-driving state machine (landOnCase / findCaseLink) — the part of the pipeline that decides whether we actually landed on the real case page or a Lightning stub. |
-| `tests/scrape_case.test.mjs` | 388 | Tests for the finalizer — the module that decides what gets persisted. |
+| `tests/run_case.test.mjs` | 257 | Tests for run_case.mjs's browser-driving state machine (landOnCase / findCaseLink) — the part of the pipeline that decides whether we actually landed on the real case page or a Lightning stub. |
+| `tests/scrape_case.test.mjs` | 396 | Tests for the finalizer — the module that decides what gets persisted. |
+| `tests/verify_case.test.mjs` | 75 | Tests for the post-capture QA gate. |
 
 #### Doc tooling
 
@@ -482,12 +477,14 @@ These are the properties a reviewer should check any change against. Most were p
 
 ## 10. Security and confidentiality model
 
-- **Password**: captured once by `capture_password.ps1` into `data/.secrets/qid.bin` via DPAPI
-  (CurrentUser). It is decrypted only inside `okta_login.ps1` and handed straight to
-  `agent-browser`; never printed, never in chat, never in an artifact. Copying the file to another
-  machine or user yields undecryptable bytes — intentional.
+- **Password**: never captured, stored, or automated by this project. On an `auth-required`
+  verdict the user types the password and email OTP directly into the visible, real Chrome window
+  (`references/login-flow.md`) — no DPAPI, no credential file. This retired the earlier
+  `capture_password.ps1` / `okta_login.ps1` DPAPI flow (`b64de47`).
 - **OTP**: never stored, never automated (C2).
-- **Session**: lives in `data/chrome-profile/`, git-ignored, user-bound.
+- **Session**: lives in `data/chrome-profile/` (Chrome `--user-data-dir`), git-ignored, user-bound.
+  A valid profile reloads the portal with no password and no OTP — that is the entire "don't ask
+  again" mechanism.
 - **Case content**: NDA. `data/` is git-ignored in full; the dashboard is loopback-only with
   `Host`/`Origin` verification and a fixed artifact whitelist; `enrich_local.mjs` defaults to a
   loopback endpoint and `docs/LOCAL_LLM.md` states plainly that repointing it ships comment bodies
@@ -587,9 +584,11 @@ lists its test files explicitly: a new `tests/*.test.mjs` must be added there to
   paths instead of refusing, or resolve to a short path.
 - **I13. No per-run log.** Unattended failures leave a 300-char truncated `reason` in `runs.json`.
   Fix: append full stderr to `data/logs/<code>-<ts>.log`, rotated by count.
-- **I14. Auth helpers are Windows-only.** `browser.mjs` can launch Chrome on POSIX, but DPAPI and
-  the Okta helper have no equivalent, so a Linux/macOS run can capture only with a
-  hand-established session. Fix: document as a hard requirement, or add a keychain-backed path.
+- **I14. Chrome launch is Windows-only.** `browser.mjs` can attach to Chrome on POSIX, but
+  `connect_chrome.ps1` (the persistent-profile launcher) is PowerShell-only, so a Linux/macOS run
+  needs Chrome started by hand with the same `--user-data-dir` first. (Auth itself is no longer
+  platform-coupled — login is manual in the visible window (`references/login-flow.md`), no DPAPI.)
+  Fix: document as a hard requirement, or add a POSIX launcher.
 - **I15. Renderer duplication.** Four formats each re-walk the same shape in `render_case.mjs`; a
   new enrichment field must be added in four places. Fix: a single section model that each format
   serializes — only worth doing when the next field is added.
@@ -660,5 +659,4 @@ npm run docs:hook      # git config core.hooksPath tools/hooks
 | `.claude/skills/qualcomm-enrich/SKILL.md` | The standalone analyst pass |
 | `docs/AUTOMATION.md` | Fast path, scheduling, dashboard — operator view |
 | `docs/LOCAL_LLM.md` | Local-model sizing, prompt budgets, what it must not be trusted with |
-| `OPTIMIZATION_ANALYSIS.md` | The measured baseline and the post-mortem behind D4/D5 |
 | `references/manual-flow.md` | Hand-driving a capture when a run reports `blocked` |

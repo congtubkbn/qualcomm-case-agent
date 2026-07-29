@@ -38,7 +38,7 @@ its process is dead).
 
 ### Why this saves tokens
 
-The measured baseline (`OPTIMIZATION_ANALYSIS.md`, flow 1784759542159, case 08603854) was
+The measured baseline (flow 1784759542159, case 08603854) was
 **123k input tokens** for one case. Almost none of that was analysis:
 
 | Cost centre | Before | After |
@@ -139,8 +139,8 @@ Requests are refused (403) unless the browser believes it is talking to localhos
 
 The fast path is **one `execute_command`**. That matters twice over: it is the cheap path, and it
 avoids the twenty-short-commands pattern that kept tripping Cline's shell dispatch (bare
-PowerShell running under cmd.exe, `<` redirection, nested quotes — all of `OPTIMIZATION_ANALYSIS.md`
-§1/§3). Node spawns `agent-browser` with an argv array, so no JS payload ever crosses a shell.
+PowerShell running under cmd.exe, `<` redirection, nested quotes — all measured in flow
+1784759542159 §1/§3). Node spawns `agent-browser` with an argv array, so no JS payload ever crosses a shell.
 
 ```
 execute_command: node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" 08603854

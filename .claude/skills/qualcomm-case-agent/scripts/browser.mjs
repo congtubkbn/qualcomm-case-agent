@@ -1,7 +1,7 @@
 // browser.mjs — thin Node wrapper around the `agent-browser` CLI.
 //
 // Why this exists: every shell-quoting bug this project has hit (see
-// OPTIMIZATION_ANALYSIS.md §1/§3) came from a JS payload crossing a shell.
+// docs/DESIGN.md D4/D5, flow 1784759542159 §1/§3) came from a JS payload crossing a shell.
 // Node spawns with an ARGV ARRAY, so on POSIX nothing is re-tokenized at all,
 // and on Windows we build one cmd.exe line ourselves from metachar-free args.
 // No `--stdin` (broken on Windows), no `<` redirect, no nested quoting.
