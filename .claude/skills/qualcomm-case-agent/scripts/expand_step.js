@@ -30,6 +30,28 @@
   var byText = function (sel, re) {
     return qsa(sel).filter(function (e) { return re.test(txt(e)); });
   };
+  // Shadow-DOM-aware version of byText. Confirmed live (2026-07-30, case
+  // 08503838): the per-post "More comments" pagination button renders as a
+  // real `<button class="slds-button">More comments</button>` — but inside an
+  // LWC's shadow root, unlike "Expand Post" which sits in plain light DOM.
+  // Plain `document.querySelectorAll('a, button')` never pierces a shadow
+  // boundary, so it silently found 0 of these buttons every run while they
+  // sat fully rendered and unclicked on screen (verified against capture.png:
+  // 4 unclicked "More comments" buttons, 7 real comments never captured, on a
+  // run that reported pendingMoreComments: 0). Recurse into every element's
+  // .shadowRoot, not just the light-DOM tree.
+  var deepByText = function (sel, re) {
+    var out = [];
+    (function scan(root) {
+      var all = root.querySelectorAll('*');
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        if (el.matches && el.matches(sel) && re.test(txt(el))) out.push(el);
+        if (el.shadowRoot) scan(el.shadowRoot);
+      }
+    })(document);
+    return out;
+  };
   // Plain `el.click()` can silently no-op on Lightning/Aura controls whose real
   // handler listens for pointer/mouse events rather than the synthetic click
   // event .click() dispatches — observed as the same "Expand Post" label
@@ -91,7 +113,7 @@
   // Nested-reply pagination is NEVER anchor-skipped: a reply added to an OLD
   // post renders as an <article> BELOW the anchor, so skipping it there is how
   // a new reply stays invisible to every update run (case 08503838).
-  var moreCommentControls = byText('a, button', /^(view\s+)?\d*\s*more\s+comments?$/i);
+  var moreCommentControls = deepByText('a, button', /^(view\s+)?\d*\s*more\s+comments?$/i);
 
   // Baseline = the posts on screen BEFORE this run expanded anything, kept on
   // `window` across ticks (same tab, no reload mid-expansion). PROBE ticks keep

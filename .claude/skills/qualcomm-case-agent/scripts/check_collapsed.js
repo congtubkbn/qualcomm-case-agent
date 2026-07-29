@@ -61,8 +61,28 @@
   // unlike Expand Post this had NO settle-check at all — a click that never
   // actually loaded the reply looked identical to "nothing left to expand"
   // (observed: case 08503838, a reply dropped out of case.json with no error).
-  var byText = function (sel, re) { return qsa(sel).filter(function (e) { return re.test(txt(e)); }); };
-  var stillHasMoreComments = byText('a, button', /^(view\s+)?\d*\s*more\s+comments?$/i).length;
+  //
+  // The REAL cause of that drop (confirmed live, 2026-07-30, case 08503838):
+  // this control renders as `<button class="slds-button">More comments</button>`
+  // inside an LWC shadow root, unlike "Expand Post" which sits in plain light
+  // DOM. Plain `document.querySelectorAll` never pierces a shadow boundary, so
+  // this read reported 0 while 4 fully-rendered, unclicked buttons sat on
+  // screen (7 real comments never captured, on a run that verified clean).
+  // Must mirror expand_step.js's deepByText exactly, or the settle-check and
+  // the tick loop disagree about what's still hidden.
+  var deepByText = function (sel, re) {
+    var out = [];
+    (function scan(root) {
+      var all = root.querySelectorAll('*');
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        if (el.matches && el.matches(sel) && re.test(txt(el))) out.push(el);
+        if (el.shadowRoot) scan(el.shadowRoot);
+      }
+    })(document);
+    return out;
+  };
+  var stillHasMoreComments = deepByText('a, button', /^(view\s+)?\d*\s*more\s+comments?$/i).length;
 
   return { stillCollapsed: stillCollapsed, stillHasMoreComments: stillHasMoreComments };
 })()
