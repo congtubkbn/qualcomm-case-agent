@@ -202,6 +202,44 @@ describe('mergeComments', () => {
     const collapsed = m.assignIds([comment('Dave', 'y'.repeat(140))]).comments;
     assert.deepEqual(m.mergeComments(withLong, collapsed).newIds, []);
   });
+
+  // I3: an edit to an old comment's body changes its content id, so it reads as
+  // a brand new comment on the next merge — silently, with no way for a human
+  // to tell "edit" from "genuinely new post" apart. The fix does not guess:
+  // both versions are kept (never overwrite verbatim cached content — D9/V4),
+  // but a same-author, high-similarity match is surfaced so a human can look.
+  it('flags a same-author near-duplicate as a possible edit instead of silently duplicating it', () => {
+    const original = m.assignIds([
+      comment('Alice', 'RRC reject seen on n78 during the initial attach attempt. QXDM log attached below.'),
+    ]).comments;
+    const edited = m.assignIds([
+      comment('Alice', 'RRC reject seen on n78 during the initial attach attempt. QXDM log attached below. Updated per QCOM request.'),
+    ]).comments;
+    const { merged, newIds, possibleEdits } = m.mergeComments(original, edited);
+    assert.equal(merged.length, 2, 'both versions are kept — never silently merged or dropped');
+    assert.deepEqual(newIds, [edited[0].id]);
+    assert.deepEqual(possibleEdits, [{ author: 'Alice', oldId: original[0].id, newId: edited[0].id }]);
+  });
+
+  it('does not flag a genuinely different comment by the same author as a possible edit', () => {
+    const cached = m.assignIds([
+      comment('Alice', 'RRC reject seen on n78 during the initial attach attempt. QXDM log attached below.'),
+    ]).comments;
+    const raw = m.assignIds([
+      comment('Alice', 'Please close this case, issue resolved after a firmware update on our end, thank you.'),
+    ]).comments;
+    assert.deepEqual(m.mergeComments(cached, raw).possibleEdits, []);
+  });
+
+  it('does not flag a near-duplicate posted by a different author', () => {
+    const cached = m.assignIds([
+      comment('Alice', 'RRC reject seen on n78 during the initial attach attempt. QXDM log attached below.'),
+    ]).comments;
+    const raw = m.assignIds([
+      comment('Bob', 'RRC reject seen on n78 during the initial attach attempt. QXDM log attached below. +1'),
+    ]).comments;
+    assert.deepEqual(m.mergeComments(cached, raw).possibleEdits, []);
+  });
 });
 
 /* ------------------------- finalize(), for real ------------------------- */
@@ -391,5 +429,23 @@ describe('finalize (child process)', () => {
     assert.equal(exit, m.EXIT.OK);
     assert.equal(verdict.idCollisions, 1);
     assert.equal(verdict.commentCount, 2, 'an ambiguous duplicate is kept, not collapsed');
+  });
+
+  it('surfaces a same-author near-duplicate as possibleEdits, keeping both versions', () => {
+    const root = fixture();
+    runFinalize(root, RAW); // caches Alice's original wording
+    const edited = {
+      ...RAW, displayedCommentCount: 3,
+      comments: [
+        comment('Alice', 'RRC reject on n78 - dup'),
+        ...RAW.comments,
+      ],
+    };
+    const { exit, verdict } = runFinalize(root, edited, ['--merge']);
+    assert.equal(exit, m.EXIT.OK);
+    assert.equal(verdict.possibleEdits.length, 1);
+    assert.equal(verdict.possibleEdits[0].author, 'Alice');
+    const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
+    assert.equal(saved.comments.length, 3, 'both the original and the edited version are kept — no silent overwrite');
   });
 });

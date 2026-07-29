@@ -189,19 +189,64 @@ export function migrateIds(cached) {
   return out;
 }
 
+// Levenshtein edit distance — used only to compare a handful of same-author
+// candidates (see possibleEdits below), never the whole thread.
+function levenshtein(a, b) {
+  if (a === b) return 0;
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) {
+      cur[j] = a[i - 1] === b[j - 1]
+        ? prev[j - 1]
+        : 1 + Math.min(prev[j - 1], prev[j], cur[j - 1]);
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+
+// 1.0 = identical, 0.0 = nothing in common (normalized edit distance).
+function bodySimilarity(a, b) {
+  const norm = s => String(s || '').replace(/\s+/g, ' ').trim();
+  const x = norm(a), y = norm(b);
+  const maxLen = Math.max(x.length, y.length);
+  return maxLen === 0 ? 1 : 1 - levenshtein(x, y) / maxLen;
+}
+
+// I3: an edit to an old comment's body gives it a new content id (identity is
+// content-derived, D19), so it reads as a brand new comment here — silently.
+// This does not try to resolve that ambiguity (guessing wrong would silently
+// overwrite a different comment's verbatim body, which is worse — D9/V4), it
+// only surfaces same-author, high-similarity matches for a human to check.
+const POSSIBLE_EDIT_SIMILARITY = 0.55;
+
 // Prepend the raw comments not already cached (feed order is newest-first).
 // Cached comments are kept verbatim — an update run never rewrites old bodies.
 // Both lists must already carry content ids (see assignIds), so dedup is an id
 // lookup rather than a second, separately-drifting heuristic.
 export function mergeComments(cachedComments, rawComments) {
-  const have = new Set((cachedComments || []).map(c => c.id));
+  const cache = cachedComments || [];
+  const have = new Set(cache.map(c => c.id));
   const fresh = [];
+  const possibleEdits = [];
   for (const c of rawComments || []) {
     if (have.has(c.id)) continue;
     have.add(c.id);
     fresh.push(c);
+    const author = String(c.author || '').trim();
+    const candidate = cache
+      .filter(o => String(o.author || '').trim() === author)
+      .map(o => ({ o, similarity: bodySimilarity(o.body, c.body) }))
+      .sort((a, b) => b.similarity - a.similarity)[0];
+    if (candidate && candidate.similarity >= POSSIBLE_EDIT_SIMILARITY) {
+      possibleEdits.push({ author, oldId: candidate.o.id, newId: c.id });
+    }
   }
-  return { merged: [...fresh, ...(cachedComments || [])], newIds: fresh.map(c => c.id) };
+  return { merged: [...fresh, ...cache], newIds: fresh.map(c => c.id), possibleEdits };
 }
 
 // ---- Index path ----
@@ -267,9 +312,11 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
   let out;
   let mergeInfo = null;
   let newIds = [];
+  let possibleEdits = [];
   if (merge) {
     const merge0 = mergeComments(cached.comments || [], fresh.comments);
     newIds = merge0.newIds;
+    possibleEdits = merge0.possibleEdits;
     // Start from the cache: enrichment and every already-captured field survive.
     out = { ...cached, comments: merge0.merged };
     // Fresh page values that are always current truth:
@@ -294,6 +341,7 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
     const cachedComments = cached ? (cached.comments || []) : [];
     const merge0 = mergeComments(cachedComments, fresh.comments);
     newIds = merge0.newIds;
+    possibleEdits = merge0.possibleEdits;
     out = { ...raw, comments: merge0.merged };
     if (cached) {
       if (cached.enrichment) out.enrichment = cached.enrichment;
@@ -413,6 +461,9 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
     ...mergeVerdict,
     // Ambiguous identity is surfaced, never resolved silently (see assignIds).
     ...(fresh.collisions.length ? { idCollisions: fresh.collisions.length } : {}),
+    // A same-author, high-similarity "new" comment may be an edit of an old one
+    // (I3) — surfaced for a human to check, never auto-merged (see mergeComments).
+    ...(possibleEdits.length ? { possibleEdits } : {}),
     ...(assertion.warning || thinHeader.length
       ? { warning: [assertion.warning, thinHeader.length ? `empty header fields: ${thinHeader.join(', ')}` : '']
           .filter(Boolean).join('; ') }
