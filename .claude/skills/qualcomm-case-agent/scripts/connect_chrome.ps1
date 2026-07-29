@@ -119,6 +119,7 @@ $chromeArgs = @(
   "--remote-debugging-port=$Port",
   "--no-first-run",
   "--no-default-browser-check",
+  "--restore-last-session",
   "--user-data-dir=`"$Profile`""
 )
 Start-Process -FilePath $chrome -ArgumentList $chromeArgs

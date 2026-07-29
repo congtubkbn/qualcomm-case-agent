@@ -59,6 +59,4 @@ export const PROJECT_ROOT =
   process.env.QUALCOMM_ROOT || findProjectRoot(SKILL_ROOT) || process.cwd();
 
 export const DATA_DIR = join(PROJECT_ROOT, 'data', 'cases');
-export const SECRET_PATH =
-  process.env.QUALCOMM_SECRET || join(PROJECT_ROOT, 'data', '.secrets', 'qid.bin');
 export const PROFILE_DIR = join(PROJECT_ROOT, 'data', 'chrome-profile');

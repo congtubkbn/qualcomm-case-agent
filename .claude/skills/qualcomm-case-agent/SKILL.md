@@ -37,8 +37,7 @@ Scripts and references live under `.claude/skills/qualcomm-case-agent/`.
 | Portal | `https://support.qualcomm.com` |
 | SSO | `https://account.qualcomm.com/...` (Okta — identifier-first two-step) |
 | Qualcomm ID | `the.thoi@samsung.com` |
-| Password store | `data/.secrets/qid.bin` — DPAPI ProtectedData (CurrentUser), git-ignored |
-| MFA | **Email OTP** — 6-digit code to Samsung mailbox, expires ~5 min. Always human-pasted |
+| MFA | **Email OTP** — 6-digit code to Samsung mailbox, expires ~5 min. |
 | Browser | **real Google Chrome** on CDP `9222` via `scripts/connect_chrome.ps1` |
 | Session store | `data/chrome-profile/` — persistent `--user-data-dir`; git-ignored |
 | Case cache | per-case folder `data/cases/<CODE>/`: `case.json` · `case.report.md` · `case.md` · `case.html` · `case.txt` · `case.pdf` |
@@ -58,7 +57,7 @@ Scripts and references live under `.claude/skills/qualcomm-case-agent/`.
 | `render_case.mjs` | `case.json` → report.md + md + html + txt |
 | `enrich_local.mjs` | PHASE 3 on a local 4–7 GB LLM (see `docs/LOCAL_LLM.md`) |
 | `scheduler.mjs` · `register_task.ps1` | unattended sweeps of `data/watchlist.json` |
-| `connect_chrome.ps1` · `recover_chrome.ps1` · `okta_login.ps1` · `capture_password.ps1` | browser + auth helpers |
+| `connect_chrome.ps1` · `recover_chrome.ps1` | browser + session helpers |
 
 **References** (`references/`) — load ON DEMAND, not up front:
 `manual-flow.md` (PHASE 0→2 by hand, recoveries, setup, troubleshooting) ·
@@ -90,7 +89,7 @@ analysis inline) · `--no-pdf`.
 | `created` | 0 | new case captured | PHASE 3 (enrich all comments) → PHASE 5 |
 | `updated` | 0 | new comments merged (`newComments`, `newCommentIds`) | PHASE 3 on **those ids only** → PHASE 5 |
 | `no-update` | 0 | nothing new since `since` | PHASE 5: report "no update", STOP |
-| `auth-required` | 3 | saved Okta session lapsed | run `okta_login.ps1` (Recovery 1 → `references/login-flow.md`). **Branch on ITS exit: `2` = already authenticated (MFA skipped) → re-run the command NOW, no OTP; `0` = do the email OTP, then re-run.** Do not wait for an OTP the script did not ask for. |
+| `auth-required` | 3 | saved Okta session lapsed | The user must sign in MANUALLY in the open Chrome window (enter password + email OTP) (Recovery 1 → `references/login-flow.md`). Once they confirm they are logged in and see the dashboard, re-run the command. |
 | `not-found` | 4 | search returned nothing for this code | STOP — wrong code, or the account cannot see it |
 | `blocked` | 5 | page never rendered / capture short | load `references/manual-flow.md` and finish by hand; `reason` says where it stopped |
 | `busy` | 6 | another capture holds the lock (`data/.capture.lock`) | wait ~30s, re-run **once**; still `busy` after 2 retries → treat like `blocked`: stop and report, do not spin-loop |
@@ -228,8 +227,6 @@ and the dashboard shows a sign-in banner — the email OTP is the one step a sch
 - **URL discipline.** The only URL ever opened by hand is `/s/global-search/<CODE>`. The real case
   URL is `/s/case/<SFID>/<slug>` where `<SFID>` is a Salesforce 18-char record id resolved from the
   search result — **never** construct `/s/case/<case-number>`.
-- **Secrets:** `qid.bin` (DPAPI, CurrentUser) is the only durable password copy. Never in chat,
-  outputs, or plaintext. OTP never stored.
 - **Confidentiality:** case content is Qualcomm NDA. Keep it in `data/` (git-ignored). Never paste
   it to an external service — that includes any remote LLM endpoint you did not already have.
 - **Fidelity:** comment bodies and logs are captured VERBATIM. Never truncate. Analyses are a

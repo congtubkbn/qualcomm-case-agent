@@ -102,7 +102,7 @@ in what cmd.exe considers *unquoted* territory. It then treats those `|` as real
 the command there, so `EMPTY`/`AUTH`/`BLANK` get run as standalone (nonexistent) commands —
 `'EMPTY' is not recognized as an internal or external command`. Putting the poll in a real `.ps1`
 file sidesteps this: the regex lives inside the file, never on a shell command line, so no
-quote/pipe re-tokenizing happens. Same proven pattern as `okta_login.ps1`'s invocation:
+quote/pipe re-tokenizing happens. Same proven pattern as other PowerShell script invocations:
 
 ```
 powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/readiness.ps1"
@@ -173,83 +173,28 @@ failure handling: **`references\login-flow.md`**.
 The session is stored in `data\chrome-profile\` (persistent `--user-data-dir`). When valid, no
 login or OTP is needed. This recovery only triggers when the Okta session token has lapsed.
 
-**Step 1 — Try profile auto-fill first (preferred, no script needed) — MANDATORY, do not skip to OTP**
+**Step 1 — Manual Login**
 
-Chrome password manager pre-fills credentials when the profile is intact. Just click through.
-**Do NOT ask the user for an OTP before completing every sub-step below** — the OTP screen may
-never appear if "Keep me signed in" restores the session at the Verify step:
+Because password autofill and DPAPI injection are obsolete, **the entire login process is done MANUALLY by the user** in the visible Chrome window:
+1. The user enters their password.
+2. The user requests and enters the email OTP (expires ~5 min).
+3. Check "Keep me signed in" if the option is presented to extend session duration (~30 days).
 
-```bash
-agent-browser snapshot -i
-# Expected: textbox "Username" pre-filled with the.thoi@samsung.com
-# Check "Keep me signed in" to extend session duration (~30 days):
-agent-browser check @<keep-me-signed-in-ref>
-agent-browser click @<next-ref>
-agent-browser wait 3000
-agent-browser snapshot -i
-# Expected: textbox "Password" pre-filled (shown as ••••••••)
-agent-browser click @<verify-ref>
-```
-After Verify, Okta shows a transient "Signing in..." heading while it restores the session.
-Poll in SHORT rounds — do NOT escalate to one long blind wait, and do NOT use a bash `for`
-loop with `grep` (unreliable in this shell — see readiness-poll note above):
-```
-powershell -NoProfile -Command "for($i=0;$i -lt 5;$i++){ agent-browser wait 2000; $S = agent-browser snapshot -i | Out-String; if ($S -notmatch 'Signing in'){break} }"
-agent-browser snapshot -i
-```
+**Step 2 — Verify and Retry**
 
-Only once this snapshot shows an OTP screen (or Step 1 failed per the decision table) is asking
-the user for anything justified. A username-only snapshot is NOT a stopping point.
-
-**Decision after Verify click:**
-
-| Outcome | Signal | Action |
-|---------|--------|--------|
-| Dashboard / Qualcomm home loads | nav shows Products/Support or Cases/Projects links | session established → retry PHASE 1 |
-| OTP screen appears | heading "Enter a verification code" | go to Step 3 (OTP) |
-| Still on password screen / error | password field still visible, error text | → Step 2 (okta_login.ps1) |
-| Username NOT pre-filled | blank textbox | → Step 2 (okta_login.ps1) |
+Once the user confirms they are back on `support.qualcomm.com` (e.g. dashboard or Qualcomm home loads), retry PHASE 1.
 
 > **"Retry PHASE 1" = re-run `agent-browser open "https://support.qualcomm.com/s/global-search/<CODE>"`**,
-> then the readiness poll. Auth commonly lands on the Qualcomm home page, NOT the case — do **not**
-> `snapshot -i` the home page to hunt for a case link and click a `@ref`. That home snapshot is ~35k
-> chars / ~12k tokens of nav chrome, and clicking a guessed ref is non-deterministic. A clean `open`
+> then the readiness poll. Auth commonly lands on the Qualcomm home page, NOT the case. A clean `open`
 > of the global-search URL is one cheap, reliable step.
-
-**Step 2 — Fallback: okta_login.ps1 (only if Step 1 failed)**
-
-`data\.secrets\qid.bin` exists → run the DPAPI-decrypted two-step helper:
-```bash
-powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/okta_login.ps1"
-```
-
-`qid.bin` missing → ask user to run in a **real PowerShell terminal** (NOT cmd, NOT chat):
-```
-powershell -ExecutionPolicy Bypass -File .claude\skills\qualcomm-case-agent\scripts\capture_password.ps1
-```
-Wait for "Saved … bytes", then run `okta_login.ps1`.
-
-After okta_login.ps1, check snapshot again with the same decision table above.
-
-**Step 3 — OTP (only if presented)**
-
-Drive OTP screens by snapshot: **"Send me an email"** → **"Enter a verification code instead"** →
-then ask the user for the 6-digit code via the harness's ask-user tool (AskUserQuestion / Cline
-`ask_followup_question` — see Intake step 3; never a bare chat message) → **"Verify"**. Selectors
-in `references\login-flow.md`.
 
 **Failure table:**
 
 | Situation | Action |
 |-----------|--------|
-| Wrong password (never advanced past password screen) | delete `qid.bin`; ask user to re-run capture script; retry ONCE. Fails again → STOP. |
-| OTP rejected/expired | OTP problem — do NOT delete `qid.bin`. User requests fresh code and re-pastes. |
 | Email unavailable + session expired | cannot authenticate — report and STOP. |
 
-**Never** echo the password or OTP. The only durable secret is `qid.bin` (DPAPI-encrypted).
-
-> **Why "Keep me signed in":** Okta default session is ~2h; checking this box extends to ~30 days,
-> dramatically reducing how often Recovery 1 triggers. Always check it when the checkbox is present.
+**Never** echo the password or OTP.
 
 ---
 
@@ -511,7 +456,7 @@ All artifacts go in the case folder `data\cases\<CODE>\` (created by `scrape_cas
 1. Install Node.js (≥18) + `npm i -g agent-browser`. Install real Google Chrome (bundled Chromium not needed).
 2. Copy project folder — skill travels in `.claude/skills/qualcomm-case-agent/`.
 3. Do NOT copy `data/chrome-profile/`, `data/.secrets/`, `data/cases/` — DPAPI `qid.bin` is machine/user-bound. All git-ignored.
-4. First run: try PHASE 1 → Recovery 0 launches Chrome → Recovery 1 handles first login + OTP + DPAPI capture. Run `capture_password.ps1` in a real PowerShell terminal (needs interactive `Read-Host`).
+4. First run: try PHASE 1 → Recovery 0 launches Chrome → Recovery 1 handles first login. Log in manually when prompted.
 
 ---
 
