@@ -1,9 +1,13 @@
 # Qualcomm Support portal extraction — extractor script + selectors — reference
 
-For **PHASE 2** of the Qualcomm Case Management Agent. Extraction is **agent-driven**: the agent runs the
-bundled `scripts/extract_case.js` (or an edited copy) via `agent-browser eval --stdin` against the
-**already-expanded live DOM**. The script's final expression is the case OBJECT (agent-browser serializes
-it once). There is no Node-side browser driving and no selector config file — the agent reads the live
+**Normal runs never need this file** — `run_case.mjs` drives extraction in code. This is the
+selector/extractor reference for **manual-flow.md PHASE 2**: when a verdict comes back `blocked`
+and you're hand-driving the capture, or when the live DOM has changed and `scripts/extract_case.js`
+needs editing. The agent runs the bundled `scripts/extract_case.js` (or an edited copy) via
+`agent-browser eval -b` (base64) against the **already-expanded live DOM** — never `--stdin`, which
+silently returns the literal string `"null"` on this Windows/PowerShell setup instead of erroring
+(see manual-flow.md). The script's final expression is the case OBJECT (agent-browser serializes it
+once). There is no Node-side browser driving and no selector config file — the agent reads the live
 DOM, adapts the extractor if needed, evals, validates against the snapshot, then hands the raw JSON to
 `scrape_case.mjs` to finalize.
 
@@ -29,13 +33,18 @@ agent-browser snapshot -c | grep -E "Expand Post|View More"
 ## Step 2 — Extract the whole case in ONE eval
 
 A ready-made extractor is bundled at **`scripts/extract_case.js`** — a clean default keyed on the
-confirmed Salesforce Lightning structure (lock-in table below). Run it with `--stdin` so the multi-line
-JS reaches the browser intact, and redirect the result straight to the raw file:
+confirmed Salesforce Lightning structure (lock-in table below). The case folder already exists
+(`intake.mjs` created `data/cases/<CODE>/` up front — no `mkdir` line needed; a manual `mkdir -p`
+kept breaking under PowerShell, where `-p` is read as a dir name). Run the extractor via `eval -b`
+(base64) — **not `--stdin`, not `<` redirection**: piping through PowerShell (`Get-Content -Raw |
+agent-browser eval --stdin`) silently returns the literal string `"null"` instead of the evaluated
+result (verified — an agent-browser/Windows-PowerShell stdin bug, not a script bug); bash-style `<`
+redirection is a reserved token in PowerShell (hard parse error). `-b` sidesteps both. Write the
+result straight to disk with .NET so it's guaranteed clean UTF-8 with no BOM (PowerShell's `>`
+redirect defaults to a BOM-prefixed encoding that corrupts the JSON `scrape_case.mjs` reads next):
 
-```bash
-mkdir -p data/cases/<CODE>
-agent-browser eval --stdin < .claude/skills/qualcomm-case-agent/scripts/extract_case.js \
-  > data/cases/<CODE>/case.raw.json
+```powershell
+powershell -NoProfile -Command "$b64=[Convert]::ToBase64String([IO.File]::ReadAllBytes('.claude/skills/qualcomm-case-agent/scripts/extract_case.js')); $r = agent-browser eval -b $b64; [IO.File]::WriteAllText('data/cases/<CODE>/case.raw.json', $r, (New-Object Text.UTF8Encoding $false))"
 ```
 
 Three hard-won rules baked into that script — keep them if you hand-edit the extractor for a DOM that
@@ -48,15 +57,15 @@ differs:
    Returning a pre-stringified string double-encodes it — you get `"{\"a\":1}"` on disk, which the
    finalizer rejects. (Verify: `eval "(function(){return {a:1}})()"` prints `{"a":1}`; the `JSON.stringify`
    form prints `"{\"a\":1}"`.)
-3. **Redirect with the shell (`>`), not PowerShell `Out-File`** — the latter adds a UTF-16 BOM that
-   breaks `JSON.parse`. If you must use PowerShell, `Out-File -Encoding utf8` and strip the BOM.
+3. **Write UTF-8 with no BOM** — a BOM-prefixed file breaks `JSON.parse` downstream; the `.NET
+   WriteAllText` call above with `UTF8Encoding($false)` guarantees this.
 
 Sanity-check the raw file, then finalize:
 
 ```bash
 node -e "const j=JSON.parse(require('fs').readFileSync('data/cases/<CODE>/case.raw.json','utf8')); console.log(j.caseNumber, j.comments.length, j.displayedCommentCount)"
 node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CODE> "data/cases/<CODE>/case.raw.json"
-# on exit 0, delete the case.raw.json scratch file
+# on exit 0 the script deletes its own case.raw.json scratch file — no manual del/rm needed
 ```
 
 `scrape_case.mjs` rejects a 0-comment capture (wrong page / failed pull — never overwrites a good cache),

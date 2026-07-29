@@ -1,78 +1,90 @@
 # Workflow — input, processing, output — reference
 
 How the Qualcomm Case Management Agent runs end to end. Companion to `SKILL.md` (phase detail),
-`login-flow.md` (auth) and `extraction.md` (expand + extract). A self-contained diagram is in
-`workflow.svg` (open in a browser).
+`login-flow.md` (auth) and `manual-flow.md` (hand-driven fallback + selector/extraction detail).
+
+**Capture is one command, not an interactive script.** A valid 8-digit code goes straight to
+`run_case.mjs` — no "update from portal?" question, no confirmation step. The cache decides
+new-vs-update on its own; the model only sees the verdict line.
 
 ## Flow
 
 ```mermaid
 flowchart TD
-  IN(["Input — 1 Qualcomm case code"]) --> P0["Phase 0 · intake<br/>validate code · load agent-browser · mkdir data/cases"]
-  P0 -->|no code| S0((stop))
-  P0 --> CACHE{"cached in _index.json?"}
-  CACHE -->|no → new case, full flow| P1
-  CACHE -->|yes| ASK{"ask user:<br/>update from portal?"}
-  ASK -->|no| RPT["report from cache"] --> S4((stop))
-  ASK -->|yes → update run| P1["Phase 1 · authenticate<br/>attach real Chrome (CDP 9222) · reuse --user-data-dir session"]
-  P1 -->|session valid| P2
-  P1 -->|expired| LG["human: Okta login + email OTP<br/>(profile saves it, no notify)"]
-  LG -->|email unavailable| S1((stop))
-  LG --> P2["Phase 2 · locate case<br/>open case url / search"]
-  P2 -->|not found| S2((stop))
-  P2 --> P3["Phase 3 · extract<br/>new case: full expand · eval extract · assert count<br/>update run: expand ONLY new posts → merge (--merge)"]
-  P3 --> CHK{"Phase 3.5 · changed?<br/>full: hash vs _index.json<br/>update: newComments / headerChanged"}
-  CHK -->|no change| NUP["no update"] --> S3((stop / report))
-  CHK -->|new or changed| P4["Phase 4 · enrich<br/>engineer summaries (Protocol/RF/3GPP)<br/>update run: only the NEW comment ids"]
-  P4 --> P5["Phase 5 · persist<br/>write json → render → update index"]
-  P5 --> OUT
-  subgraph OUT["outputs — data/cases/"]
-    O1["&lt;CODE&gt;.json — complete data (source of truth)"]
-    O2["&lt;CODE&gt;.report.md — summary"]
-    O3["&lt;CODE&gt;.md + .html — human review"]
-    O4["_index.json — sync state"]
+  IN(["Input — 1 Qualcomm case code"]) --> VALID{"8 digits?<br/>(CASE- prefix stripped)"}
+  VALID -->|no| S0(["ask user, STOP"])
+  VALID -->|yes| RUN["run_case.mjs &lt;CODE&gt;<br/>attach persistent Chrome (CDP 9222) · open global-search<br/>resolve + open case · expand feed (full new / incremental update)<br/>extract · finalize (hash + index) · verify_case.mjs · render · PDF"]
+  RUN --> V{"verdict (one JSON line on stdout)"}
+  V -->|created| ENRICH["PHASE 3 · enrich ALL comments"]
+  V -->|updated| ENRICHNEW["PHASE 3 · enrich only newCommentIds"]
+  V -->|no-update| REPORT_NU["PHASE 5 · report 'no update', STOP"]
+  V -->|auth-required| AUTH["Recovery 1 (login-flow.md)<br/>human: Okta password + email OTP<br/>then re-run run_case.mjs"]
+  V -->|not-found| S1(["STOP — wrong code / no access"])
+  V -->|blocked| MANUAL["manual-flow.md fallback<br/>finish the capture by hand"]
+  V -->|busy| RETRY["wait ~30s, retry ONCE<br/>still busy → treat as blocked"]
+  AUTH --> RUN
+  ENRICH --> REPORT["PHASE 5 · report to user"]
+  ENRICHNEW --> REPORT
+  MANUAL --> REPORT
+  REPORT --> OUT
+  subgraph OUT["outputs — data/cases/&lt;CODE&gt;/"]
+    O1["case.json — complete data (source of truth)"]
+    O2["case.report.md — concise summary"]
+    O3["case.md + case.html + case.txt — full human review"]
+    O4["case.pdf — printed archive"]
+    O5["_index.json (root) — sync state across cases"]
   end
-  OUT --> P6["Phase 6 · report to user"]
 ```
 
 ## Input
 
-One Qualcomm case code (`CASE-01234567`, `00123456`, or the numeric url id). Missing → ask, STOP.
+One Qualcomm case code — exactly 8 digits, `CASE-` prefix accepted and stripped. Anything else →
+ask the user, STOP. A valid code never triggers a confirmation prompt.
 
 ## Processing (per phase)
 
 | Phase | Does | Guard / branch |
 |-------|------|----------------|
-| 0 Intake | validate+normalize code, load `agent-browser` skill, ensure `data/cases/`; **cache check**: case already in `_index.json` → ask user "update from portal?" (skip the question when the request already says update/report-only) | no code → STOP · cached + user says no → report from cache, STOP |
-| 1 Authenticate | launch real Chrome (`connect_chrome.ps1`, CDP 9222) + attach; reuse persistent `--user-data-dir` (`data/chrome-profile/`); valid → continue | expired → human Okta login + **email OTP** (profile saves it, no notify). **Email unreachable → STOP** |
-| 2 Locate | open the case (url / dashboard search on `support.qualcomm.com`) | not found → STOP |
-| 3 Extract | **new case:** expand via `agent-browser snapshot → click` ("View More Posts", every "Expand Post", "Description") to no-expanders-left; then ONE `eval` extractor → raw JSON → `scrape_case.mjs` finalizes (assert `comments.length >= displayedCommentCount`, hash, write). **Update run:** fast probe (top post + feed count vs cache → may already be "no update"); else paginate only until the newest CACHED comment is visible, expand ONLY the posts above it, extract, finalize with `--merge` — new comments prepended, cached comments/logs/enrichment kept verbatim | count short → expand more / fix extractor / progressive scroll |
-| 3.5 Incremental | full: SHA-256 the raw case, compare to `_index.json`; update run: `--merge` emits `newComments` / `headerChanged` / `changed` | no change → **no update → STOP** (skip enrich + writes) · `newComments:0, headerChanged:true` → re-render only |
-| 4 Enrich | per-comment `summary`; case `engineerSummary`, `rootCause`, `recommendedActions`, `tags`, `timeline`; update run analyzes ONLY the new comment ids, then re-synthesizes case-level fields | — |
-| 5 Persist | write `<CODE>/case.json` → `node render_case.mjs` → emit report/md/html/txt in the folder → update root `_index.json` | — |
-| 6 Report | tell user: counts (captured vs displayed), root cause, paths | — |
+| Capture (`run_case.mjs`) | attach persistent-profile Chrome · locate case via global-search · expand feed (full for a new case, only down to the newest cached comment for an update) · extract · finalize with hash + index · self-verify (`verify_case.mjs`) · render · PDF | one JSON verdict line on stdout — see status table below |
+| 3 Enrich | `created` → all comments; `updated` → only `newCommentIds`; per-comment `summary`/`role`/`keyPoints`/`citations`/`answered`, then re-synthesize case-level fields (`engineerSummary`, `rootCause`, `caseFlow`, `openQuestions`, `recommendedActions`, `tags`, `timeline`) | `no-update` skips this phase entirely |
+| 5 Persist + report | write `enrichment` back to `case.json` → `render_case.mjs` → tell user counts (captured vs displayed), root cause, open questions, file paths | PDF failure is reported, never silently dropped |
+
+## Verdict statuses (`run_case.mjs` stdout)
+
+| `status` | exit | Meaning | Next step |
+|----------|------|---------|-----------|
+| `created` | 0 | new case captured | PHASE 3 (all comments) → PHASE 5 |
+| `updated` | 0 | new comments merged | PHASE 3 (`newCommentIds` only) → PHASE 5 |
+| `no-update` | 0 | nothing new since `since` | PHASE 5: "no update", STOP |
+| `auth-required` | 3 | saved Okta session lapsed | human manual login (`references/login-flow.md`), then re-run |
+| `not-found` | 4 | search returned nothing | STOP |
+| `blocked` | 5 | page never rendered / capture short | `references/manual-flow.md` fallback |
+| `busy` | 6 | another capture holds the lock | wait ~30s, retry once; still busy → treat as blocked |
+| `error` | 1 | bad invocation / script failure | fix per `reason`, don't retry blindly |
 
 ## Output (per-case folder `data/cases/<CODE>/`)
 
 | File | Producer | Purpose |
 |------|----------|---------|
-| `<CODE>/case.json` | model | complete verbatim data + enrichment — **source of truth** |
-| `<CODE>/case.report.md` | `render_case.mjs` | concise summary report |
-| `<CODE>/case.md` + `case.html` + `case.txt` | `render_case.mjs` | full render for human review |
-| `<CODE>/case.pdf` | agent-browser `pdf` (optional) | print archive of the HTML |
-| `_index.json` (root) | model | `<CODE> → {syncedAt, commentCount, hash}` for incremental sync |
+| `case.json` | `run_case.mjs` (capture) + model (enrichment) | complete verbatim data + enrichment — **source of truth** |
+| `case.report.md` | `render_case.mjs` | concise summary report |
+| `case.md` + `case.html` + `case.txt` | `render_case.mjs` | full render for human review |
+| `case.pdf` | `run_case.mjs` (agent-browser `pdf`) | print archive of the HTML |
+| `_index.json` (root) | `scrape_case.mjs` | `<CODE> → {syncedAt, commentCount, hash}` for incremental sync |
 | `chrome-profile/` | real Chrome `--user-data-dir` | persistent auth profile (one-time login) |
 
 ## Logic backbone
 
-1. **Session > password** — log in once, reuse the Chrome `--user-data-dir` (real Chrome via CDP); OTP only when it expires.
-2. **Snapshot→click expand + count assert** — accessibility-tree clicks reveal every post/reply/body;
-   the `displayedCommentCount` assert guarantees nothing is missed or truncated.
-3. **Incremental** — a cached case triggers a "update from portal?" question first (unless the
-   request already decided); an update run expands/extracts/enriches ONLY the new comments
-   (`--merge` prepends them, everything cached is kept verbatim) and re-renders the outputs;
-   an unchanged case is not re-enriched or rewritten.
-4. **Role split** — model owns data + judgement (JSON); the render script owns formatting
-   (report/md/html) → deterministic and token-cheap.
-5. **Fail-fast guards** — four early STOPs (no code, email unavailable, not found, no change);
-   never guess credentials, never fabricate data.
+1. **Session > password** — log in once, reuse the Chrome `--user-data-dir` (real Chrome via CDP);
+   email OTP only when the session lapses, and only ever entered by the human.
+2. **One command, no ask** — a valid code always runs; the script itself decides new-vs-update from
+   `_index.json`. The only prompts are inside PHASE 3 for a genuinely large enrichment batch.
+3. **Expand + count assert** — accessibility-tree clicks reveal every post/reply/body; the
+   `displayedCommentCount` assert guarantees nothing is missed or truncated before persisting.
+4. **Incremental** — an update run expands/extracts/enriches ONLY the new comments (`--merge`
+   prepends them, everything cached is kept verbatim) and re-renders the outputs; an unchanged case
+   is not re-enriched or rewritten.
+5. **Role split** — the script owns capture + persistence (deterministic, token-cheap); the model
+   owns enrichment (judgement) and the user-facing report.
+6. **Fail-fast guards** — every non-`created`/`updated`/`no-update` verdict names its own recovery
+   path; never guess credentials, never fabricate data.

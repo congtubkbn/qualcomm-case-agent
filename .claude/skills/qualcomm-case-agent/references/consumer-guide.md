@@ -126,4 +126,6 @@ const comments  = caseData.comments;                       // newest-first
 
 ## Full schema reference
 
-See `docs/superpowers/specs/2026-06-20-qualcomm-case-agent-consumer-interface-design.md`.
+The fields above are the complete consumer-relevant shape. For the canonical persisted `case.json`
+layout (including internal fields like `capture`/`verified`), see `SKILL.md` PHASE 4 (Persist), or
+read `scripts/scrape_case.mjs` / `scripts/render_case.mjs` directly — they are the source of truth.
