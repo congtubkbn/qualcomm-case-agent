@@ -166,9 +166,9 @@ export function createApp() {
 
       m = path.match(/^\/api\/run\/(\d{8})$/);
       if (req.method === 'POST' && m) {
-        // Detached so a 10-minute capture never blocks the dashboard; progress
-        // shows up in runs.json, which /api/overview already surfaces.
-        spawn(process.execPath, [join(SCRIPTS, 'scheduler.mjs'), '--case', m[1]], {
+        // Detached so an agent-CLI run never blocks the dashboard; cli_run.mjs
+        // writes its own runs.json entry, which /api/overview already surfaces.
+        spawn(process.execPath, [join(HERE, 'cli_run.mjs'), m[1]], {
           detached: true, stdio: 'ignore',
         }).unref();
         return send(res, 202, { started: m[1] });

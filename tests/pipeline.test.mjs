@@ -6,7 +6,7 @@
 // is pulled in with a dynamic import that resolves against it.
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -253,5 +253,60 @@ describe('web dashboard', async () => {
   it('refuses to serve a path outside the artifact whitelist', async () => {
     const r = await fetch(`${base()}/artifact/08603854/case.json`);
     assert.equal(r.status, 404);
+  });
+});
+
+describe('cli_run.mjs', async () => {
+  const { loadCliConfig, fillArgv, classifyRun, CONFIG_PATH } = await import(new URL('../web/cli_run.mjs', import.meta.url));
+
+  it('auto-creates data/agent-cli.json with a claude-only default on first read', () => {
+    const cfg = loadCliConfig();
+    assert.equal(cfg.tool, 'claude');
+    assert.deepEqual(cfg.commands.claude, ['claude', '-p', '{prompt}', '--output-format', 'json']);
+    assert.ok(existsSync(CONFIG_PATH));
+  });
+
+  it('respects a hand-edited tool/commands', () => {
+    writeFileSync(CONFIG_PATH, JSON.stringify({
+      tool: 'gemini', commands: { gemini: ['gemini', '-p', '{prompt}'] },
+    }));
+    const cfg = loadCliConfig();
+    assert.equal(cfg.tool, 'gemini');
+    assert.deepEqual(cfg.commands.gemini, ['gemini', '-p', '{prompt}']);
+  });
+
+  it('fillArgv substitutes the {prompt} token only, leaving other args untouched', () => {
+    assert.deepEqual(
+      fillArgv(['claude', '-p', '{prompt}', '--output-format', 'json'], 'qualcomm case 08603854'),
+      ['claude', '-p', 'qualcomm case 08603854', '--output-format', 'json'],
+    );
+  });
+
+  it('classifyRun: a case that did not exist before and does after is "created"', () => {
+    const v = classifyRun({ syncedAt: null, exists: false, commentCount: 0 }, { syncedAt: 'x', exists: true, commentCount: 3 }, false, '');
+    assert.equal(v.status, 'created');
+    assert.equal(v.newComments, 3);
+  });
+
+  it('classifyRun: a changed syncedAt is "updated", with newComments as the count delta', () => {
+    const v = classifyRun(
+      { syncedAt: '2026-07-01T00:00:00.000Z', exists: true, commentCount: 2 },
+      { syncedAt: '2026-07-02T00:00:00.000Z', exists: true, commentCount: 5 },
+      false, '',
+    );
+    assert.equal(v.status, 'updated');
+    assert.equal(v.newComments, 3);
+  });
+
+  it('classifyRun: an unchanged syncedAt is "no-update"', () => {
+    const s = { syncedAt: '2026-07-01T00:00:00.000Z', exists: true, commentCount: 2 };
+    assert.deepEqual(classifyRun(s, s, false, ''), { status: 'no-update' });
+  });
+
+  it('classifyRun: a failed CLI process is "error" regardless of disk state', () => {
+    const s = { syncedAt: null, exists: false, commentCount: 0 };
+    const v = classifyRun(s, s, true, 'claude: command not found');
+    assert.equal(v.status, 'error');
+    assert.equal(v.reason, 'claude: command not found');
   });
 });
