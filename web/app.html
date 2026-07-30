@@ -42,6 +42,7 @@
   .tag.ok { color: var(--ok); border-color: currentColor; }
   .tag.bad { color: var(--bad); border-color: currentColor; }
   .tag.warn { color: var(--warn); border-color: currentColor; }
+  .tag.new { color: var(--accent); border-color: currentColor; font-weight: 700; }
   .detail { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 14px; }
   .detail h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
                color: var(--muted); margin: 14px 0 4px; }
@@ -95,6 +96,9 @@ const post = (url, body) => fetch(url, {
 
 const RUN_CLASS = { created: 'ok', updated: 'ok', 'no-update': '', 'auth-required': 'bad', blocked: 'bad', error: 'bad', 'not-found': 'warn', busy: 'warn' };
 let open = new Set();
+const seenKey = code => `qc-seen:${code}`;
+const isNew = c => !!c.syncedAt && localStorage.getItem(seenKey(c.code)) !== c.syncedAt;
+const markSeen = c => { if (c.syncedAt) localStorage.setItem(seenKey(c.code), c.syncedAt); };
 
 function list(label, items) {
   if (!items || !items.length) return '';
@@ -104,6 +108,7 @@ function list(label, items) {
 function card(c) {
   const short = c.commentCount < (c.displayedCommentCount ?? c.commentCount);
   const run = c.run ? `<span class="tag ${RUN_CLASS[c.run.status] ?? ''}">${esc(c.run.status)}${c.run.newComments ? ' +' + c.run.newComments : ''}</span>` : '';
+  const newBadge = isNew(c) ? '<span class="tag new">NEW</span>' : '';
   const detail = open.has(c.code) && c.cached ? `
     <div class="detail">
       ${c.engineerSummary ? `<h3>Summary</h3><p>${esc(c.engineerSummary)}</p>` : ''}
@@ -121,6 +126,7 @@ function card(c) {
     <div class="row">
       <span class="code">${c.code}</span>
       <span class="title">${esc(c.title || (c.cached ? '(untitled)' : 'not captured yet'))}</span>
+      ${newBadge}
       ${c.status ? `<span class="tag">${esc(c.status)}</span>` : ''}
       ${c.priority ? `<span class="tag">${esc(c.priority)}</span>` : ''}
       <span class="tag${short ? ' warn' : ''}">${c.commentCount}${short ? '/' + c.displayedCommentCount : ''} comments</span>
@@ -139,6 +145,8 @@ function card(c) {
   </div>`;
 }
 
+let lastCases = [];
+
 async function render() {
   const d = await fetch('/api/overview').then(r => r.json());
   $('#sweep').textContent = d.sweep ? `last sweep ${ago(d.sweep.at)}` : 'no sweep yet';
@@ -148,9 +156,14 @@ async function render() {
   if (document.activeElement !== $('#interval')) $('#interval').value = d.watchlist.intervalMinutes;
   if (document.activeElement !== $('#enrich')) $('#enrich').value = d.watchlist.enrich;
 
-  $('#list').className = d.cases.length ? '' : 'empty';
-  $('#list').innerHTML = d.cases.length
-    ? d.cases.map(card).join('')
+  lastCases = [...d.cases].sort((a, b) => {
+    const r = (isNew(a) ? 0 : 1) - (isNew(b) ? 0 : 1);
+    return r !== 0 ? r : String(b.syncedAt || '').localeCompare(String(a.syncedAt || ''));
+  });
+
+  $('#list').className = lastCases.length ? '' : 'empty';
+  $('#list').innerHTML = lastCases.length
+    ? lastCases.map(card).join('')
     : 'No cases yet — add a case code above to start watching it.';
 }
 
@@ -159,7 +172,15 @@ $('#list').addEventListener('click', async e => {
   if (!btn) return;
   const code = btn.closest('.case').dataset.code;
   const act = btn.dataset.act;
-  if (act === 'toggleOpen') { open.has(code) ? open.delete(code) : open.add(code); return render(); }
+  if (act === 'toggleOpen') {
+    const opening = !open.has(code);
+    open.has(code) ? open.delete(code) : open.add(code);
+    if (opening) {
+      const c = lastCases.find(x => x.code === code);
+      if (c) markSeen(c);
+    }
+    return render();
+  }
   if (act === 'run') { btn.disabled = true; await post(`/api/run/${code}`); return setTimeout(render, 1500); }
   await post('/api/watchlist', { action: act === 'watch' ? 'toggle' : 'remove', code });
   render();
