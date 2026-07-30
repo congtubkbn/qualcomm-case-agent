@@ -4,7 +4,8 @@ data/.secrets/
 data/qualcomm-session.json
 *.session.json
 data/_proftest/
-data/
+data/*
+!data/agent-cli.json
 assets/chrome-profile/
 
 # Cached case content is Qualcomm NDA material — keep local only
