@@ -141,7 +141,10 @@ non-success statuses are deliberate, expected outcomes, not crashes. Full contra
 (`data/agent-cli.json`, git-ignored — `{"tool":"claude","commands":{"claude":[...]}}`), reproducing
 the manual "qualcomm case <code>" flow rather than calling `run_case.mjs` directly. The
 automatic background sweep (`scheduler.mjs`) is unaffected — it still calls `run_case.mjs` for
-zero model tokens.
+zero model tokens. `classifyRun()` treats an exit-0 CLI run that still leaves no `case.json` for a
+never-captured case as `"error"` (with the captured CLI output as `reason`), not `"no-update"` —
+the two are indistinguishable otherwise and would silently mask a capture failure behind a normal
+badge.
 
 **Long-running processes don't hot-reload.** `web/server.mjs` (dashboard) and any resident
 `scheduler.mjs` keep running the code that was loaded at start. After editing either, restart the
