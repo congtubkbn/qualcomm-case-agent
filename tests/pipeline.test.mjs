@@ -309,4 +309,11 @@ describe('cli_run.mjs', async () => {
     assert.equal(v.status, 'error');
     assert.equal(v.reason, 'claude: command not found');
   });
+
+  it('classifyRun: a never-captured case that is still missing after an exit-0 run is "error", not "no-update"', () => {
+    const s = { syncedAt: null, exists: false, commentCount: 0 };
+    const v = classifyRun(s, s, false, 'I need permission to run Bash tools.');
+    assert.equal(v.status, 'error');
+    assert.equal(v.reason, 'I need permission to run Bash tools.');
+  });
 });

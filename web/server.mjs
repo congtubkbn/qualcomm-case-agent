@@ -101,6 +101,7 @@ function mutateWatchlist(body) {
   } else if (body.action === 'toggle') {
     const c = find(body.code);
     if (c) c.enabled = c.enabled === false;
+    else if (isCode(body.code)) wl.cases.push({ code: body.code, enabled: true });
   } else if (body.action === 'settings') {
     if (body.intervalMinutes) wl.intervalMinutes = Number(body.intervalMinutes);
     if (body.enrich) wl.enrich = body.enrich;

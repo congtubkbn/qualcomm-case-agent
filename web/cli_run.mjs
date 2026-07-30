@@ -68,6 +68,9 @@ export function classifyRun(before, after, cliFailed, reason) {
   if (before.syncedAt !== after.syncedAt) {
     return { status: 'updated', newComments: Math.max(0, after.commentCount - before.commentCount) };
   }
+  if (!before.exists && !after.exists) {
+    return { status: 'error', reason: reason || 'agent CLI exited 0 but produced no case.json — capture likely never ran (check reason/output)' };
+  }
   return { status: 'no-update' };
 }
 
@@ -105,8 +108,8 @@ function main(code) {
   const r = runCli(fillArgv(template, prompt));
   const after = caseState(code);
   const failed = r.error != null || r.status !== 0;
-  const reason = failed ? (r.stderr || r.stdout || r.error?.message || '').trim().slice(0, 300) : '';
-  const verdict = classifyRun(before, after, failed, reason);
+  const output = (r.stderr || r.stdout || r.error?.message || '').trim().slice(0, 300);
+  const verdict = classifyRun(before, after, failed, output);
 
   const runs = readJson(RUNS_PATH, {});
   runs[code] = { lastRunAt: new Date().toISOString(), ...verdict };
