@@ -1,14 +1,10 @@
 {
   "name": "qualcomm-case-agent",
   "private": true,
-  "description": "Headless capture pipeline, scheduler and local dashboard for Qualcomm Support cases",
+  "description": "Headless capture pipeline for Qualcomm Support cases",
   "scripts": {
     "test": "node --experimental-test-module-mocks --test tests/*.test.mjs",
     "case": "node .claude/skills/qualcomm-case-agent/scripts/run_case.mjs",
-    "sync": "node .claude/skills/qualcomm-case-agent/scripts/scheduler.mjs --once",
-    "watch": "node .claude/skills/qualcomm-case-agent/scripts/scheduler.mjs",
-    "web": "node web/server.mjs --scheduler",
-    "llm:check": "node .claude/skills/qualcomm-case-agent/scripts/enrich_local.mjs --check",
     "docs": "node tools/gen_design.mjs",
     "docs:check": "node tools/gen_design.mjs --check",
     "docs:hook": "git config core.hooksPath tools/hooks"
