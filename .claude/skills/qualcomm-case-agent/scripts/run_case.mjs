@@ -34,13 +34,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
 import { intake } from './intake.mjs';
 import { acquireLock, releaseLock } from './lock.mjs';
-import { BrowserError, click, ensureChrome, evalFile, getCdpClient, open, pdf, screenshot, sleep } from './browser.mjs';
+import { BrowserError, ensureChrome, evalFile, getCdpClient, open, pdf, screenshot, sleep } from './browser.mjs';
 import { fastLandOnCase } from './fast_landing.mjs';
 import { verifyCase } from './verify_case.mjs';
 
 const SCRIPTS = fileURLToPath(new URL('.', import.meta.url));
 const PORTAL = 'https://support.qualcomm.com';
-const READY_ROUNDS = 8;      // x 2s = 16s ceiling for SPA hydration
 const FEED_PROBE_ROUNDS = 15; // x 2s = 30s ceiling — Chatter feed hydration is
                                // slower than page readiness right after a fresh
                                // login (cold Lightning component bootstrap)
@@ -134,98 +133,6 @@ function node(script, args) {
   return { code: r.status, out, json, err: (r.stderr || '').trim() };
 }
 
-async function pollReadiness() {
-  let probe = null;
-  for (let i = 0; i < READY_ROUNDS; i++) {
-    probe = evalFile(page('readiness.js'));
-    if (probe && probe.state && probe.state !== 'LOADING') return probe;
-    await sleep(2000);
-  }
-  return probe || { state: 'BLANK' };
-}
-
-// Lightning's un-routed case stub (`/s/case/Case/Default`). readiness.js's
-// READY signal (lightning-base-formatted-text etc.) fires on this shell too,
-// so a click that fails to route (element detached mid-CDP-click, timing miss)
-// looks identical to a real landing unless we check the path explicitly.
-export const STUB_PATH_RE = /\/s\/case\/Case\/Default(?:$|[/?#])/i;
-const HREF_RESOLVE_ROUNDS = 5; // x600ms — Lightning fills in the row's real
-                                // SFID href ASYNCHRONOUSLY after the row itself
-                                // renders; reading `.href` too early returns the
-                                // generic `.../Case/Default` stub regardless of
-                                // how navigation is triggered afterward (this is
-                                // the actual root cause — not the click type).
-const ROUTE_SETTLE_ROUNDS = 6; // x1s = 6s ceiling for the delegated-router
-                                // click fallback to swap the URL; widest right
-                                // after a fresh Okta re-auth, cold SPA.
-
-/** find_case_link.js right after READY can catch the results table a tick
- *  into its own render: only the first row's anchor exists yet, href still
- *  the generic stub, header cells empty (`fields: {}` — which then fails
- *  scrape_case.mjs's title gate downstream). Poll until the row carries a
- *  resolved href AND a title, or give up after HREF_RESOLVE_ROUNDS and
- *  return whatever it last had. */
-export async function findCaseLink(code) {
-  let link = evalFile(page('find_case_link.js'), { __CODE: code });
-  for (let i = 0; i < HREF_RESOLVE_ROUNDS && link && link.state === 'FOUND'
-       && (!link.fields?.title || STUB_PATH_RE.test(new URL(link.href).pathname)); i++) {
-    await sleep(600);
-    link = evalFile(page('find_case_link.js'), { __CODE: code });
-  }
-  return link;
-}
-
-/** Land on the real case page. Primary: wait for the row to hydrate
- *  (findCaseLink), then `open()` its resolved href directly — a plain HTTP
- *  navigation, immune to whatever makes the delegated-router click
- *  unreliable (observed in the wild: a CDP-trusted click, even a raw
- *  mouse-event sequence or a focus+Enter key activation, can silently no-op
- *  on this anchor with no console error). Fallback: the trusted click, for
- *  the rare case a direct nav still lands on the stub. One full retry from a
- *  fresh search load before giving up — same shape as PHASE 1's Recovery 2.
- */
-export async function landOnCase(code) {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const link = await findCaseLink(code);
-    if (link && link.href && !STUB_PATH_RE.test(new URL(link.href).pathname)) {
-      open(link.href);
-      const after = await pollReadiness();
-      if (after.state === 'AUTH') return { state: 'AUTH', url: after.url };
-      const onCase = evalFile(page('find_case_link.js'), { __CODE: code });
-      if (onCase && onCase.state === 'ON_CASE'
-          && !STUB_PATH_RE.test(new URL(onCase.href).pathname)) {
-        return { state: 'OK', href: onCase.href };
-      }
-    }
-
-    // Direct nav still on the stub — fall back to the delegated-router click.
-    try {
-      click("[data-cq-hit='1']");
-    } catch (e) { if (attempt === 1) throw e; }
-
-    for (let i = 0; i < ROUTE_SETTLE_ROUNDS; i++) {
-      const after = evalFile(page('readiness.js'));
-      if (after.state === 'AUTH') return { state: 'AUTH', url: after.url };
-      const onCase = evalFile(page('find_case_link.js'), { __CODE: code });
-      if (onCase && onCase.state === 'ON_CASE'
-          && !STUB_PATH_RE.test(new URL(onCase.href).pathname)) {
-        return { state: 'OK', href: onCase.href };
-      }
-      await sleep(1000);
-    }
-
-    if (attempt === 0) {
-      open(`${PORTAL}/s/global-search/${code}`);
-      const ready = await pollReadiness();
-      if (ready.state === 'AUTH') return { state: 'AUTH', url: ready.url };
-      if (ready.state !== 'READY') return { state: 'STUB', reason: `retry search state=${ready.state}` };
-      const relink = await findCaseLink(code);
-      if (!relink || relink.state !== 'FOUND') return { state: 'STUB', reason: 'retry search exposed no case link' };
-    }
-  }
-  return { state: 'STUB', reason: 'case link navigation never routed past the Lightning stub page' };
-}
-
 export async function run(code, opts = {}) {
   const caseDir = join(DATA_DIR, code);
   const casePath = join(caseDir, 'case.json');
@@ -247,73 +154,37 @@ export async function run(code, opts = {}) {
     try {
       cdp = await getCdpClient();
     } catch (e) {
-      process.stderr.write(`[CDP] Direct connection failed, using fallback: ${e.message}\n`);
+      process.stderr.write(`[CDP] Direct connection failed: ${e.message}\n`);
     }
   }
 
-  let landingDurationMs = 0;
-  let caseUrl = null;
-  let header = {};
-
-  if (cdp && (typeof cdp.isConnected !== 'function' || cdp.isConnected())) {
-    const landed = await fastLandOnCase(code, {
-      cdp,
-      cached,
-      portalUrl: PORTAL,
-    });
-    landingDurationMs = landed.durationMs || 0;
-    if (landed.state === 'AUTH') {
-      return { status: 'auth-required', reason: 'Okta session lapsed — sign in once in the persistent Chrome profile (email OTP is human-only)', url: landed.url, caseUrl: landed.url, timing: { landingMs: landingDurationMs } };
-    }
-    if (landed.state === 'NOT_FOUND') {
-      return { status: 'not-found', reason: `no search result for ${code} (wrong code, or the account cannot see it)`, timing: { landingMs: landingDurationMs } };
-    }
-    if (landed.state === 'STUB') {
-      return { status: 'blocked', reason: landed.reason || 'case link click did not route to the real case page', probe: landed, timing: { landingMs: landingDurationMs } };
-    }
-    if (landed.state !== 'OK') {
-      return { status: 'blocked', reason: `search/landing failed (state=${landed.state})`, probe: landed, timing: { landingMs: landingDurationMs } };
-    }
-    caseUrl = landed.href;
-    header = landed.fields || {};
-  } else {
-    // --- Fallback CLI-based landing (PHASE 1)
-    const landingStart = Date.now();
-    open(`${PORTAL}/s/global-search/${code}`);
-    let ready = await pollReadiness();
-
-    if (ready.state === 'BLANK' || ready.state === 'LOADING') {
-      open(`${PORTAL}/s/global-search/${code}`);          // Recovery 2, same URL, once
-      ready = await pollReadiness();
-    }
-    if (ready.state === 'AUTH') {
-      return { status: 'auth-required', reason: 'Okta session lapsed — sign in once in the persistent Chrome profile (email OTP is human-only)', url: ready.url, caseUrl: ready.url, timing: { landingMs: Date.now() - landingStart } };
-    }
-    if (ready.state === 'EMPTY') {
-      return { status: 'not-found', reason: `no search result for ${code} (wrong code, or the account cannot see it)`, timing: { landingMs: Date.now() - landingStart } };
-    }
-    if (ready.state !== 'READY') {
-      return { status: 'blocked', reason: `search page never rendered (state=${ready.state})`, probe: ready, timing: { landingMs: Date.now() - landingStart } };
-    }
-
-    // --- PHASE 1 cont.: resolve the case URL browser-side (no snapshot needed).
-    const link = await findCaseLink(code);
-    if (!link || link.state === 'NO_LINK') {
-      return { status: 'not-found', reason: `search rendered but exposed no case link for ${code}`, timing: { landingMs: Date.now() - landingStart } };
-    }
-    header = link.fields || {};
-    if (link.state === 'FOUND') {
-      const landed = await landOnCase(code);
-      if (landed.state === 'AUTH') {
-        return { status: 'auth-required', reason: 'session lapsed while opening the case', url: landed.url, caseUrl: landed.url, timing: { landingMs: Date.now() - landingStart } };
-      }
-      if (landed.state !== 'OK') {
-        return { status: 'blocked', reason: landed.reason || 'case link click did not route to the real case page', probe: landed, timing: { landingMs: Date.now() - landingStart } };
-      }
-      caseUrl = landed.href;
-    }
-    landingDurationMs = Date.now() - landingStart;
+  if (!cdp || (typeof cdp.isConnected === 'function' && !cdp.isConnected())) {
+    return {
+      status: 'blocked',
+      reason: 'CDP client connection unavailable on port 9222 (check Chrome instance)',
+    };
   }
+
+  const landed = await fastLandOnCase(code, {
+    cdp,
+    cached,
+    portalUrl: PORTAL,
+  });
+  const landingDurationMs = landed.durationMs || 0;
+  if (landed.state === 'AUTH') {
+    return { status: 'auth-required', reason: 'Okta session lapsed — sign in once in the persistent Chrome profile (email OTP is human-only)', url: landed.url, caseUrl: landed.url, timing: { landingMs: landingDurationMs } };
+  }
+  if (landed.state === 'NOT_FOUND') {
+    return { status: 'not-found', reason: `no search result for ${code} (wrong code, or the account cannot see it)`, timing: { landingMs: landingDurationMs } };
+  }
+  if (landed.state === 'STUB') {
+    return { status: 'blocked', reason: landed.reason || 'case link click did not route to the real case page', probe: landed, timing: { landingMs: landingDurationMs } };
+  }
+  if (landed.state !== 'OK') {
+    return { status: 'blocked', reason: `search/landing failed (state=${landed.state})`, probe: landed, timing: { landingMs: landingDurationMs } };
+  }
+  const caseUrl = landed.href;
+  const header = landed.fields || {};
 
   // --- PHASE 1.5: probe first (fast no-update check), then expand in-page.
   const probeFeed = async () => {
@@ -329,12 +200,11 @@ export async function run(code, opts = {}) {
 
   let probe = await probeFeed();
   if (!probe || !probe.articles) {
-    const onCase = evalFile(page('find_case_link.js'), { __CODE: code });
-    if (onCase && onCase.href) {
-      open(onCase.href);
-      const reloaded = await pollReadiness();
-      if (reloaded.state === 'AUTH') {
-        return { status: 'auth-required', reason: 'session lapsed on feed-reload retry', url: reloaded.url, caseUrl: reloaded.url, timing: { landingMs: landingDurationMs } };
+    if (caseUrl) {
+      if (typeof cdp.navigate === 'function') {
+        await cdp.navigate(caseUrl);
+      } else {
+        open(caseUrl);
       }
       probe = await probeFeed();
     }
@@ -369,134 +239,186 @@ export async function run(code, opts = {}) {
       continue;
     }
     idleTicks = 0;
-    await sleep(r.clickedViewMore ? 2000 : 800);
+    await sleep(1500);
   }
 
+  // Grace retries when round budget exhausted
   if (rounds >= EXPAND_ROUNDS && idleTicks < 2) {
-    for (let i = 0; i < STUCK_RETRY_ROUNDS; i++) {
-      await sleep(2000);
+    for (let grace = 0; grace < STUCK_RETRY_ROUNDS; grace++) {
       const r = evalFile(page('expand_step.js'), { __ANCHOR: anchor });
       clicks.expand += r.clickedExpand || 0;
       clicks.viewMore += r.clickedViewMore || 0;
       clicks.moreComments += r.clickedMoreComments || 0;
       clicks.description += r.clickedDescription || 0;
-      if (!r.clickedExpand && !r.clickedViewMore && !r.clickedDescription && !r.clickedMoreComments) break;
+      if (!r.clickedExpand && !r.clickedViewMore && !r.clickedDescription && !r.clickedMoreComments) {
+        idleTicks = 2;
+        break;
+      }
+      await sleep(2000);
     }
   }
 
-  let cleanReads = 0;
-  let lastCheck = null;
-  let settleCap = SETTLE_ROUNDS;
-  for (let i = 0; i < settleCap && cleanReads < 2; i++) {
-    const s = evalFile(page('check_collapsed.js'), { __ANCHOR: anchor });
-    if (i === 0) settleCap = Math.max(SETTLE_ROUNDS, (s.stillCollapsed || 0) * 3 + 6);
-    lastCheck = s;
-    if (s.stillCollapsed || s.stillHasMoreComments) {
-      cleanReads = 0;
-      try { click('a.cuf-more:not(.hidden)'); } catch { /* nothing left visible to click */ }
-      if (s.stillHasMoreComments) evalFile(page('expand_step.js'), { __ANCHOR: anchor });
-    } else {
-      cleanReads++;
-    }
+  // --- Settle loop
+  let confirmedZero = 0;
+  for (let s = 0; s < SETTLE_ROUNDS; s++) {
     await sleep(1000);
+    const unexpanded = evalFile(page('check_collapsed.js'));
+    const pending = (unexpanded?.stillCollapsed || 0) + (unexpanded?.stillHasMoreComments || 0);
+    if (pending === 0) {
+      confirmedZero++;
+      if (confirmedZero >= 2) break;
+    } else {
+      confirmedZero = 0;
+      const r = evalFile(page('expand_step.js'), { __ANCHOR: anchor });
+      clicks.expand += r.clickedExpand || 0;
+      clicks.viewMore += r.clickedViewMore || 0;
+      clicks.moreComments += r.clickedMoreComments || 0;
+      clicks.description += r.clickedDescription || 0;
+    }
   }
 
-  let articleReads = 0;
-  let lastArticles = -1;
-  for (let i = 0; i < POST_EXPAND_SETTLE_ROUNDS && articleReads < 3; i++) {
-    const p = evalFile(page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
-    const n = p ? p.articles : lastArticles;
-    if (n === lastArticles) {
-      articleReads++;
+  // Trusted-click fallback for stubborn collapsed posts
+  let lastUnexpanded = evalFile(page('check_collapsed.js'));
+  const stubbornCount = (lastUnexpanded?.stillCollapsed || 0) + (lastUnexpanded?.stillHasMoreComments || 0);
+  if (stubbornCount > 0) {
+    const settleBudget = Math.min(POST_EXPAND_SETTLE_ROUNDS, stubbornCount * 3 + 6);
+    let consecutiveClean = 0;
+    for (let s = 0; s < settleBudget; s++) {
+      const attempt = evalFile(page('expand_step.js'), { __ANCHOR: anchor, __TRUSTED: true });
+      clicks.expand += attempt.clickedExpand || 0;
+      clicks.viewMore += attempt.clickedViewMore || 0;
+      clicks.moreComments += attempt.clickedMoreComments || 0;
+      clicks.description += attempt.clickedDescription || 0;
+      await sleep(2000);
+      lastUnexpanded = evalFile(page('check_collapsed.js'));
+      const remaining = (lastUnexpanded?.stillCollapsed || 0) + (lastUnexpanded?.stillHasMoreComments || 0);
+      if (remaining === 0) {
+        consecutiveClean++;
+        if (consecutiveClean >= 2) break;
+      } else {
+        consecutiveClean = 0;
+      }
+    }
+  }
+
+  // Article count settle
+  let prevCount = -1;
+  let matches = 0;
+  for (let s = 0; s < SETTLE_ROUNDS; s++) {
+    const probeNow = evalFile(page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
+    const current = probeNow ? probeNow.articles : 0;
+    if (current === prevCount && current > 0) {
+      matches++;
+      if (matches >= 3) break;
     } else {
-      articleReads = 0;
-      lastArticles = n;
+      prevCount = current;
+      matches = 1;
       evalFile(page('expand_step.js'), { __ANCHOR: anchor });
     }
     await sleep(2000);
   }
 
-  // --- PHASE 2: extract from the DOM exactly as expansion left it.
-  const finalCheck = evalFile(page('check_collapsed.js'), { __ANCHOR: anchor }) || {};
-  if (finalCheck.stillCollapsed || finalCheck.stillHasMoreComments) {
+  // Final pre-extraction gate
+  const gateUnexpanded = evalFile(page('check_collapsed.js'));
+  const pendingAfterSettle = (gateUnexpanded?.stillCollapsed || 0) + (gateUnexpanded?.stillHasMoreComments || 0);
+  if (pendingAfterSettle > 0) {
+    shoot(caseDir, 'capture.png');
     return {
       status: 'blocked',
       retryable: true,
-      reason: `feed still hides content at extraction time (${finalCheck.stillCollapsed || 0} collapsed post(s), ${finalCheck.stillHasMoreComments || 0} unopened reply thread(s))`,
+      reason: `expand loop left ${gateUnexpanded.stillCollapsed || 0} collapsed post(s) and ${gateUnexpanded.stillHasMoreComments || 0} "More comments" control(s)`,
+      evidence: {
+        clicks,
+        stillCollapsed: gateUnexpanded.stillCollapsed || 0,
+        stillHasMoreComments: gateUnexpanded.stillHasMoreComments || 0,
+      },
       expandRounds: rounds,
-      caseUrl,
       timing: { landingMs: landingDurationMs },
-      evidence: { ...finalCheck, clicks, screenshot: shoot(caseDir, 'capture.png') },
     };
   }
 
-  const shotName = shoot(caseDir, 'capture.png');
+  // --- PHASE 2: extract
   const raw = evalFile(page('extract_case.js'));
-  if (!raw || !Array.isArray(raw.comments)) {
-    return { status: 'blocked', reason: 'extractor returned no comments array', raw: typeof raw, caseUrl, timing: { landingMs: landingDurationMs } };
+  if (!raw || !Array.isArray(raw.comments) || raw.comments.length === 0) {
+    return { status: 'blocked', reason: 'case extraction returned no comments', timing: { landingMs: landingDurationMs } };
   }
 
   raw.capture = {
-    articles: raw.comments.length,
-    pendingExpand: finalCheck.stillCollapsed ?? null,
-    pendingMoreComments: finalCheck.stillHasMoreComments ?? null,
-    expandRounds: rounds,
+    pendingExpand: gateUnexpanded?.stillCollapsed || 0,
+    pendingMoreComments: gateUnexpanded?.stillHasMoreComments || 0,
     clicks,
-    screenshot: shotName,
-    mode,
+    screenshot: shoot(caseDir, 'capture.png'),
   };
-  const rawPath = join(caseDir, 'case.raw.json');
-  writeFileSync(rawPath, JSON.stringify(raw), 'utf8');
 
+  const rawPath = join(caseDir, 'case.raw.json');
+  writeFileSync(rawPath, JSON.stringify(raw, null, 2), 'utf8');
+
+  // --- Finalize
   const flags = [];
-  if (!merge && header.title) flags.push('--title', header.title);
+  if (merge) flags.push('--merge');
   if (header.status) flags.push('--status', header.status);
   if (header.priority) flags.push('--priority', header.priority);
-  if (header.customer) flags.push('--customer', header.customer);
+  if (!merge && header.title) flags.push('--title', header.title);
 
-  const oldHash = cached ? cached.hash : null;
-  const fin = node('scrape_case.mjs', [code, rawPath, ...(merge ? ['--merge'] : []), ...flags]);
-  const v = fin.json || {};
-  if (fin.code === 5) return { status: 'blocked', retryable: true, reason: v.reason || 'incomplete capture', finalize: v, expandRounds: rounds, caseUrl: caseUrl || raw.url, timing: { landingMs: landingDurationMs } };
-  if (fin.code !== 0) return { status: 'error', reason: v.reason || fin.err || `scrape_case exited ${fin.code}`, finalize: v, caseUrl: caseUrl || raw.url, timing: { landingMs: landingDurationMs } };
-
-  const newComments = v.newComments ?? v.commentCount;
-  const changed = merge
-    ? Boolean(v.changed || v.headerChanged)
-    : Boolean(!oldHash || oldHash !== v.hash);
-
-  if (!changed) {
-    return { status: 'no-update', since: cached?.extractedAt, commentCount: v.commentCount, hash: v.hash, caseUrl: caseUrl || raw.url, timing: { landingMs: landingDurationMs } };
+  const scrape = node('scrape_case.mjs', [code, rawPath, ...flags]);
+  if (scrape.code !== 0) {
+    return {
+      status: 'blocked',
+      reason: `scrape_case.mjs failed: ${scrape.err || scrape.out}`,
+      scrapeOut: scrape.out,
+      timing: { landingMs: landingDurationMs },
+    };
   }
 
-  // --- PHASE 3 (optional, local model) + PHASE 4: persist + render.
-  const artifacts = {};
-  if (opts.enrich === 'local') {
-    const e = node('enrich_local.mjs', [code, ...(merge ? [] : ['--all'])]);
-    artifacts.enrich = e.json || { ok: false, reason: e.err.slice(0, 200) };
+  const v = scrape.json || {};
+  const newComments = typeof v.newComments === 'number' ? v.newComments : (cached ? 0 : v.commentCount);
+
+  // --- Optional local LLM enrich
+  if (opts.enrich === 'local' && newComments > 0) {
+    node('enrich_local.mjs', [code]);
   }
-  const rend = node('render_case.mjs', [casePath]);
-  if (rend.code !== 0) artifacts.renderError = rend.err.slice(0, 200);
+
+  // --- Render
+  const render = node('render_case.mjs', [casePath]);
+  const artifacts = {
+    reportPath: join(caseDir, 'case.report.md'),
+    mdPath: join(caseDir, 'case.md'),
+    htmlPath: join(caseDir, 'case.html'),
+    txtPath: join(caseDir, 'case.txt'),
+    pdfPath: join(caseDir, 'case.pdf'),
+  };
 
   if (!opts.noPdf) {
-    const pdfPath = join(caseDir, 'case.pdf');
     try {
-      open(pathToFileURL(join(caseDir, 'case.html')).href);
-      pdf(pdfPath);
-      artifacts.pdf = existsSync(pdfPath) && statSync(pdfPath).size > 0;
-    } catch (e) { artifacts.pdf = false; artifacts.pdfError = e.message; }
+      const htmlUrl = pathToFileURL(artifacts.htmlPath).href;
+      open(htmlUrl);
+      pdf(artifacts.pdfPath);
+      if (!existsSync(artifacts.pdfPath) || statSync(artifacts.pdfPath).size === 0) {
+        artifacts.pdfFailed = 'zero bytes written';
+      }
+    } catch (e) {
+      artifacts.pdfFailed = e.message;
+    }
   }
 
-  // --- PHASE 4.5: QA gate.
+  // --- QA Gate
   const verified = verifyCase(code, caseDir);
   if (!verified.ok) {
     return {
       status: 'blocked',
       retryable: true,
-      reason: `post-capture verification failed: ${verified.errors[0]}`,
+      reason: `verify_case gate failed: ${verified.errors.join('; ')}`,
       verifyErrors: verified.errors,
-      dir: caseDir,
-      expandRounds: rounds,
+      verifyWarnings: verified.warnings,
+      timing: { landingMs: landingDurationMs },
+    };
+  }
+
+  if (merge && newComments === 0 && !v.headerChanged && !v.changed) {
+    return {
+      status: 'no-update',
+      since: cached.extractedAt,
+      commentCount: v.commentCount,
       caseUrl: caseUrl || raw.url,
       timing: { landingMs: landingDurationMs },
     };
