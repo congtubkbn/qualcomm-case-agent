@@ -25,7 +25,7 @@
 
 (function () {
   const txt = el => (el && (el.innerText || el.textContent || "")).trim();
-  const qsa = sel => Array.from(document.querySelectorAll(sel));
+  const qsa = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
   // Chatter renders its paragraph-separator marker differently in the collapsed
   // teaser vs the expanded ".feedBodyInner" body, and BOTH forms come through as
@@ -46,15 +46,56 @@
     || (caseHeading ? txt(caseHeading).replace(/^Case\s+/i, "").trim() : "")
     || location.pathname.split("/").filter(Boolean).pop();
 
-  // Optional section helper for collapsible "Subject"/"Description" panels IF the
-  // case page exposes them (some layouts only show these on the Detail tab — see
-  // note below). Returns "" when absent, which is expected on a Feed-only view.
+  // Optional section helper for collapsible "Subject"/"Description" panels and
+  // Salesforce Lightning record layout items.
   const sectionValue = label => {
-    const btn = qsa("button").find(b => txt(b) === label);
-    if (!btn) return "";
-    const host = btn.closest("li, div") || btn.parentElement;
-    const p = host && host.querySelector("p");
-    return p ? txt(p) : "";
+    const lowerLabel = (label || "").toLowerCase();
+    const btn = qsa("button").find(b => txt(b).toLowerCase() === lowerLabel);
+    if (btn) {
+      const host = btn.closest("li, div") || btn.parentElement;
+      const p = host && host.querySelector("p");
+      if (p) return txt(p);
+    }
+    const labels = qsa(".slds-form-element__label, label, [class*='label'], dt");
+    const matchedLabel = labels.find(l => txt(l).toLowerCase() === lowerLabel);
+    if (matchedLabel) {
+      const parent = matchedLabel.closest(".slds-form-element, [class*='record-layout-item'], dl") || matchedLabel.parentElement;
+      if (parent) {
+        const valEl = parent.querySelector(".slds-form-element__control, dd, lightning-formatted-text, p, span:not([class*='label'])");
+        if (valEl && valEl !== matchedLabel) return txt(valEl);
+      }
+    }
+    return "";
+  };
+
+  // Role heuristics: distinguish Qualcomm engineers from Customer/OEM vs System
+  const classifyRole = (author, company, context) => {
+    const combined = ((author || "") + " " + (company || "") + " " + (context || "")).toLowerCase();
+    if (combined.includes("qualcomm") || combined.includes("@qualcomm.com")) {
+      return "Qualcomm";
+    }
+    if (combined.includes("system") || combined.includes("automated process")) {
+      return "System";
+    }
+    return "Customer";
+  };
+
+  // Attachments extraction helper
+  const extractAttachments = art => {
+    const attList = [];
+    const seen = new Set();
+    const links = qsa("a.cuf-attachment, a[href*='ContentDocument'], a[href*='download'], a[href*='sfc/servlet.shepherd'], .cuf-feedItemAttachments a, .slds-file a, a[class*='attachment']", art);
+    for (const a of links) {
+      const href = a.getAttribute("href") || a.href || "";
+      // Exclude author or navigation links
+      if (!href || href === "#" || href.startsWith("javascript:")) continue;
+      const name = txt(a) || a.getAttribute("title") || a.getAttribute("download") || href.split("/").pop() || "attachment";
+      if (!seen.has(href)) {
+        seen.add(href);
+        attList.push({ name, url: href });
+      }
+    }
+    return attList;
   };
 
   // Comments: every Chatter article (top-level posts AND nested replies are
@@ -68,15 +109,21 @@
     const tsCandidate = named[1] && named[1] !== "Expand Post" ? named[1] : (named[2] || "");
     const bodyEl = a.querySelector(".feedBodyInner, .cuf-feedBodyText, [class*='feedBody']");
     const body = cleanBody(bodyEl ? txt(bodyEl) : txt(a));
+
+    const compEl = a.querySelector(".company, .title, [class*='company'], [class*='userTitle']");
+    const company = compEl ? txt(compEl) : "";
+    const role = classifyRole(author, company, a.className || "");
+    const attachments = extractAttachments(a);
+
     return {
       id: a.id || ("c" + (i + 1)),
       timestamp: tsCandidate,
-      company: "",
+      company,
       author,
-      role: "",
+      role,
       body,
       analysisLog: [],
-      attachments: [],
+      attachments,
     };
   }).filter(c => c.body.length > 0);
 
@@ -103,13 +150,13 @@
   return {
     caseNumber,
     title: sectionValue("Subject"),       // usually "" on Feed view — agent fills from PHASE 1
-    status: "",                            // from PHASE 1 search row
-    priority: "",                          // from PHASE 1 search row
-    severity: "",
-    product: sectionValue("Chipset"),      // present only if Detail fields are on the page
-    customer: sectionValue("Account Name"),
-    created: "",
-    updated: "",
+    status: sectionValue("Status"),       // present if Detail fields are on page or search row
+    priority: sectionValue("Priority"),   // present if Detail fields are on page
+    severity: sectionValue("Severity"),
+    product: sectionValue("Chipset") || sectionValue("Product"),      // present if Detail fields are on the page
+    customer: sectionValue("Account Name") || sectionValue("Customer"),
+    created: sectionValue("Created Date"),
+    updated: sectionValue("Last Modified Date"),
     description: sectionValue("Description"),
     url: location.href,
     displayedCommentCount,
