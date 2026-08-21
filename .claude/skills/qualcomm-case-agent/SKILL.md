@@ -1,29 +1,20 @@
 ---
 name: qualcomm-case-agent
-description: "Qualcomm Case Management Agent. Given ONE Qualcomm case code, capture the COMPLETE case from the Qualcomm Support portal (support.qualcomm.com) — full metadata plus every comment (timestamp, company, author, comment text + full detail, analysis logs/attachments) — with ONE headless command (`run_case.mjs`) that signs in via the persistent Chrome profile, expands the Chatter feed and finalizes the cache. Enrich as a Qualcomm / Protocol / 3GPP / RF expert engineer: per-comment analysis (role + key points + 3GPP citations + answered/unanswered) plus a case-level overview, analysis flow, root cause, current status, and open questions — in this model, or offloaded to a local 4–7 GB LLM. Persist to the access-qualcomm project cache newest-first in JSON (machine), Markdown + single-file HTML + TXT + PDF (human review). Incremental: unchanged cases report 'no update'. Also runs unattended on a schedule with a local web dashboard. Triggers: 'qualcomm case <code>', 'pull qualcomm case', 'access qualcomm case', 'lấy case qualcomm', 'phân tích case qualcomm', 'qualcomm case agent', 'extract qualcomm case code'. Use whenever the user provides a Qualcomm case code/number and wants the full case captured and summarized."
-allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(node:*), Bash(npm:*), Bash(powershell:*), PowerShell, Read, Write, Glob
+description: "Qualcomm Case Extraction Agent. Given ONE Qualcomm case code, capture the COMPLETE case from the Qualcomm Support portal (support.qualcomm.com) — full metadata, case description, attachments, and all Chatter feed comments sorted strictly in chronological order (Oldest -> Newest) — with ONE headless command (`run_case.mjs`) that connects via native CDP over the persistent Chrome profile, expands the Chatter feed, extracts the DOM, and finalizes the cache into `case.json` and human-readable `case.md`. Incremental: unchanged cases report 'no update'. Triggers: 'qualcomm case <code>', 'pull qualcomm case', 'access qualcomm case', 'lấy case qualcomm', 'extract qualcomm case code'. Use whenever the user provides a Qualcomm case code/number and wants the full case captured."
+allowed-tools: Bash(node:*), Bash(npm:*), Bash(powershell:*), PowerShell, Read, Write, Glob
 ---
 
 # Qualcomm Case Management Agent
 
-**Role.** Senior Qualcomm support engineer with deep **Protocol (L1/L2/L3, NAS/RRC)**,
-**RF (TX/RX, sensitivity, desense, ACLR, EVM)** and **3GPP** expertise. Given one **case code**,
-retrieve the entire case from the Qualcomm Support portal, analyze it, and produce engineer-grade
-artifacts in the local project cache.
+**Role.** Qualcomm Case Extraction & Management Agent. Given one **case code**, retrieve the entire case from the Qualcomm Support portal (support.qualcomm.com), sort all Chatter feed comments in chronological order (Oldest -> Newest), and produce clean structured JSON and Markdown artifacts in the local project cache.
 
-**Input contract.** One Qualcomm case code = **exactly 8 digits** (e.g. `08460319`). A leading
-`CASE-` prefix is accepted and stripped. Anything else → intake fails, ask user, STOP.
+**Input contract.** One Qualcomm case code = **exactly 8 digits** (e.g. `08460319`). A leading `CASE-` prefix is accepted and stripped. Anything else → intake fails, ask user, STOP.
 
-**A valid code goes straight to the portal.** No confirmation question, no "shall I update?"
-prompt — validate the 8 digits, then run the capture. The only thing that stops a run is a
-genuine blocker (lapsed Okta session, wrong code, portal not rendering), never a policy check.
+**A valid code goes straight to the portal.** No confirmation question, no "shall I update?" prompt — validate the 8 digits, then run the capture. The only thing that stops a run is a genuine blocker (lapsed Okta session, wrong code, portal not rendering), never a policy check.
 
-**Capture is code, analysis is you.** Signing in, clicking the search result, paginating the
-feed, expanding posts and extracting the DOM are deterministic — `scripts/run_case.mjs` does all
-of it in one command, for zero model tokens (this is the difference between ~100k tokens and
-~1k per case; see `docs/AUTOMATION.md`). Your job starts at the verdict it prints.
+**Deterministic execution.** Signing in, navigating to the search result, paginating the feed, expanding posts, sorting comments chronologically, and extracting the DOM are deterministic — `scripts/run_case.mjs` executes the entire pipeline in one headless command for zero model tokens.
 
-**Harness-agnostic.** Works under Claude Code, Cline (VS Code), or any agent with terminal + file access.
+**Harness-agnostic.** Works under Claude Code, Cline (VS Code), Antigravity, or any agent with terminal and file access.
 
 ---
 
@@ -40,9 +31,8 @@ Scripts and references live under `.claude/skills/qualcomm-case-agent/`.
 | MFA | **Email OTP** — 6-digit code to Samsung mailbox, expires ~5 min. |
 | Browser | **real Google Chrome** on CDP `9222` via `scripts/connect_chrome.ps1` |
 | Session store | `data/chrome-profile/` — persistent `--user-data-dir`; git-ignored |
-| Case cache | per-case folder `data/cases/<CODE>/`: `case.json` · `case.report.md` · `case.md` · `case.html` · `case.txt` · `case.pdf` |
+| Case cache | per-case folder `data/cases/<CODE>/`: `case.json` · `case.md` |
 | Sync index | `data/cases/_index.json` |
-| Watchlist / run log | `data/watchlist.json` · `data/runs.json` (scheduler + dashboard) |
 
 **Scripts** (`scripts/`)
 
@@ -54,18 +44,14 @@ Scripts and references live under `.claude/skills/qualcomm-case-agent/`.
 | `intake.mjs` | validate code + prep cache dirs (also imported by `run_case.mjs`) |
 | `browser.mjs` | browser/CDP runtime bridge |
 | `readiness.js` · `expand_step.js` · `extract_case.js` | page scripts run inside browser DOM |
-| `scrape_case.mjs` | finalizer — assert, hash, write `case.json` + index (`--merge` = update run) |
-| `check_collapsed.js` · `verify_case.mjs` | completeness gates — unexpanded-control read, post-capture QA (run automatically; `node verify_case.mjs --all` re-checks every cache) |
-| `render_case.mjs` | `case.json` → report.md + md + html + txt |
-| `enrich_local.mjs` | PHASE 3 on a local 4–7 GB LLM (see `docs/LOCAL_LLM.md`) |
-| `scheduler.mjs` · `register_task.ps1` | unattended sweeps of `data/watchlist.json` |
+| `scrape_case.mjs` | finalizer — sort chronologically, assert, hash, write `case.json` + index (`--merge` = update run) |
+| `check_collapsed.js` · `verify_case.mjs` | completeness gates — unexpanded-control read, post-capture QA (`verifyCase`) |
+| `render_case.mjs` | `case.json` → clean human-readable `case.md` |
 | `connect_chrome.ps1` · `recover_chrome.ps1` | browser + session helpers |
 
 **References** (`references/`) — load ON DEMAND, not up front:
 `manual-flow.md` (Troubleshooting & recovery scenarios) ·
 `login-flow.md` (Okta SSO + Email OTP + Session Reuse) · `extraction.md` · `workflow.md` · `consumer-guide.md`
-
-**Sibling skill:** `qualcomm-enrich` — standalone analyst pass (no browser, no re-scrape).
 
 ---
 
@@ -75,176 +61,60 @@ Scripts and references live under `.claude/skills/qualcomm-case-agent/`.
 node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE>
 ```
 
-That is the whole capture. It validates the code, attaches to the persistent-profile Chrome
-(launching it if needed), lands on the case via direct cache URL or fast global search (`/s/global-search/<CODE>`),
-resolves and opens the case, expands the feed (full for a new case, only down to the newest cached comment for an update),
-extracts, finalizes with hash + index, renders md/html/txt and prints the PDF. It decides new-vs-update
-from the cache on its own — you do not pass a mode.
+That is the whole capture. It validates the code, attaches to the persistent-profile Chrome (launching it if needed), lands on the case via direct cache URL or fast global search (`/s/global-search/<CODE>`), expands the Chatter feed completely, extracts metadata + description + comments, sorts comments chronologically (Oldest -> Newest), writes `case.json`, updates `_index.json`, renders `case.md`, and runs QA validation. It decides new-vs-update from the cache on its own.
 
-Options: `--mode full|update` (override the auto choice) · `--enrich local` (run the local-LLM
-analysis inline) · `--no-pdf`.
+Optional: `--mode full|update` (override the auto choice).
 
 **stdout is exactly one JSON line.** Read it and branch:
 
 | `status` | exit | Meaning | Your next step |
 |----------|------|---------|----------------|
-| `created` | 0 | new case captured | PHASE 3 (enrich all comments) → PHASE 5 |
-| `updated` | 0 | new comments merged (`newComments`, `newCommentIds`) | PHASE 3 on **those ids only** → PHASE 5 |
-| `no-update` | 0 | nothing new since `since` | PHASE 5: report "no update", STOP |
-| `auth-required` | 3 | saved Okta session lapsed | The user must sign in MANUALLY in the open Chrome window (enter password + email OTP) (Recovery 1 → `references/login-flow.md`). Once they confirm they are logged in and see the dashboard, re-run the command. |
+| `created` | 0 | new case captured | Report case info & artifacts to user |
+| `updated` | 0 | new comments merged (`newComments`, `newCommentIds`) | Report updated comments & artifacts to user |
+| `no-update` | 0 | nothing new since `since` | Report "no update", STOP |
+| `auth-required` | 3 | saved Okta session lapsed | The user must sign in MANUALLY in the open Chrome window (enter password + email OTP) (Recovery 1 → `references/login-flow.md`). Once logged in, re-run the command. |
 | `not-found` | 4 | search returned nothing for this code | STOP — wrong code, or the account cannot see it |
 | `blocked` | 5 | page never rendered / capture short | load `references/manual-flow.md` and finish by hand; `reason` says where it stopped |
-| `busy` | 6 | another capture holds the lock (`data/.capture.lock`) | wait ~30s, re-run **once**; still `busy` after 2 retries → treat like `blocked`: stop and report, do not spin-loop |
+| `busy` | 6 | another capture holds the lock (`data/.capture.lock`) | wait ~30s, re-run **once**; still `busy` after 2 retries → report and STOP |
 | `error` | 1 | bad invocation or script failure | fix per `reason`; do not retry blindly |
 
-> **A non-zero exit here is BY DESIGN for `auth-required`/`not-found`/`blocked`/`busy` — it is not
-> a crash.** Whatever ran the command (Bash tool, Cline `execute_command`, a background-task
-> wrapper) may still surface it as a generic "failed" result. **Ignore that label — always branch
-> on the `status` field inside stdout's JSON line, never on the shell exit-status label alone.**
-> Seeing "failed" is not license to retry blindly, apologize, or report an error the table above
-> already names as a normal outcome.
+> **A non-zero exit here is BY DESIGN for `auth-required`/`not-found`/`blocked`/`busy` — it is not a crash.** Whatever ran the command (Bash tool, Cline `execute_command`, a background-task wrapper) may still surface it as a generic "failed" result. **Ignore that label — always branch on the `status` field inside stdout's JSON line, never on the shell exit-status label alone.**
 
-> `blocked` is never "no update". A tool failure means inconclusive — reporting an unchanged
-> case on a failed probe is the one wrong answer here.
+> `blocked` is never "no update". A tool failure means inconclusive — reporting an unchanged case on a failed probe is the one wrong answer here.
 
-**Every `created` / `updated` verdict is verified and carries its evidence.** Before returning,
-`run_case.mjs` runs `verify_case.mjs` against what it just persisted (`verified: true`, any
-`verifyWarnings`); a failure comes back as `blocked` + `retryable`, never as success. The verdict's
-`evidence` block — also persisted as `capture` in `case.json` — records `pendingExpand` /
-`pendingMoreComments` (both must be 0), the per-control `clicks` tally, and `screenshot`, a
-full-page PNG of the feed as extraction saw it (`capture.png`, or `probe.png` on a `no-update`).
-**To check a capture really did click every "Expand Post" / "More comments", read that PNG** — the
-counters are produced by the same code they attest to, the image is not.
+**Every `created` / `updated` verdict is verified and carries its evidence.** Before returning, `run_case.mjs` runs `verify_case.mjs` against what it just persisted (`verified: true`, any `verifyWarnings`); a failure comes back as `blocked` + `retryable`, never as success. The verdict's `evidence` block — also persisted as `capture` in `case.json` — records `pendingExpand` / `pendingMoreComments` (both must be 0), the per-control `clicks` tally, and `screenshot` (`capture.png`, or `probe.png` on a `no-update`).
 
-> **The fast no-update probe now refuses to guess.** It clicks nothing, so it only reports
-> `no-update` when the newest cached comment is still the top post AND zero "Expand Post" /
-> "More comments" controls remain. Anything still hiding content falls through to a real expand +
-> merge pass, because a new *nested reply under an old post* never moves the top post (case
-> 08503838). If you still suspect a miss, `--mode full` re-paginates the whole thread; it keeps the
-> existing `enrichment` and reports only genuinely new ids in `newCommentIds`, so it costs one
-> analysis per new comment, not a whole thread.
-
-> `displayedCommentCount` is a portal render counter, not a completeness signal, and is **not**
-> hashed. It used to be, which made an unchanged case report `updated` with `newComments: 0`
-> whenever the badge drifted. `newComments: 0` on an `updated` verdict now means only header fields
-> (Status/Priority/…) changed — there is nothing new to enrich.
-
-**Do NOT `Read` `case.json` to find out what happened.** The verdict line already carries the
-counts, ids and paths; the file is the size of the whole case. Read only the comment bodies you
-are about to analyze.
+**Do NOT `Read` `case.json` to find out what happened.** The verdict line already carries the counts, ids and paths; the file is the size of the whole case.
 
 ---
 
-## PHASE 3 — Enrich
+## Output Artifacts
 
-**Trigger:** verdict `created`, or `updated` (analyze only `newCommentIds`).
-**Goal:** engineer-grade analysis in `data.enrichment`. Raw fields and `hash` are NEVER mutated.
+Each captured case produces two clean artifacts in `data/cases/<CODE>/`:
+1. `case.json`: Canonical structured JSON with case metadata, description, attachments, and `comments` array sorted chronologically (Oldest -> Newest).
+2. `case.md`: Clean Markdown document containing case headers, initial description, and numbered chronological comment timeline.
 
-**Gate before reading the file.** The verdict line already has `commentCount` / `newComments` —
-that's enough to decide whether to ask. Do NOT open `case.json` first and decide after; the read
-itself is the token cost this gate exists to avoid.
-- Small (`newComments` ≤ ~5 and no long QXDM/log dumps expected): proceed straight to step 1, no
-  prompt — matches "no policy check" spirit for routine cases.
-- Large (`newComments` > ~5, or case history shows big log-heavy comments): ask the user first
-  whether to run full analysis now. **Use the tool native to the running agent — never a plain
-  text question:** Claude Code → `AskUserQuestion`; Cline → `ask_followup_question` (see
-  "Running Under Other Agents" below). Offer options like: full enrich now / enrich later /
-  summary-only (skip per-comment `commentAnalyses`, case-level fields only).
-- If the user declines or doesn't answer yet: still finish PHASE 5 reporting capture succeeded,
-  just note enrichment is pending.
-
-1. Read `data/cases/<CODE>/case.json`.
-2. New comment ids = `comments[].id` not already in `enrichment.commentAnalyses`.
-3. Per new comment → `summary` (2–4 sentences), `role` (Symptom/Question/Hypothesis/Data-Log/
-   Analysis/Request/Resolution/Info), `keyPoints[]` (band/EARFCN, dBm, ms, QXDM/error codes),
-   `citations[]` (exact 3GPP clause, e.g. `TS 38.331 §5.3.7`), `answered` (false if a
-   Question/Request has no later resolving comment). Thin comment → `summary: "Insufficient detail"`.
-4. Re-generate case-level fields from ALL comments: `engineerSummary` (5–8 sentences),
-   `currentStatus`, `rootCause` (hypothesis + reasoning, or `"Unresolved"`), `caseFlow[]`
-   (oldest→newest: `{step, phase, date, by, what, refComments[]}`), `openQuestions[]`,
-   `recommendedActions[]`, `tags[]`, `timeline[]` newest-first.
-5. Write back under `enrichment`, set `_index.json["<CODE>"].enrichedAt`, then re-render:
-   ```bash
-   node ".claude/skills/qualcomm-case-agent/scripts/render_case.mjs" "data/cases/<CODE>/case.json"
-   ```
-
-```json
-{ "enrichment": { "engineerSummary": "...", "currentStatus": "...", "rootCause": "...",
-  "caseFlow": [{ "step": 1, "phase": "Symptom", "date": "...", "by": "...", "what": "...", "refComments": ["<id>"] }],
-  "openQuestions": ["..."], "recommendedActions": ["..."], "tags": ["..."],
-  "timeline": [{ "date": "...", "event": "..." }],
-  "commentAnalyses": { "<id>": { "summary": "...", "role": "...", "keyPoints": ["..."], "citations": ["..."], "answered": false } },
-  "enrichedAt": "<ISO-8601>" } }
-```
-
-(Older caches use flat `commentSummaries: { <id>: string }` — the renderer reads both; new runs write `commentAnalyses`.)
-
-**Offload option.** `--enrich local` (or `node scripts/enrich_local.mjs <CODE>`) runs the same
-schema on a local 4–7 GB model, costing zero model tokens. It is good at per-comment structuring
-and weak at 3GPP clause recall — see `docs/LOCAL_LLM.md` for the split and the setup. When the
-user wants your own expert reading, do PHASE 3 here instead.
-
-**Re-enrich** ("re-enrich", "redo analysis", "improve summary"): re-run this phase, or hand off
-to the `qualcomm-enrich` skill. Case-level fields are always re-generated; only new ids are added
-to `commentAnalyses`.
-
-**Rule:** analyses interpret source data only — never add facts absent from the case.
+The global index `data/cases/_index.json` is updated with synced timestamp, hash, and comment count.
 
 ---
 
-## PHASE 5 — Report
+## Reporting
 
-Tell the user: case number + title + status, comments captured **vs displayed** (update run: how
-many NEW comments were merged, or **"no update"**), current status, root cause, # open questions,
-top recommended actions, and the file paths under `data/cases/<CODE>/` (`case.json` ·
-`case.report.md` · `case.html` · `case.txt` · `case.pdf`). Attach `case.report.md` and
-`case.html`. If the verdict reported the PDF as failed, say so — never drop it silently.
-
----
-
-## Unattended runs + web dashboard
-
-The same pipeline runs with no model at all. Full setup: `docs/AUTOMATION.md`.
-
-```bash
-node ".claude/skills/qualcomm-case-agent/scripts/scheduler.mjs" --once   # one sweep of due cases
-node web/server.mjs --scheduler                                          # dashboard + resident sweeps
-powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/register_task.ps1"
-```
-
-`data/watchlist.json` holds the watched codes and per-case intervals; `data/runs.json` holds the
-last verdict per case; the dashboard at `http://127.0.0.1:8787` reads both, shows the enrichment,
-links the artifacts, and can add/remove a case or force a sync. A sweep stops on `auth-required`
-and the dashboard shows a sign-in banner — the email OTP is the one step a schedule cannot do.
+Tell the user:
+- Case number, title, and status.
+- Number of comments captured (and for update runs, how many new comments were added).
+- File paths: `data/cases/<CODE>/case.json` and `data/cases/<CODE>/case.md`.
 
 ---
 
 ## Agent Guardrails
 
-- **Fast path first.** Only fall back to `references/manual-flow.md` when a verdict says `blocked`,
-  or the user explicitly asks for a manual step. Do not hand-drive a run that the script can do.
-- **A valid code needs no confirmation** — validate, then capture. Cached case → the script picks
-  the incremental update path by itself.
+- **Fast path first.** Only fall back to `references/manual-flow.md` when a verdict says `blocked`, or the user explicitly asks for a manual step. Do not hand-drive a run that the script can do.
+- **A valid code needs no confirmation** — validate, then capture. Cached case → the script picks the incremental update path by itself.
 - **Session = persistent Chrome profile** at `data/chrome-profile`. Never close it between runs.
-- **URL discipline.** The only URL ever opened by hand is `/s/global-search/<CODE>`. The real case
-  URL is `/s/case/<SFID>/<slug>` where `<SFID>` is a Salesforce 18-char record id resolved from the
-  search result — **never** construct `/s/case/<case-number>`.
-- **Confidentiality:** case content is Qualcomm NDA. Keep it in `data/` (git-ignored). Never paste
-  it to an external service — that includes any remote LLM endpoint you did not already have.
-- **Fidelity:** comment bodies and logs are captured VERBATIM. Never truncate. Analyses are a
-  separate field.
+- **URL discipline.** The only URL ever opened by hand is `/s/global-search/<CODE>`. The real case URL is `/s/case/<SFID>/<slug>` where `<SFID>` is a Salesforce 18-char record id resolved from the search result — **never** construct `/s/case/<case-number>`.
+- **Confidentiality:** case content is Qualcomm NDA. Keep it in `data/` (git-ignored). Never paste it to an external service.
+- **Fidelity:** comment bodies and logs are captured VERBATIM. Never truncate.
 - **No fabrication:** absent field/URL/log → say so.
-- **Scope:** one case per invocation (the scheduler is the multi-case path).
+- **Scope:** one case per invocation.
 - **ToS:** extract only cases the signed-in account is authorized to view.
-
----
-
-## Running Under Other Agents (Cline / VS Code)
-
-Cline auto-reads `.clinerules/qualcomm-case-agent.md`. Use `execute_command` for the `node` /
-`powershell` lines — the fast path is a single `execute_command`, which also sidesteps Cline's
-~30s command timeout concerns (it is one long call, not twenty short ones). Do NOT use Cline's
-`browser_action`: this skill attaches to real Chrome over CDP.
-
-**Asking the user anything (OTP, a genuine ambiguity) MUST use `ask_followup_question`.** Cline's
-ACT mode requires a tool call every turn — a plain text reply errors the turn and drops the task.

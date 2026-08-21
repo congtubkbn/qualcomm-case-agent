@@ -1,13 +1,11 @@
 // scripts/run_case.mjs — the whole capture pipeline as ONE deterministic command.
 //
-//     node run_case.mjs <CODE> [--mode auto|full|update] [--enrich local|none] [--no-pdf]
+//     node run_case.mjs <CODE> [--mode auto|full|update]
 //
-// Why: PHASE 0 -> 5 driven turn-by-turn costs ~25 agent turns, most of them
-// `snapshot` dumps of a Salesforce accessibility tree that exist only so the
-// model can find one @ref to click. None of those decisions are judgement calls
-// — they are "click every Expand Post until there are none left". Running them
-// here spends zero model tokens and no shell quoting, and makes the same
-// pipeline usable UNATTENDED (scheduler.mjs) where there is no model at all.
+// Why: Capturing a case involves authentication check, fast landing/search,
+// expanding all Chatter feed posts, extracting DOM, sorting chronologically,
+// and writing case.json and case.md. Running it as one command uses zero
+// model tokens during extraction.
 //
 // stdout is exactly ONE JSON line (the verdict). Everything else goes to stderr.
 //
@@ -20,21 +18,19 @@
 //   error                           -> exit 1
 //
 // "blocked" is never downgraded to "no-update": a tool failure means
-// inconclusive, not "confirmed unchanged" (SKILL.md PHASE 1.5B hard rule).
+// inconclusive, not "confirmed unchanged" (SKILL.md hard rule).
 //
 // `retryable: true` on a `blocked` verdict marks a transient capture glitch
-// (e.g. a stuck expand loop) worth hammering again soon — scheduler.mjs skips
-// stamping lastRunAt for these so the case stays due next sweep tick instead
-// of waiting out the full interval, bounded by MAX_RETRYABLE_ATTEMPTS.
+// (e.g. a stuck expand loop) worth retrying.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
 import { intake } from './intake.mjs';
 import { acquireLock, releaseLock } from './lock.mjs';
-import { BrowserError, ensureChrome, evalFile, getCdpClient, open, pdf, screenshot, sleep } from './browser.mjs';
+import { BrowserError, ensureChrome, evalFile, getCdpClient, open, screenshot, sleep } from './browser.mjs';
 import { fastLandOnCase } from './fast_landing.mjs';
 import { verifyCase } from './verify_case.mjs';
 
@@ -420,33 +416,12 @@ export async function run(code, opts = {}) {
   const v = scrape.json || {};
   const newComments = typeof v.newComments === 'number' ? v.newComments : (cached ? 0 : v.commentCount);
 
-  // --- Optional local LLM enrich
-  if (opts.enrich === 'local' && newComments > 0) {
-    node('enrich_local.mjs', [code]);
-  }
-
   // --- Render
   const render = node('render_case.mjs', [casePath]);
   const artifacts = {
-    reportPath: join(caseDir, 'case.report.md'),
     mdPath: join(caseDir, 'case.md'),
-    htmlPath: join(caseDir, 'case.html'),
-    txtPath: join(caseDir, 'case.txt'),
-    pdfPath: join(caseDir, 'case.pdf'),
+    casePath,
   };
-
-  if (!opts.noPdf) {
-    try {
-      const htmlUrl = pathToFileURL(artifacts.htmlPath).href;
-      open(htmlUrl);
-      pdf(artifacts.pdfPath);
-      if (!existsSync(artifacts.pdfPath) || statSync(artifacts.pdfPath).size === 0) {
-        artifacts.pdfFailed = 'zero bytes written';
-      }
-    } catch (e) {
-      artifacts.pdfFailed = e.message;
-    }
-  }
 
   // --- QA Gate
   const verified = verifyCase(code, caseDir);
@@ -492,12 +467,10 @@ export async function run(code, opts = {}) {
   };
 }
 
-function parseArgs(argv) {
-  const opts = { mode: 'auto', enrich: 'none', noPdf: false };
+export function parseArgs(argv) {
+  const opts = { mode: 'auto' };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--mode') opts.mode = argv[++i];
-    else if (argv[i] === '--enrich') opts.enrich = argv[++i];
-    else if (argv[i] === '--no-pdf') opts.noPdf = true;
   }
   return opts;
 }

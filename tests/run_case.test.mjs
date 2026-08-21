@@ -102,6 +102,27 @@ describe('anchorOf & isNoUpdate', () => {
   });
 });
 
+describe('parseArgs minimal CLI contract', () => {
+  it('defaults to mode: auto', async () => {
+    const { parseArgs } = await importRunCase();
+    assert.deepEqual(parseArgs([]), { mode: 'auto' });
+  });
+
+  it('accepts --mode full and --mode update', async () => {
+    const { parseArgs } = await importRunCase();
+    assert.deepEqual(parseArgs(['--mode', 'full']), { mode: 'full' });
+    assert.deepEqual(parseArgs(['--mode', 'update']), { mode: 'update' });
+  });
+
+  it('ignores deprecated --enrich and --no-pdf flags', async () => {
+    const { parseArgs } = await importRunCase();
+    const parsed = parseArgs(['--enrich', 'local', '--no-pdf', '--mode', 'full']);
+    assert.deepEqual(parsed, { mode: 'full' });
+    assert.equal(parsed.enrich, undefined);
+    assert.equal(parsed.noPdf, undefined);
+  });
+});
+
 describe('STATUS_EXIT & formatVerdict', () => {
   it('maps blocked/auth/busy statuses to distinct non-zero exits', async () => {
     const { STATUS_EXIT } = await importRunCase();
@@ -245,6 +266,12 @@ describe('run() fast landing & verdict integration', () => {
     assert.equal(v.caseUrl, targetUrl);
     assert.ok(v.timing, 'verdict includes timing info');
     assert.ok(typeof v.timing.landingMs === 'number');
+    assert.ok(v.mdPath && v.mdPath.endsWith('case.md'));
+    assert.ok(v.casePath && v.casePath.endsWith('case.json'));
+    assert.equal(v.pdfPath, undefined);
+    assert.equal(v.htmlPath, undefined);
+    assert.equal(v.reportPath, undefined);
+    assert.equal(v.txtPath, undefined);
 
     const started = Date.now() - 150;
     const formatted = formatVerdict('08438355', v, started);
