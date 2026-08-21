@@ -19,6 +19,7 @@ function mockBrowser(t, handlerOrQueue, cdpOverride = null) {
   const evalFileCalls = [];
   const openCalls = [];
   const clickCalls = [];
+  const screenshotCalls = [];
 
   const defaultMockCdp = {
     isConnected: () => true,
@@ -39,7 +40,7 @@ function mockBrowser(t, handlerOrQueue, cdpOverride = null) {
       sleep: async () => {},
       ensureChrome: async () => {},
       pdf: () => {},
-      screenshot: () => {},
+      screenshot: (path) => { screenshotCalls.push(path); },
       getCdpClient: async () => cdpOverride || defaultMockCdp,
       closeCdpClient: async () => {},
       BrowserError: class BrowserError extends Error {},
@@ -55,7 +56,7 @@ function mockBrowser(t, handlerOrQueue, cdpOverride = null) {
       },
     },
   });
-  return { evalFileCalls, openCalls, clickCalls };
+  return { evalFileCalls, openCalls, clickCalls, screenshotCalls };
 }
 
 let seq = 0;
@@ -252,5 +253,135 @@ describe('run() fast landing & verdict integration', () => {
     assert.equal(formatted.caseUrl, targetUrl);
     assert.equal(typeof formatted.timing.elapsedMs, 'number');
     assert.equal(typeof formatted.timing.landingMs, 'number');
+  });
+
+  it('handles NOT_FOUND landing with diagnostics and screenshot', async (t) => {
+    const mockCdp = {
+      isConnected: () => true,
+      navigate: async () => {},
+      eval: async () => ({
+        state: 'NO_LINK',
+        reason: 'Search returned no case links for 08000001',
+      }),
+      click: async () => true,
+      close: async () => {},
+    };
+
+    const { screenshotCalls } = mockBrowser(t, () => {}, mockCdp);
+    const { run, formatVerdict } = await importRunCase();
+    const v = await run('08000001', { mode: 'auto', enrich: 'none', noPdf: true, cdp: mockCdp });
+
+    assert.equal(v.status, 'not-found');
+    assert.match(v.reason, /no search result|no case link/i);
+    assert.ok(Array.isArray(v.diagnostics), 'diagnostics array should be included');
+    assert.ok(v.diagnostics.length > 0);
+    assert.equal(v.screenshot, 'not_found.png');
+    assert.ok(screenshotCalls.some(p => p.endsWith('not_found.png')));
+
+    const formatted = formatVerdict('08000001', v, Date.now() - 100);
+    assert.equal(formatted.status, 'not-found');
+    assert.equal(formatted.screenshot, 'not_found.png');
+    assert.deepEqual(formatted.diagnostics, v.diagnostics);
+  });
+
+  it('handles STUB / blocked landing with diagnostics and screenshot', async (t) => {
+    let evalStep = 0;
+    const mockCdp = {
+      isConnected: () => true,
+      navigate: async () => {},
+      eval: async () => {
+        evalStep++;
+        if (evalStep === 1) {
+          // Search script returns STUB link
+          return {
+            state: 'FOUND',
+            href: 'https://support.qualcomm.com/s/case/Case/Default',
+            exact: false,
+            fields: {},
+            rows: 1,
+          };
+        }
+        // Click probe returns TIMEOUT
+        return { state: 'TIMEOUT', href: 'https://support.qualcomm.com/s/case/Case/Default' };
+      },
+      click: async () => true,
+      close: async () => {},
+    };
+
+    const { screenshotCalls } = mockBrowser(t, () => {}, mockCdp);
+    const { run, formatVerdict } = await importRunCase();
+    const v = await run('08000002', { mode: 'auto', enrich: 'none', noPdf: true, cdp: mockCdp });
+
+    assert.equal(v.status, 'blocked');
+    assert.match(v.reason, /stub/i);
+    assert.ok(Array.isArray(v.diagnostics), 'diagnostics array should be included');
+    assert.equal(v.screenshot, 'landing_failure.png');
+    assert.ok(screenshotCalls.some(p => p.endsWith('landing_failure.png')));
+
+    const formatted = formatVerdict('08000002', v, Date.now() - 100);
+    assert.equal(formatted.status, 'blocked');
+    assert.equal(formatted.screenshot, 'landing_failure.png');
+    assert.deepEqual(formatted.diagnostics, v.diagnostics);
+  });
+
+  it('handles AUTH redirect with diagnostics and auth_required screenshot', async (t) => {
+    const mockCdp = {
+      isConnected: () => true,
+      navigate: async () => {},
+      eval: async () => ({
+        state: 'AUTH',
+        url: 'https://account.qualcomm.com/login',
+      }),
+      click: async () => true,
+      close: async () => {},
+    };
+
+    const { screenshotCalls } = mockBrowser(t, () => {}, mockCdp);
+    const { run, formatVerdict } = await importRunCase();
+    const v = await run('08000003', { mode: 'auto', enrich: 'none', noPdf: true, cdp: mockCdp });
+
+    assert.equal(v.status, 'auth-required');
+    assert.match(v.reason, /okta/i);
+    assert.ok(Array.isArray(v.diagnostics));
+    assert.equal(v.screenshot, 'auth_required.png');
+    assert.ok(screenshotCalls.some(p => p.endsWith('auth_required.png')));
+
+    const formatted = formatVerdict('08000003', v, Date.now() - 100);
+    assert.equal(formatted.status, 'auth-required');
+    assert.equal(formatted.screenshot, 'auth_required.png');
+  });
+
+  it('handles feed with no articles with diagnostics and feed_missing screenshot', async (t) => {
+    const mockCdp = {
+      isConnected: () => true,
+      navigate: async () => {},
+      eval: async () => ({
+        state: 'ON_CASE',
+        href: REAL_HREF,
+        fields: { title: 't' },
+      }),
+      click: async () => true,
+      close: async () => {},
+    };
+
+    const { screenshotCalls } = mockBrowser(t, (file, vars) => {
+      if (file === 'expand_step.js') {
+        return { articles: 0 };
+      }
+      throw new Error(`Unexpected evalFile: ${file}`);
+    }, mockCdp);
+
+    const { run, formatVerdict } = await importRunCase();
+    const v = await run('08000004', { mode: 'auto', enrich: 'none', noPdf: true, cdp: mockCdp });
+
+    assert.equal(v.status, 'blocked');
+    assert.match(v.reason, /no chatter feed articles/i);
+    assert.ok(Array.isArray(v.diagnostics));
+    assert.equal(v.screenshot, 'feed_missing.png');
+    assert.ok(screenshotCalls.some(p => p.endsWith('feed_missing.png')));
+
+    const formatted = formatVerdict('08000004', v, Date.now() - 100);
+    assert.equal(formatted.status, 'blocked');
+    assert.equal(formatted.screenshot, 'feed_missing.png');
   });
 });

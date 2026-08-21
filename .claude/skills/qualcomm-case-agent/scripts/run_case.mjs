@@ -28,7 +28,7 @@
 // of waiting out the full interval, bounded by MAX_RETRYABLE_ATTEMPTS.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
@@ -115,6 +115,9 @@ export function isNoUpdate(probe, cached) {
  *  reports the missing file as a warning, not an error). */
 function shoot(dir, name) {
   try {
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
     screenshot(join(dir, name));
     return name;
   } catch (e) {
@@ -171,17 +174,51 @@ export async function run(code, opts = {}) {
     portalUrl: PORTAL,
   });
   const landingDurationMs = landed.durationMs || 0;
+  const diagnostics = landed.diagnostics || [];
+
   if (landed.state === 'AUTH') {
-    return { status: 'auth-required', reason: 'Okta session lapsed — sign in once in the persistent Chrome profile (email OTP is human-only)', url: landed.url, caseUrl: landed.url, timing: { landingMs: landingDurationMs } };
+    const shot = shoot(caseDir, 'auth_required.png');
+    return {
+      status: 'auth-required',
+      reason: landed.reason || 'Okta session lapsed — sign in once in the persistent Chrome profile (email OTP is human-only)',
+      url: landed.url,
+      caseUrl: landed.url,
+      timing: { landingMs: landingDurationMs },
+      diagnostics,
+      screenshot: shot,
+    };
   }
   if (landed.state === 'NOT_FOUND') {
-    return { status: 'not-found', reason: `no search result for ${code} (wrong code, or the account cannot see it)`, timing: { landingMs: landingDurationMs } };
+    const shot = shoot(caseDir, 'not_found.png');
+    return {
+      status: 'not-found',
+      reason: landed.reason || `no search result for ${code} (wrong code, or the account cannot see it)`,
+      timing: { landingMs: landingDurationMs },
+      diagnostics,
+      screenshot: shot,
+    };
   }
   if (landed.state === 'STUB') {
-    return { status: 'blocked', reason: landed.reason || 'case link click did not route to the real case page', probe: landed, timing: { landingMs: landingDurationMs } };
+    const shot = shoot(caseDir, 'landing_failure.png');
+    return {
+      status: 'blocked',
+      reason: landed.reason || 'case link click did not route to the real case page',
+      probe: landed,
+      timing: { landingMs: landingDurationMs },
+      diagnostics,
+      screenshot: shot,
+    };
   }
   if (landed.state !== 'OK') {
-    return { status: 'blocked', reason: `search/landing failed (state=${landed.state})`, probe: landed, timing: { landingMs: landingDurationMs } };
+    const shot = shoot(caseDir, 'landing_failure.png');
+    return {
+      status: 'blocked',
+      reason: landed.reason || `search/landing failed (state=${landed.state})`,
+      probe: landed,
+      timing: { landingMs: landingDurationMs },
+      diagnostics,
+      screenshot: shot,
+    };
   }
   const caseUrl = landed.href;
   const header = landed.fields || {};
@@ -210,7 +247,16 @@ export async function run(code, opts = {}) {
     }
   }
   if (!probe || !probe.articles) {
-    return { status: 'blocked', reason: 'case page has no Chatter feed articles — wrong page or feed never loaded', probe, caseUrl, timing: { landingMs: landingDurationMs } };
+    const shot = shoot(caseDir, 'feed_missing.png');
+    return {
+      status: 'blocked',
+      reason: 'case page has no Chatter feed articles — wrong page or feed never loaded',
+      probe,
+      caseUrl,
+      timing: { landingMs: landingDurationMs },
+      diagnostics,
+      screenshot: shot,
+    };
   }
   if (merge && isNoUpdate(probe, cached)) {
     const shot = shoot(caseDir, 'probe.png');
@@ -219,6 +265,7 @@ export async function run(code, opts = {}) {
       commentCount: cached.comments.length,
       caseUrl: caseUrl || cached.caseUrl || cached.url,
       timing: { landingMs: landingDurationMs },
+      diagnostics,
       evidence: { articles: probe.articles, pendingExpand: 0, pendingMoreComments: 0, screenshot: shot },
     };
   }
@@ -421,6 +468,7 @@ export async function run(code, opts = {}) {
       commentCount: v.commentCount,
       caseUrl: caseUrl || raw.url,
       timing: { landingMs: landingDurationMs },
+      diagnostics,
     };
   }
 
@@ -439,6 +487,7 @@ export async function run(code, opts = {}) {
     timing: { landingMs: landingDurationMs },
     dir: caseDir,
     expandRounds: rounds,
+    diagnostics,
     ...artifacts,
   };
 }
