@@ -1,0 +1,109 @@
+# QUALCOMM AGENT — DISCUSSION & PLANNING
+
+> Draft nháp, bổ sung dần theo session. Mỗi session = 1 buổi discuss/quyết định.
+
+## 1. Vai trò (Role)
+- CP engineer @ Samsung
+- Việc hàng ngày: check + resolve issue từ hệ thống PLM
+- Scope: thiết bị Samsung dùng chipset Qualcomm
+- Input: issue info + UE log (Qualcomm)
+
+## 2. Nguồn thông tin (Resources)
+- 3GPP spec
+- Source code
+- Tài liệu kỹ thuật (technical docs)
+- Hệ thống Qualcomm case (support.qualcomm.com / case code)
+
+## 3. Nhiệm vụ phụ (Secondary task) — Patent idea
+- Phân tích bài toán trong 3GPP spec
+- Đề xuất giải pháp phía UE
+- Raise idea (patent)
+
+## 4. Mục tiêu áp dụng AI (Goal)
+- Hỗ trợ công việc hàng ngày (issue resolve + patent idea)
+- Ràng buộc: tiết kiệm token cost + thời gian
+
+## 5. Cần quyết định (Open decision)
+- Hướng phát triển tiếp theo cho "qualcomm agent" — chưa chốt
+
+---
+Session 2: agent cần xử lý các issue protocol như call drop, call fail, no service, throughput , emergency call issue, sms issue, etc.
+đây là những issue cơ bản hàng ngày, tuy nhiên kỹ sư cần phân tích và xử lý bất kỳ issue nào.
+đối với 1 issue thì sẽ có title issue, description về cách tài hiện issue, và log file chính là silent log của qualcomm, sau đó sẽ dùng tool qualcommd để mở log.
+tuy nhiên, hiện tại đã có agent skill để convert log file thành duckdb từ có có api để query log, skill cung cấp 1 số api.
+
+---
+
+## Session 3 — Phân tích rca-framework & tích hợp qualcomm-agent
+
+### rca-framework tóm tắt (temps/rca-framework.md)
+- Cline skill pipeline, RCA cho UE issue, state machine qua 1 JSON state file
+- 3 tool ngoài: `spec_query.py` (3GPP spec GraphRAG), `code_search.py` (UE code search),
+  `log_query.py` (DuckDB log query, table isolation theo phase)
+- Flow: scoping → event timeline → Checkpoint A (confirm top event) → FTA loop
+  (build tree → evaluate branch → cross-ref → root cause) → Checkpoint B
+  (dig/accept/abort) → finalize report
+- Invariant cứng: keyword phải có provenance (trace về tool call, ko lấy từ
+  pretrained knowledge), no fix generation (chỉ root cause), user gate bắt
+  buộc, iteration budget=5
+
+### Tích hợp qualcomm-case-agent vào rca/
+rca-framework đã có pattern 3 tool retrieval (spec/code/log), mỗi tool = 1
+skill wrapper, output ghi thẳng vào state file, raw data ko qua stdout.
+Qualcomm case cache (`data/cases/<CODE>/case.json`) fit làm **tool thứ 4**
+theo đúng pattern này:
+
+- Thêm skill `3gpp-qualcomm-case-retrieval` (song song
+  `3gpp-spec-retrieval`/`3gpp-code-retrieval`) wrap đọc case.json local — trả
+  summary nén (case metadata + comment excerpt liên quan), ko dump full case
+  ra stdout — đúng invariant "raw data never round-trips through stdout".
+- Vị trí gắn vào pipeline:
+  - **Phase 0/1 (scoping)**: nếu issue đã có Qualcomm case code, seed
+    IS/IS-NOT từ case description + enrichment sẵn có → tiết kiệm 1 vòng
+    Phase 1.
+  - **Phase 3.4 (cross-reference)**: case comment thường chứa chẩn đoán/debug
+    request từ Qualcomm engineer — nguồn đối chiếu song song với spec/code,
+    KHÔNG thay thế.
+  - **Checkpoint A/B**: pull case liên quan ngay trong Cline, khỏi rời
+    workflow.
+  - **Phase 4 (finalize)**: optional — audit trail nối RCA report ↔ case
+    code (không tự động post lên portal, đó là external action cần confirm
+    riêng).
+
+**Ràng buộc phải giữ khi tích hợp**:
+- Keyword provenance rule phải mở rộng: keyword từ case comment cần tier
+  riêng (giống `ENGINEER_PROVIDED` trong v6-coworker design doc, hiện chưa
+  implement) — không coi ngang hàng info từ spec_query/code_search vì case
+  enrichment là model-generated, chưa qua verify cơ chế.
+- Case-agent enrichment (root cause, analysis flow) là **hint, không phải
+  authority** — RCA vẫn phải tự re-derive root cause qua spec/code/log theo
+  invariant "no fix generation" + "keyword provenance". Tránh double-authority
+  conflict.
+- NDA constraint đã khớp sẵn: cả 2 hệ thống chạy local-only, không gọi
+  external service.
+
+### Giá trị khác ngoài RCA
+1. **Case archival/audit độc lập** — full case cache local (JSON/MD/HTML/PDF),
+   tra cứu nhanh hơn portal, share PDF cho đồng nghiệp không cần login.
+2. **Watch/sync/dashboard tự động** (scheduler.mjs) — theo dõi case trong
+   watchlist, biết case nào Qualcomm đã reply / còn open question chờ
+   feedback → SLA tracking, khỏi polling tay.
+3. **Resume context nhanh** — case dài (vài tuần), enrichment (per-comment
+   role/key point/3GPP citation/answered-unanswered) giúp quay lại case cũ
+   không cần đọc lại toàn bộ thread.
+4. **Nguồn ý tưởng patent** (khớp Session 3 patent idea ở mục 3 trên) —
+   corpus case + citation 3GPP sẵn có là input tốt để mine gap trong spec →
+   patent idea, độc lập RCA.
+5. **Precedent search** — cache case tích lũy theo thời gian thành corpus tìm
+   case tương tự đã từng gặp → giảm effort trước khi chạy RCA đầy đủ.
+6. **Design pattern tái dùng** — nguyên tắc "capture = code (0 token),
+   analysis = model" của case-agent là mẫu cho constraint "tiết kiệm token" ở
+   mục 4 — RCA's 3 tool wrapper cũng theo nguyên tắc này.
+
+## TODO — session cần bổ sung
+
+- [ ] **Session 2 — Scope issue PLM**: loại issue nào agent xử lý (crash log? RF? protocol?), input format cụ thể (log file type, PLM ticket schema)
+- [ ] **Session 3 — Patent workflow chi tiết**: quy trình hiện tại raise idea thủ công ntn, agent hỗ trợ ở bước nào (tìm gap trong spec? soạn draft? search prior art?)
+- [ ] **Session 4 — Ràng buộc cost/time**: budget token/tháng? SLA thời gian resolve issue hiện tại vs mong muốn?
+- [ ] **Session 5 — Roadmap hướng phát triển agent**: liệt kê option (vd: mở rộng qualcomm-case-agent hiện có sang phân tích PLM log / patent search / tích hợp source code search), chọn hướng ưu tiên
+- [ ] **Session 6 — Kiến trúc & tái dùng**: phần nào tái dùng từ qualcomm-case-agent hiện có (browser capture, enrichment) vs phần mới cần xây
