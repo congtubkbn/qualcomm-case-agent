@@ -1,54 +1,46 @@
-# Qualcomm Support portal login flow (Okta + email OTP) — reference
+# Qualcomm Support Portal Authentication Guide (Okta SSO + Email OTP)
 
-Authoritative steps for **PHASE 1** of the Qualcomm Case Management Agent.
+Authoritative reference for authentication and session management in the Qualcomm Case Management Agent.
 
-## Identities & facts
+## Identities & Key Facts
 
 | Item | Value |
 |------|-------|
-| Qualcomm ID (login) | `the.thoi@samsung.com` — login id only |
+| Qualcomm ID (login) | `the.thoi@samsung.com` |
 | Auth provider | Okta OAuth at `account.qualcomm.com` → redirects to `support.qualcomm.com` |
-| MFA | **Email OTP** — 6-digit code emailed to the Samsung mailbox. **Expires ~5 min.** Always human-pasted. |
-| Browser | **real Google Chrome** on CDP `9222` (launched detached via `scripts/connect_chrome.ps1`), attached with `agent-browser connect 9222`. NOT the bundled Chromium. |
-| Session store | `data/chrome-profile/` — Chrome `--user-data-dir` (cookies/tokens). Git-ignored. Separate instance — the user's personal Chrome is never touched. |
+| MFA | **Email OTP** — 6-digit code emailed to the Samsung mailbox. **Expires ~5 min.** Always entered manually by user. |
+| Browser | **Real Google Chrome** on CDP `9222` (launched detached via `scripts/connect_chrome.ps1`) with persistent `--user-data-dir`. |
+| Session store | `data/chrome-profile/` — Chrome persistent profile (cookies/tokens). Git-ignored. Isolated from personal browser instances. |
 
-## Single-layer auth model (Session Reuse)
+## Session Reuse Model
 
-The authentication relies entirely on **Session reuse (primary, silent)**.
-We launch real Chrome with the SAME `--user-data-dir` every run, then attach (`agent-browser connect 9222`). A valid profile loads the dashboard with **no password and no OTP**. This is the real "don't ask again" mechanism.
+Authentication relies entirely on **Persistent Chrome Profile Session Reuse**:
+1. Chrome starts with `--user-data-dir=data/chrome-profile` attached to CDP port `9222`.
+2. All authenticated session cookies and security tokens remain persisted across runs.
+3. As long as the Okta session is active, all case captures and searches proceed silently with **zero credentials or OTP required**.
 
-Cookie saving is now fully persistent, so password autofill and DPAPI injection are obsolete and have been removed.
+## When the Session Expires (`auth-required`)
 
-## Attach-to-real-Chrome launch
+When an Okta session lapses or requires re-authentication, the portal redirects to `account.qualcomm.com`:
+1. `run_case.mjs` detects the redirection and halts immediately with exit code `3` and JSON verdict:
+   ```json
+   {"status": "auth-required", "reason": "session-lapsed", "code": "<CODE>"}
+   ```
+2. **User Manual Login**:
+   - The user opens/switches to the visible Chrome window connected on port 9222.
+   - Signs in with password on `account.qualcomm.com`.
+   - Checks Samsung email inbox for the 6-digit MFA OTP and enters it into Chrome.
+   - Waits until the Qualcomm Support dashboard (`support.qualcomm.com`) loads successfully.
+3. **Resume Capture**:
+   - The user or agent re-runs `node .claude/skills/qualcomm-case-agent/scripts/run_case.mjs <CODE>`.
+   - The new session tokens are automatically persisted in `data/chrome-profile/`.
 
+## Profile Recovery / Reset
+
+If the profile becomes corrupted or stuck in an unrecoverable state:
 ```bash
-# 1) Launch real Chrome detached on CDP 9222 with the persistent profile (idempotent helper).
-powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/connect_chrome.ps1"
-# 2) Attach agent-browser to it (auto-denies prompts on non-TTY stdin; no redirect needed).
-agent-browser connect 9222
-# 3) Drive the tab.
-agent-browser open "https://support.qualcomm.com"
-agent-browser snapshot -c
-```
-
-- `--user-data-dir` (a directory path) → persistent profile. Cookies/tokens live there and are reused on every run. Created automatically on first use.
-- Real Chrome is OS-trusted and stable. The window is visible so the user can log in when the session has lapsed.
-- Always use the SAME `--user-data-dir`. Do not use incognito or a fresh dir per run.
-
-## When the session expires
-
-If `run_case.mjs` reports `{"status": "auth-required"}`, it means the session has lapsed and Okta requires re-authentication.
-Because we no longer store passwords via DPAPI, **the entire login process is done MANUALLY by the user** in the visible Chrome window:
-1. The user enters their password.
-2. The user requests and enters the email OTP.
-3. The user confirms they are back on `support.qualcomm.com`.
-4. The agent can then re-run `run_case.mjs` to continue the capture.
-
-## Profile reset
-
-If login behaves oddly (corrupted profile), delete the profile and sign in once more:
-
-```bash
+# Terminate Chrome instances using CDP 9222 and remove the profile directory
+powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/recover_chrome.ps1"
 rm -rf "data/chrome-profile"
-# then one fresh headed login recreates it
 ```
+Re-running `scripts/connect_chrome.ps1` will create a clean profile ready for a fresh manual sign-in.

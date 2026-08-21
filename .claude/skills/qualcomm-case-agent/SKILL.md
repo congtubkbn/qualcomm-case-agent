@@ -48,10 +48,12 @@ Scripts and references live under `.claude/skills/qualcomm-case-agent/`.
 
 | Script | Role |
 |--------|------|
-| `run_case.mjs` | **the fast path** — whole pipeline, one command, one JSON verdict line |
+| `run_case.mjs` | **the fast path** — whole pipeline orchestrator, one command, one JSON verdict line |
+| `fast_landing.mjs` | fast CDP-native case search & direct landing engine |
+| `cdp_client.mjs` | lightweight native Chrome DevTools Protocol WebSocket client |
 | `intake.mjs` | validate code + prep cache dirs (also imported by `run_case.mjs`) |
-| `browser.mjs` | agent-browser wrapper: argv-array spawn, `eval -b`, CDP attach |
-| `readiness.js` · `find_case_link.js` · `expand_step.js` · `extract_case.js` | page scripts run via `eval -b` |
+| `browser.mjs` | browser/CDP runtime bridge |
+| `readiness.js` · `expand_step.js` · `extract_case.js` | page scripts run inside browser DOM |
 | `scrape_case.mjs` | finalizer — assert, hash, write `case.json` + index (`--merge` = update run) |
 | `check_collapsed.js` · `verify_case.mjs` | completeness gates — unexpanded-control read, post-capture QA (run automatically; `node verify_case.mjs --all` re-checks every cache) |
 | `render_case.mjs` | `case.json` → report.md + md + html + txt |
@@ -60,8 +62,8 @@ Scripts and references live under `.claude/skills/qualcomm-case-agent/`.
 | `connect_chrome.ps1` · `recover_chrome.ps1` | browser + session helpers |
 
 **References** (`references/`) — load ON DEMAND, not up front:
-`manual-flow.md` (PHASE 0→2 by hand, recoveries, setup, troubleshooting) ·
-`login-flow.md` (Okta + OTP) · `extraction.md` · `workflow.md` · `consumer-guide.md`
+`manual-flow.md` (Troubleshooting & recovery scenarios) ·
+`login-flow.md` (Okta SSO + Email OTP + Session Reuse) · `extraction.md` · `workflow.md` · `consumer-guide.md`
 
 **Sibling skill:** `qualcomm-enrich` — standalone analyst pass (no browser, no re-scrape).
 
@@ -74,9 +76,9 @@ node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE>
 ```
 
 That is the whole capture. It validates the code, attaches to the persistent-profile Chrome
-(launching it if needed), opens `/s/global-search/<CODE>`, resolves and opens the case, expands
-the feed (full for a new case, only down to the newest cached comment for an update), extracts,
-finalizes with hash + index, renders md/html/txt and prints the PDF. It decides new-vs-update
+(launching it if needed), lands on the case via direct cache URL or fast global search (`/s/global-search/<CODE>`),
+resolves and opens the case, expands the feed (full for a new case, only down to the newest cached comment for an update),
+extracts, finalizes with hash + index, renders md/html/txt and prints the PDF. It decides new-vs-update
 from the cache on its own — you do not pass a mode.
 
 Options: `--mode full|update` (override the auto choice) · `--enrich local` (run the local-LLM
