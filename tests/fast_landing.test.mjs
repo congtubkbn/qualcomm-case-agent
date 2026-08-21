@@ -428,6 +428,116 @@ test('Fast Path Landing Engine', async (t) => {
 
     assert.equal(result.state, 'NOT_FOUND');
     assert.equal(result.fastPathUsed, false);
+    assert.ok(result.reason);
+    assert.ok(Array.isArray(result.diagnostics));
+  });
+
+  await t.test('fastLandOnCase recovers from context destruction retry during direct nav and lands ON_CASE', async () => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
+    let evalAttempts = 0;
+
+    server.setHandler((msg, ws) => {
+      if (msg.method === 'Page.navigate') {
+        return { id: msg.id, result: { frameId: 'F1' } };
+      }
+      if (msg.method === 'Runtime.evaluate') {
+        evalAttempts++;
+        if (evalAttempts === 1) {
+          // First attempt simulates Chrome destroying execution context during in-flight nav
+          return {
+            id: msg.id,
+            error: {
+              code: -32000,
+              message: 'Execution context was destroyed.',
+            },
+          };
+        }
+        // Second attempt on retry succeeds
+        return {
+          id: msg.id,
+          result: {
+            result: {
+              type: 'object',
+              value: {
+                state: 'ON_CASE',
+                href: targetUrl,
+                fields: { title: 'Modem Crash Issue' },
+              },
+            },
+          },
+        };
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const result = await fastLandOnCase('08603854', {
+      cdp: client,
+      cached: { caseUrl: targetUrl },
+    });
+
+    assert.equal(result.state, 'OK');
+    assert.equal(result.href, targetUrl);
+    assert.equal(result.fastPathUsed, true);
+    assert.ok(evalAttempts >= 2);
+    assert.ok(Array.isArray(result.diagnostics));
+  });
+
+  await t.test('fastLandOnCase records diagnostic logs and details before falling back to global search on direct nav failure', async () => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
+    const searchUrl = 'https://support.qualcomm.com/s/global-search/08603854';
+    const navigatedUrls = [];
+
+    server.setHandler((msg, ws) => {
+      if (msg.method === 'Page.navigate') {
+        navigatedUrls.push(msg.params.url);
+        return { id: msg.id, result: { frameId: 'F1' } };
+      }
+      if (msg.method === 'Runtime.evaluate') {
+        // Direct nav eval returns TIMEOUT
+        if (navigatedUrls[navigatedUrls.length - 1] === targetUrl) {
+          return {
+            id: msg.id,
+            result: {
+              result: {
+                type: 'object',
+                value: { state: 'TIMEOUT', href: 'https://support.qualcomm.com/s/' },
+              },
+            },
+          };
+        }
+        // Search eval returns NO_LINK
+        if (navigatedUrls[navigatedUrls.length - 1] === searchUrl) {
+          return {
+            id: msg.id,
+            result: {
+              result: {
+                type: 'object',
+                value: {
+                  state: 'NO_LINK',
+                  reason: 'Search yielded zero matches',
+                  href: '',
+                  fields: {},
+                },
+              },
+            },
+          };
+        }
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const result = await fastLandOnCase('08603854', {
+      cdp: client,
+      cached: { caseUrl: targetUrl },
+    });
+
+    assert.equal(result.state, 'NOT_FOUND');
+    assert.equal(result.fastPathUsed, false);
+    assert.ok(Array.isArray(result.diagnostics));
+    assert.ok(result.diagnostics.some(d => d.includes('Falling back to global search') || d.includes('inconclusive')));
+    assert.ok(result.diagnostics.some(d => d.includes('global search')));
+    assert.equal(result.reason, 'Search yielded zero matches');
   });
 });
+
 
