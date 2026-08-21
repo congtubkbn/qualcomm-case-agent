@@ -32,7 +32,7 @@ describe('CdpClient (Native WebSocket CDP Transport)', () => {
   it('sends Page.navigate command and receives response < 10ms', async () => {
     const client = await CdpClient.connect({ port: mockServer.port });
     const t0 = performance.now();
-    const res = await client.navigate('https://support.qualcomm.com/s/case/08603854');
+    const res = await client.navigate('https://support.qualcomm.com/s/case/08603854', { waitUntil: 'none' });
     const elapsed = performance.now() - t0;
 
     assert.ok(res);
@@ -140,6 +140,143 @@ describe('CdpClient (Native WebSocket CDP Transport)', () => {
     assert.equal(res, 42);
     assert.equal(client.isConnected(), true);
 
+    await client.close();
+  });
+
+  it('navigate() waits for Page.loadEventFired lifecycle event when waitUntil is load', async () => {
+    let pageEnabled = false;
+    let navigateCalled = false;
+
+    mockServer.setHandler((msg, ws) => {
+      if (msg.method === 'Page.enable') {
+        pageEnabled = true;
+        return { id: msg.id, result: {} };
+      }
+      if (msg.method === 'Page.navigate') {
+        navigateCalled = true;
+        // Simulate async load event firing after 50ms
+        setTimeout(() => {
+          ws.send(JSON.stringify({
+            method: 'Page.loadEventFired',
+            params: { timestamp: Date.now() / 1000 }
+          }));
+        }, 50);
+        return { id: msg.id, result: { frameId: 'F1', loaderId: 'L1' }, suppressLoadEvent: true };
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const client = await CdpClient.connect({ port: mockServer.port });
+    const t0 = performance.now();
+    const res = await client.navigate('https://support.qualcomm.com/s/case/08603854', {
+      waitUntil: 'load',
+      timeout: 2000,
+    });
+    const elapsed = performance.now() - t0;
+
+    assert.ok(pageEnabled, 'Page.enable should have been called');
+    assert.ok(navigateCalled, 'Page.navigate should have been called');
+    assert.ok(elapsed >= 40, `Expected elapsed >= 40ms waiting for load event, got ${elapsed}ms`);
+    assert.ok(res.frameId === 'F1');
+
+    mockServer.setHandler(null);
+    await client.close();
+  });
+
+  it('navigate() resolves gracefully on navigation timeout without throwing unhandled rejection', async () => {
+    mockServer.setHandler((msg, ws) => {
+      if (msg.method === 'Page.enable') return { id: msg.id, result: {} };
+      if (msg.method === 'Page.navigate') {
+        // Suppress Page.loadEventFired to test timeout
+        return { id: msg.id, result: { frameId: 'F1', loaderId: 'L1' }, suppressLoadEvent: true };
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const client = await CdpClient.connect({ port: mockServer.port });
+    // Should not throw, should resolve gracefully with navigation result
+    const res = await client.navigate('https://support.qualcomm.com/s/case/08603854', {
+      waitUntil: 'load',
+      timeout: 100,
+    });
+
+    assert.ok(res);
+    assert.equal(res.frameId, 'F1');
+    assert.equal(res.timedOut, true);
+
+    mockServer.setHandler(null);
+    await client.close();
+  });
+
+  it('eval() retries and recovers when encountering transient context destruction', async () => {
+    let evalAttempts = 0;
+    mockServer.setHandler((msg) => {
+      if (msg.method === 'Runtime.evaluate') {
+        evalAttempts++;
+        if (evalAttempts === 1) {
+          // First attempt: simulate transient context destroyed
+          return {
+            id: msg.id,
+            error: {
+              code: -32000,
+              message: 'Execution context was destroyed.',
+            },
+          };
+        }
+        // Second attempt: context restored, returns success
+        return {
+          id: msg.id,
+          result: {
+            result: {
+              type: 'string',
+              value: 'RECOVERED_VALUE',
+            },
+          },
+        };
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const client = await CdpClient.connect({ port: mockServer.port });
+    const result = await client.eval('return window.__STATUS', {}, { maxRetries: 3, retryDelay: 50 });
+
+    assert.equal(result, 'RECOVERED_VALUE');
+    assert.equal(evalAttempts, 2, 'Should have retried once after context destruction');
+
+    mockServer.setHandler(null);
+    await client.close();
+  });
+
+  it('eval() throws CdpError after maxRetries are exhausted for persistent context destruction', async () => {
+    let evalAttempts = 0;
+    mockServer.setHandler((msg) => {
+      if (msg.method === 'Runtime.evaluate') {
+        evalAttempts++;
+        return {
+          id: msg.id,
+          error: {
+            code: -32000,
+            message: 'Execution context was destroyed.',
+          },
+        };
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const client = await CdpClient.connect({ port: mockServer.port });
+    await assert.rejects(
+      async () => {
+        await client.eval('return 1', {}, { maxRetries: 2, retryDelay: 20 });
+      },
+      (err) => {
+        assert.ok(err.message.includes('Execution context was destroyed'));
+        return true;
+      }
+    );
+
+    assert.equal(evalAttempts, 3, 'Should attempt initial try + 2 retries = 3 attempts');
+
+    mockServer.setHandler(null);
     await client.close();
   });
 });

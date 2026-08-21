@@ -182,14 +182,24 @@ export async function createMockCdpServer(options = {}) {
             const msg = JSON.parse(rawText);
             emitter.emit('message', msg, ws);
 
+            let suppressLoadEvent = false;
             if (customHandler) {
               const reply = customHandler(msg, ws);
               if (reply !== undefined && reply !== null) {
+                if (reply.suppressLoadEvent) suppressLoadEvent = true;
                 ws.send(reply);
               }
             } else {
               // Default CDP mock responses
               handleDefaultCdp(msg, ws);
+            }
+
+            if (msg.method === 'Page.navigate' && !suppressLoadEvent) {
+              setTimeout(() => {
+                try {
+                  ws.send(JSON.stringify({ method: 'Page.loadEventFired', params: { timestamp: Date.now() / 1000 } }));
+                } catch {}
+              }, 1);
             }
           } catch (err) {
             emitter.emit('error', err);
@@ -213,6 +223,11 @@ export async function createMockCdpServer(options = {}) {
     const { id, method, params } = msg;
     if (method === 'Page.navigate') {
       ws.send({ id, result: { frameId: 'MOCK_FRAME_1', loaderId: 'MOCK_LOADER_1' } });
+      setTimeout(() => {
+        try {
+          ws.send(JSON.stringify({ method: 'Page.loadEventFired', params: { timestamp: Date.now() / 1000 } }));
+        } catch {}
+      }, 1);
     } else if (method === 'Runtime.evaluate') {
       let value = null;
       if (params?.expression?.includes('location.href')) {
