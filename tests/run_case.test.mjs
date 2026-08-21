@@ -43,6 +43,8 @@ function mockBrowser(t, evalFileQueue) {
       ensureChrome: async () => {},
       pdf: () => {},
       screenshot: () => {},
+      getCdpClient: async () => null,
+      closeCdpClient: async () => {},
       BrowserError: class BrowserError extends Error {},
       evalFile: (path, vars) => {
         evalFileCalls.push({ path: path.split(/[\\/]/).pop(), vars });
@@ -254,3 +256,54 @@ describe('run() expand-loop stuck detection', () => {
     assert.equal(names.filter(n => n === 'check_collapsed.js').length, 3);
   });
 });
+
+describe('run() fast landing & verdict integration', () => {
+  it('uses fastLandOnCase directly when cdp is provided in options', async (t) => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08438355';
+    const mockCdp = {
+      isConnected: () => true,
+      navigate: async () => {},
+      eval: async (expr) => {
+        if (expr.includes('ON_CASE')) {
+          return { state: 'ON_CASE', href: targetUrl };
+        }
+        return { state: 'READY' };
+      },
+      click: async () => true,
+      close: async () => {},
+    };
+
+    const stableFeed = { articles: 5, displayed: 5, anchorIdx: -1, top: { author: 'A', bodyStart: 'x' } };
+    const idleTick = { clickedExpand: 0, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
+
+    const { evalFileCalls, openCalls } = mockBrowser(t, [
+      stableFeed, stableFeed,
+      idleTick, idleTick,
+      { stillCollapsed: 0, stillHasMoreComments: 0 },
+      { stillCollapsed: 0, stillHasMoreComments: 0 },
+      stableFeed, idleTick, stableFeed, stableFeed, stableFeed,
+      { stillCollapsed: 0, stillHasMoreComments: 0 },
+      { caseNumber: '08438355', title: 'Test Case Title', status: 'Open', url: targetUrl,
+        comments: [{ author: 'A', body: 'content body', timestamp: 't' }] },
+    ]);
+
+    mkdirSync(join(process.env.QUALCOMM_ROOT, 'data', 'cases', '08438355'), { recursive: true });
+    const { run, formatVerdict } = await importRunCase();
+    const v = await run('08438355', { mode: 'auto', enrich: 'none', noPdf: true, cdp: mockCdp });
+
+    assert.equal(v.verified, true);
+    assert.equal(v.caseUrl, targetUrl);
+    assert.ok(v.timing, 'verdict includes timing info');
+    assert.ok(typeof v.timing.landingMs === 'number');
+
+    // formatVerdict produces standardized 1-line JSON with status, code, caseUrl, timing
+    const started = Date.now() - 150;
+    const formatted = formatVerdict('08438355', v, started);
+    assert.equal(formatted.code, '08438355');
+    assert.equal(formatted.status, v.status);
+    assert.equal(formatted.caseUrl, targetUrl);
+    assert.equal(typeof formatted.timing.elapsedMs, 'number');
+    assert.equal(typeof formatted.timing.landingMs, 'number');
+  });
+});
+

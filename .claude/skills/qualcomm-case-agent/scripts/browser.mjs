@@ -17,11 +17,34 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SKILL_ROOT, PROFILE_DIR } from './_paths.mjs';
+import { CdpClient } from './cdp_client.mjs';
 
 const WIN = process.platform === 'win32';
 const BIN = process.env.AGENT_BROWSER_BIN || 'agent-browser';
 const CDP_PORT = Number(process.env.QUALCOMM_CDP_PORT || 9222);
 const CDP_BASE = `http://127.0.0.1:${CDP_PORT}`;
+
+let _activeCdp = null;
+
+export async function getCdpClient(options = {}) {
+  if (_activeCdp && _activeCdp.isConnected()) {
+    return _activeCdp;
+  }
+  const host = options.host || '127.0.0.1';
+  const port = Number(options.port || CDP_PORT);
+  _activeCdp = await CdpClient.connect({ host, port, ...options });
+  return _activeCdp;
+}
+
+export async function closeCdpClient() {
+  if (_activeCdp) {
+    try {
+      await _activeCdp.close();
+    } catch {}
+    _activeCdp = null;
+  }
+}
+
 
 // cmd.exe re-reads these even inside double quotes (or breaks on them).
 // Our args are URLs, file paths and base64 — none legitimately contain any of
