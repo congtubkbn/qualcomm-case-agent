@@ -16,3 +16,4 @@ data/cases/
 
 # Temp/scratch output
 temp/
+*.log

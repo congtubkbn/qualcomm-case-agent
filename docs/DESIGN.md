@@ -103,13 +103,13 @@ So the pipeline is split at the point where judgement actually begins:
 The agent's entire view of a capture is ~200 tokens. `SKILL.md` states the rule explicitly:
 *"Do NOT `Read` `case.json` to find out what happened."*
 
-### 3.2 Layers
+### 3.2 Layers & End-to-End Execution Flow
 
 ```mermaid
 graph TD
   A["Runbooks — SKILL.md · .clinerules · references/*<br/>harness-agnostic prose, loaded on demand"]
   B["Orchestration — run_case.mjs · scheduler.mjs · web/server.mjs"]
-  C["Browser adapter — browser.mjs (argv-array spawn, eval -b, CDP attach)"]
+  C["Browser adapter & Fast Landing — browser.mjs · cdp_client.mjs · fast_landing.mjs"]
   D["Page scripts — readiness.js · find_case_link.js · expand_step.js · extract_case.js<br/>run INSIDE the tab, return small objects"]
   E["Persistence + integrity — intake.mjs · scrape_case.mjs · lock.mjs · _paths.mjs"]
   F["Presentation — render_case.mjs (report.md · md · html · txt) + PDF via Chrome"]
@@ -119,11 +119,41 @@ graph TD
   B --> G --> F
 ```
 
+#### End-to-End Execution Flow
+
+```mermaid
+flowchart TD
+  User["Input: Case Code (e.g. 08637663)"] --> RunCase["scripts/run_case.mjs<br/>(Main Orchestrator)"]
+  
+  subgraph KhởiTạo["1. Khởi tạo & Trình duyệt"]
+    RunCase --> Intake["scripts/intake.mjs<br/>(Validate 8 chữ số & chuẩn bị thư mục)"]
+    RunCase --> Lock["scripts/lock.mjs<br/>(Khóa tránh xung đột tiến trình)"]
+    RunCase --> Browser["scripts/browser.mjs<br/>+ connect_chrome.ps1<br/>(Mở Chrome port 9222 & profile persistent)"]
+    RunCase --> CDP["scripts/cdp_client.mjs<br/>(Kết nối WebSocket CDP client)"]
+  end
+
+  subgraph ĐiềuHướng["2. Tìm kiếm & Landing vào Case"]
+    RunCase --> FastLanding["scripts/fast_landing.mjs<br/>(Điều hướng đến /s/global-search/&lt;CODE&gt;<br/>Dùng MutationObserver lấy SFID thật)"]
+    FastLanding -.->|Dự phòng khi mất CDP| Fallback["scripts/readiness.js<br/>+ scripts/find_case_link.js<br/>(CLI Fallback engine)"]
+  end
+
+  subgraph ThuThập["3. Mở rộng & Trích xuất dữ liệu"]
+    RunCase --> Expand["scripts/expand_step.js<br/>(Chạy trong tab: Click mọi nút 'Expand Post' / 'More comments')"]
+    RunCase --> Extract["scripts/extract_case.js<br/>(Trích xuất metadata, posts, attachments ra JSON)"]
+  end
+
+  subgraph XửLýLưuTrữ["4. Lưu trữ, Kiểm thử & Xuất file"]
+    RunCase --> Scrape["scripts/scrape_case.mjs<br/>(Gán ID comment, tính Hash, ghi case.json & _index.json)"]
+    RunCase --> Verify["scripts/verify_case.mjs<br/>+ scripts/check_collapsed.js<br/>(Kiểm tra không bị sót comment bị đóng)"]
+    RunCase --> Render["scripts/render_case.mjs<br/>(Tạo case.report.md, .md, .html, .txt, .pdf)"]
+  end
+```
+
 Two properties fall out of this layering and are worth stating as rules, because most of the
 project's historical bugs were violations of them:
 
 - **Nothing crosses a shell.** `browser.mjs` spawns `agent-browser` with an argv array; page
-  scripts cross as base64. No quoting, no dialect (§4, D4/D5).
+  scripts cross as base64 or run via native WebSocket CDP (`cdp_client.mjs`). No quoting, no dialect (§4, D4/D5).
 - **Page scripts return counters, never DOM dumps.** `expand_step.js` clicks *inside the page* in a
   loop and returns `{articles, displayed, anchorIdx, clicked…}` — a few dozen bytes replacing ~15
   snapshot round-trips per case.
@@ -134,6 +164,8 @@ project's historical bugs were violations of them:
 |---|---|---|
 | `intake.mjs` | Validate the 8-digit code, create cache dirs, sanity-check `_index.json` | Anything network |
 | `browser.mjs` | Chrome lifecycle on CDP 9222, `eval -b` transport, error typing (`BrowserError`) | Knowing anything about cases |
+| `cdp_client.mjs` | Native lightweight WebSocket CDP client (zero external binary dependencies for core landing) | DOM logic or parsing |
+| `fast_landing.mjs` | Fast-path direct navigation (cached SFID) + event-driven DOM MutationObserver search landing | Scraping comment feeds |
 | `readiness.js` | Classify SPA page state into one enum: `AUTH/READY/EMPTY/BLANK/LOADING` | Waiting (the caller polls) |
 | `find_case_link.js` | Resolve search row → real `/s/case/<SFID>/…` URL **and** the header fields that exist only on that row | Navigating |
 | `expand_step.js` | One expansion/pagination tick; doubles as the fast no-update probe | Extraction |
