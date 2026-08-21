@@ -16,4 +16,5 @@ data/cases/
 
 # Temp/scratch output
 temp/
+.scratch/
 *.log
