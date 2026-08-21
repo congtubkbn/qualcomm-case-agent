@@ -1,481 +1,86 @@
-# Manual flow — PHASE 0 → 2, Recoveries, Setup, Troubleshooting
+# Qualcomm Case Management Agent — Troubleshooting & Recovery Guide
 
-Fallback runbook for `qualcomm-case-agent`. **Load this only when the fast path
-(`scripts/run_case.mjs`) cannot finish** — i.e. its verdict is `blocked`, or you
-must drive the portal by hand for a reason the verdict names. The fast path
-performs every step below programmatically; these are the same steps expressed
-as agent-browser commands, kept verbatim from the original SKILL.md.
+Authoritative runbook for resolving pipeline blockers when `scripts/run_case.mjs` returns a non-zero exit or non-success verdict (`auth-required`, `blocked`, `not-found`, `busy`).
 
 ---
 
-## PHASE 0 — Attach to persistent-profile Chrome *(mandatory, before any navigation)*
+## Verdict Routing & Actions
 
-**Goal:** guarantee agent-browser is driving the **`data\chrome-profile`** Chrome on CDP 9222 — the only
-browser that carries the saved Okta session. Skipping this is the root cause of "logs in every run":
-the daemon otherwise auto-spawns a temp-profile Chrome and `open` succeeds against an empty session.
-
-```powershell
-# Launch (or reuse) real Chrome on CDP 9222 bound to the persistent profile.
-# Idempotent: if 9222 is already listening it just prints the ws:// URL and exits 0.
-powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/connect_chrome.ps1"
-```
-
-```bash
-# Attach to the ws:// URL the helper printed (NOT bare `connect 9222` — IPv6 ::1 mismatch → 10060).
-agent-browser connect "ws://127.0.0.1:9222/devtools/browser/<id>"
-```
-
-> **If `connect` itself is REFUSED** (`os error 10061` / `10060`, or `curl http://127.0.0.1:9222/json/version`
-> fails) even though `connect_chrome.ps1` said "reusing 9222" — the port was held by a stale/dying Chrome.
-> This is a genuine failure (distinct from the timeout note below): go straight to **[Recovery 0]** once,
-> then re-attach. Do not keep retrying the same dead ws:// URL.
-
-> **Slow / harness timeout is normal, not a bug.** Chrome cold-start + CDP handshake can exceed a
-> host tool's default command timeout (e.g. Cline's `execute_command` ~30s). If the harness reports
-> "timed out, running in background" — that is the *harness's* timeout, not `agent-browser`'s. Do
-> NOT treat it as a failure or retry Recovery 0. Just proceed to the verify step below; if it reports
-> connected, the background run already succeeded.
-
-**Verify the right profile is attached** (cheap guard — catches a stale temp-profile daemon):
-
-```bash
-agent-browser eval "(function(){ return new URL(location.href).hostname; })()"   # any value = connected OK
-```
-
-> **Connectivity check ONLY — do NOT interpret the hostname value.** A non-empty result just proves
-> agent-browser is attached to a live tab; it says nothing about auth state. Even if the hostname
-> is `account.qualcomm.com` (a stale leftover tab), do **not** snapshot/click/wait here or jump to
-> Recovery 1 manually. Proceed straight to PHASE 1's `open` — its `readiness.js` probe is the sole
-> authority for classifying `AUTH`/`READY`/`EMPTY`/`BLANK` and routing to Recovery 1 only if needed.
-```powershell
-# Confirm the CDP-9222 Chrome uses the persistent --user-data-dir, not a %TEMP% throwaway.
-# NOTE: a single Chrome launch has many chrome.exe subprocesses (renderer/GPU/utility) that all
-# inherit --remote-debugging-port=9222 on their command line — that is normal, not multiple
-# instances. Reduce to ONE verdict line so the agent doesn't have to scan N near-identical lines:
-$procs = Get-CimInstance Win32_Process -Filter "name='chrome.exe'" |
-  Where-Object { $_.CommandLine -match '--remote-debugging-port=9222' }
-if ($procs | Where-Object { $_.CommandLine -match 'agent-browser-chrome-' }) {
-  Write-Host 'WRONG: attached to TEMP profile — run Recovery 0 to reset daemon, then re-attach'
-} elseif ($procs) {
-  Write-Host 'OK: persistent profile attached'
-} else {
-  Write-Host 'WRONG: no chrome.exe on 9222 — run Recovery 0'
-}
-```
-
-If the guard prints `WRONG` (or 9222 never came up) → **[Recovery 0]** to reset the daemon, then redo PHASE 0 ONCE.
+| Exit | Verdict `status` | Root Cause | Action |
+|------|------------------|------------|--------|
+| 3 | `auth-required` | Okta SSO session expired | → **Recovery 1 (Okta Manual Re-auth)** |
+| 4 | `not-found` | Case does not exist or account lacks access | → **Recovery 2 (Case Not Found / Authorization)** |
+| 5 | `blocked` | Feed expansion stuck / DOM unrendered | → **Recovery 3 (Stuck Page / DOM Recovery)** |
+| 6 | `busy` | Lock file `data/.capture.lock` is held | → **Recovery 4 (Lock Contention)** |
+| 1 | `error` / CDP Refused | Chrome crashed or port 9222 unreachable | → **Recovery 0 (Chrome / CDP Port Reset)** |
 
 ---
 
-## PHASE 1 — Locate Case *(entry point)*
+## Recovery 0: Chrome & CDP Port 9222 Reset
 
-**Goal:** open the exact case page and capture its real URL. PHASE 0 has already attached the
-persistent-profile Chrome, so the common path (valid saved session) goes straight through with one `open`.
+Triggered when CDP connection is refused (`ECONNREFUSED` on port 9222) or Chrome processes become unresponsive.
 
-```bash
-agent-browser open "https://support.qualcomm.com/s/global-search/<CODE>"
-```
-
-**If `open` itself errors / times out** → **[Recovery 0: Chrome/CDP]**, redo PHASE 0, then retry PHASE 1 ONCE.
-
-**Otherwise poll for readiness — do NOT blind-`wait` then snapshot.** The portal is a
-Salesforce Lightning SPA: right after `open`, the accessibility tree can be empty while the DOM
-is still hydrating. A bare `snapshot -c` returning `(empty page)` does NOT mean "no results" — it
-conflates *loading*, *zero-results*, *auth-bounce*, and *dead-blank*. The `readiness.js` probe
-classifies them into one `state` field (runs via `eval -b`, base64-encoded):
-
-**Run `scripts/readiness.ps1` via `-File` — do NOT type this as a bare bash
-`for` loop, do NOT use `--stdin`, and do NOT inline the poll as a `-Command "..."` one-liner.**
-This box's shell dispatch does not reliably run bash `for...do...done` or `grep`. PowerShell has
-no `<` stdin-redirect (`agent-browser eval --stdin < file` is a reserved-token parse error there).
-Worse: `Get-Content -Raw | agent-browser eval --stdin` — the "PowerShell-safe" pipe form — is ALSO
-broken: verified live, it silently returns the literal string `"null"` instead of the evaluated
-result (an agent-browser/Windows-PowerShell stdin bug, not a script bug — the same bytes work fine
-piped from bash). Use `-b`/`--base64` instead: no stdin plumbing, no shell quoting, and it's
-agent-browser's own documented "reliable execution" method.
-
-A `-Command "..."` one-liner does NOT work for this: the regex `'"state":"(READY|EMPTY|AUTH|BLANK)"'`
-has to cross the shell twice (outer shell → `powershell -Command` argument), and on this box that
-outer hop is cmd.exe. cmd.exe toggles "inside quotes" on every literal `"` it sees, ignoring the
-backslash in front of it — so the escaped `\"..\"` pairs around the regex leave `(READY|EMPTY|AUTH|BLANK)`
-in what cmd.exe considers *unquoted* territory. It then treats those `|` as real pipes and splits
-the command there, so `EMPTY`/`AUTH`/`BLANK` get run as standalone (nonexistent) commands —
-`'EMPTY' is not recognized as an internal or external command`. Putting the poll in a real `.ps1`
-file sidesteps this: the regex lives inside the file, never on a shell command line, so no
-quote/pipe re-tokenizing happens. Same proven pattern as other PowerShell script invocations:
-
-```
-powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/readiness.ps1"
-```
-<!-- poll readiness on the SAME url, max 6 rounds x 2s = 12s ceiling -->
-Read the LAST printed `state` from the output to decide the branch below.
-
-**Interpret the final `state`:**
-
-| `state` | Meaning | Action |
-|---------|---------|--------|
-| `READY` | search-result rows present | continue below ↓ |
-| `AUTH` | bounced to `account.qualcomm.com` | → **[Recovery 1: Auth]** then retry PHASE 1 ONCE |
-| `EMPTY` | load finished, genuinely zero results | **STOP** — code wrong or no access |
-| `BLANK` | DOM essentially empty (dead/blank page) | → **[Recovery 2: Empty/Stuck Page]** ONCE |
-| `LOADING` after 6 rounds | never hydrated within 12s | → **[Recovery 2: Empty/Stuck Page]** ONCE |
-
-If the retry after Recovery 0 / 1 / 2 still fails → report the final probe `{state,url,host,nodes,rows,title}` and STOP.
-
-**On `READY` — navigate into case:**
-
-```bash
-agent-browser snapshot -c          # rows are loaded now — read search results
-# click the result matching <CODE> (use the @ref)
-# re-probe after click — use the SAME base64 `eval -b` poll as above, NOT `eval --stdin < file`
-# state=AUTH → Recovery 1 → retry click ONCE; state=READY/other → proceed
-agent-browser eval "(function(){ return location.href; })()"   # capture the real case URL
-```
-
-Store the captured URL as `url` in the case JSON.
-
-> **Do NOT guess alternate URLs.** `/s/case/<CODE>` is always a bad route — the case page needs a
-> Salesforce 18-char record id (`<SFID>`), obtainable ONLY by clicking the search result, never built
-> from the case number. See the **URL discipline** guardrail.
-
----
-
-## Recovery 0 — Chrome/CDP Not Available
-
-Run when **`agent-browser open` OR `agent-browser connect` errors/times out** — including
-`connect` refused (`os error 10061`), `10060`, or a `connect_chrome.ps1` "reusing 9222" line
-whose ws:// URL then refuses the attach (a stale/dying Chrome held the port). The daemon may have
-a stale PID pointing at a dead Chrome — one bundled script cleans that up and relaunches:
-
-```bash
-# ONE script: kills only agent-browser's own temp-profile Chrome + daemon, clears the stale
-# pid/port/stream files, then relaunches the persistent-profile Chrome and prints the ws:// line.
-# Bundled (not an inline PowerShell block) so it runs identically through the Bash tool, cmd, or
-# PowerShell — an inline `... | Where-Object ...` block errors when pasted into the Bash tool.
-powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/recover_chrome.ps1"
-# Then run the exact connect line it prints:
-#   agent-browser connect "ws://127.0.0.1:9222/devtools/browser/<id>"
-# Do NOT use bare `connect 9222` — Windows resolves localhost to IPv6 ::1, Chrome binds IPv4 only → timeout
-```
-
-After attaching, retry PHASE 1 once. If `open` errors again → report and STOP.
-
-**Why real Chrome?** The bundled Playwright Chromium can ship a broken build whose CDP handshake
-times out on every `open`. Real Chrome is stable and OS-trusted. See Troubleshooting if needed.
-
----
-
-## Recovery 1 — Auth Required
-
-Run when PHASE 1 `open` or a post-click navigation shows `account.qualcomm.com`. Full flow +
-failure handling: **`references\login-flow.md`**.
-
-The session is stored in `data\chrome-profile\` (persistent `--user-data-dir`). When valid, no
-login or OTP is needed. This recovery only triggers when the Okta session token has lapsed.
-
-**Step 1 — Manual Login**
-
-Because password autofill and DPAPI injection are obsolete, **the entire login process is done MANUALLY by the user** in the visible Chrome window:
-1. The user enters their password.
-2. The user requests and enters the email OTP (expires ~5 min).
-3. Check "Keep me signed in" if the option is presented to extend session duration (~30 days).
-
-**Step 2 — Verify and Retry**
-
-Once the user confirms they are back on `support.qualcomm.com` (e.g. dashboard or Qualcomm home loads), retry PHASE 1.
-
-> **"Retry PHASE 1" = re-run `agent-browser open "https://support.qualcomm.com/s/global-search/<CODE>"`**,
-> then the readiness poll. Auth commonly lands on the Qualcomm home page, NOT the case. A clean `open`
-> of the global-search URL is one cheap, reliable step.
-
-**Failure table:**
-
-| Situation | Action |
-|-----------|--------|
-| Email unavailable + session expired | cannot authenticate — report and STOP. |
-
-**Never** echo the password or OTP.
-
----
-
-## Recovery 2 — Empty/Stuck Page
-
-Run when PHASE 1 polling ends in `state=BLANK`, or `state=LOADING` after the 6-round (12s) ceiling —
-the page is on the right URL but never rendered results. **Diagnose in place; never navigate to a
-guessed URL.** Runs at most ONCE.
-
-```bash
-# 1. Auth bounce that the probe's host check may have raced? Re-confirm host directly.
-agent-browser eval "(function(){ return location.hostname; })()"
-#    = account.qualcomm.com → go to Recovery 1 (Auth) instead.
-
-# 2. Reload the SAME url once (transient SPA hydration failure), then re-poll readiness.
-agent-browser open "https://support.qualcomm.com/s/global-search/<CODE>"   # SAME link — not a different route
-```
-Same `readiness.ps1` poll as the PHASE 1 readiness probe (not a bash `for`/`grep` loop, not
-`--stdin`, not an inline `-Command "..."` — see the quote/pipe cmd.exe splitting bug explained
-above):
-```
-powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/readiness.ps1"
-```
-
-Decision after the reload poll:
-
-| Result | Action |
-|--------|--------|
-| `READY` | recovered → return to PHASE 1 (click the result) |
-| `EMPTY` | genuinely zero results → STOP (wrong code / no access) |
-| `AUTH` | → Recovery 1 |
-| still `BLANK`/`LOADING` | portal down or render broken → **STOP**, report final probe `{state,url,host,nodes,rows,title}` |
-
-**Hard ceiling:** Recovery 2 runs once. Do not loop it, do not escalate to other URLs. A persistently
-blank page is reported, not worked around.
-
----
-
-## PHASE 1.5 — DOM Expansion *(run before extraction)*
-
-**Goal:** ensure the DOM content needed for extraction is visible. The Salesforce Chatter feed hides
-data behind pagination and collapsed bodies. These are `agent-browser click` steps — the accessibility
-tree exposes them as named controls, no JS eval needed. **This is the only expansion step** — PHASE 2
-extracts from the DOM exactly as this phase leaves it; nothing re-opens or re-expands the page.
-
-Two variants: **1.5A (full)** for a new case — expand everything; **1.5B (incremental)** for an
-update run on a cached case — expand only down to the newest cached comment.
-
-### PHASE 1.5A — Full expansion (new case)
-
-**Step A — Pagination: click "View More Posts" until gone**
-
-```bash
-agent-browser snapshot -i   # look for button/link with text matching "View More"
-# while visible:
-agent-browser click @<ref>  # click it
-agent-browser wait 2000
-agent-browser snapshot -i   # re-check; stop when button absent
-```
-
-The button appears as `button "View More Posts"` or `button "View More"` near the bottom of the Feed
-region. Repeat until it no longer appears in the snapshot.
-
-**Step B — Expand all "Expand Post" links**
-
-After all posts are loaded, collect every `link "Expand Post"` ref and click each:
-
-```bash
-agent-browser snapshot -c | findstr /C:"Expand Post"  # identify refs (e.g. e107, e110, e115, e118, e128)
-agent-browser click @<ref1> && agent-browser wait 1000
-agent-browser click @<ref2> && agent-browser wait 1000
-# ... repeat for all refs
-agent-browser snapshot -c | findstr /C:"Expand Post"  # confirm: no remaining "Expand Post" links
-```
-
-Note: nested Chatter comments (sub-articles inside a listitem) also have their own "Expand Post" — include them.
-
-**Step C — Expand "Description" section if collapsed**
-
-```bash
-# In the snapshot look for: button "Description" [expanded=false]
-# If found:
-agent-browser click @<description-ref>
-agent-browser wait 1000
-```
-
-**Confirm DOM complete:**
-
-```bash
-agent-browser snapshot -c | findstr /C:"Expand Post" /C:"View More"
-# Expected output: (empty) — proceed to PHASE 2
-```
-
-> **Lesson from case 08550063 (2026-06-22):** 8 posts initially visible, "View More Posts" clicked once
-> to reveal 9th post. 6 "Expand Post" links across posts + 1 nested comment. Description was
-> collapsed. All resolved by sequential click → wait → verify.
-
-### PHASE 1.5B — Incremental expansion (update run on a cached case)
-
-Full expansion re-loads and re-expands every old post just to throw the bytes away in the merge.
-On an update run, the newest CACHED comment (the **anchor** from the Intake cache check —
-`newestAuthor` + `newestBodyStart`) is the stop line:
-
-**Step 0 — Fast no-update probe** (first snapshot, before any clicking):
-
-```bash
-agent-browser snapshot -c   # read: `status "N Chatter Feed Items"` + the top post
-```
-
-If **N equals** the cached `displayed` AND the **top post matches the anchor** (same author, body
-starts with `newestBodyStart`) → nothing new → report **"no update since `<syncedAt>`"** and STOP
-(skip PHASE 2 entirely).
-
-> Caveat: a new nested reply under an old post does not move the top post and may not change N.
-> If the user says there IS an update (they saw a notification), skip this probe and run Steps 1–2 —
-> the `--merge` finalize is the definitive check.
-
-> **Hard rule: once Step 0's match check fails (body doesn't start with `newestBodyStart`, even if
-> N is unchanged), that is a positive "there IS new content" signal — final, not provisional.**
-> Nothing that happens afterward (a failed click, a stale `@ref`, a pagination error) can turn that
-> back into "no update." A tool failure means *inconclusive/blocked*, never *confirmed unchanged*.
-> If Step 1's click fails, re-`snapshot -c` for a fresh `@ref` and retry once; if it still fails,
-> STOP and report the run as blocked/incomplete (Recovery) — do NOT report "no update since
-> `<syncedAt>`" as a fallback.
-
-**Step 1 — Paginate only until the anchor is visible.** Click "View More Posts" and re-snapshot;
-STOP clicking as soon as a post matching the anchor appears. Do NOT paginate to the end of the feed.
-If the click errors (stale `@ref`, element not found), re-run `snapshot -c` to get a fresh ref before
-retrying — do not reuse a `@ref` from an earlier snapshot.
-
-**Step 2 — Expand only the NEW posts.** Click "Expand Post" only on posts ABOVE the anchor
-(and their nested replies). Old posts stay collapsed — the merge dedupes their truncated bodies
-away and keeps the cached verbatim ones. Description is already cached → do not re-expand.
-
-**Confirm:** every post above the anchor shows no remaining "Expand Post". Then PHASE 2 with `--merge`.
-
----
-
-## PHASE 2 — Extract *(agent-driven)*
-
-**Goal:** extract all raw case data from the **already-expanded live DOM** (no re-open, no re-expand),
-then finalize to `data/cases/<CODE>/case.json` (+ root `_index.json`).
-
-> **Layout:** every artifact for a case lives in its own folder `data/cases/<CODE>/` —
-> `case.json` (source of truth) · `case.report.md` · `case.md` · `case.html` · `case.txt` · `case.pdf`.
-> Only `_index.json` (the cross-case sync index) sits at `data/cases/` root.
-
-Full reference: **`references\extraction.md`** (the three eval rules + selector lock-in table).
-
-1. Read existing `_index.json` to get the old hash for `<CODE>` (incremental check).
-2. Confirm expansion done. **Full run:** `agent-browser snapshot -c | findstr /C:"Expand Post" /C:"View More"`
-   → empty. **Update run:** leftovers are EXPECTED on old posts below the anchor — only confirm the
-   posts above the anchor are expanded (PHASE 1.5B).
-3. Run the bundled extractor via `eval -b` (base64) — **NOT `--stdin`, NOT `<` redirection.**
-   `--stdin` is broken on this OS: piping through PowerShell (`Get-Content -Raw | agent-browser
-   eval --stdin`) silently returns the literal string `"null"` instead of the evaluated result
-   (verified — an agent-browser/Windows-PowerShell stdin bug, not a script bug; the identical bytes
-   work fine piped from bash). Bash-style `<` redirection is a reserved token in PowerShell (hard
-   parse error). `-b` sidesteps both — no stdin plumbing, no shell quoting — and is agent-browser's
-   own documented reliable-execution method. Write the result straight to disk with .NET so it's
-   guaranteed clean UTF-8 with **no BOM** (PowerShell's `>` redirect defaults to a BOM-prefixed
-   encoding and will corrupt the JSON `scrape_case.mjs` reads next). The case folder already exists
-   — `intake.mjs` created `data/cases/<CODE>/` up front, so **no `mkdir` line is needed** (a manual
-   `mkdir -p` kept breaking under PowerShell, where `-p` is read as a dir name). The script returns
-   the OBJECT (agent-browser serializes it once — do NOT `JSON.stringify` inside, that
-   double-encodes):
-   ```powershell
-   powershell -NoProfile -Command "$b64=[Convert]::ToBase64String([IO.File]::ReadAllBytes('.claude/skills/qualcomm-case-agent/scripts/extract_case.js')); $r = agent-browser eval -b $b64; [IO.File]::WriteAllText('data/cases/<CODE>/case.raw.json', $r, (New-Object Text.UTF8Encoding $false))"
-   ```
-   If the live DOM differs and fields come back empty, edit `extract_case.js` in place (it is the
-   canonical extractor, not a throwaway). Header fields (title/status/priority) aren't on the Feed view —
-   pass them to `scrape_case.mjs` as flags (next step). **Do NOT Read+Edit `case.raw.json` to backfill
-   the title** — that re-ingests every comment body to set 3 fields; let the script merge them in code.
-4. Sanity-check, then finalize (rejects 0 comments → assert count → backfill header flags → SHA-256
-   hash → write JSON + index). Pass the title/status/priority you already hold from the PHASE 1 search
-   row as flags — the script fills them only where the Feed extractor left them blank:
+1. **Kill stale Chrome instances and reset port 9222**:
    ```bash
-   node -e "const j=JSON.parse(require('fs').readFileSync('data/cases/<CODE>/case.raw.json','utf8')); console.log(j.caseNumber, j.comments.length, j.displayedCommentCount)"
-   node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CASE_CODE> "data/cases/<CODE>/case.raw.json" --title "<TITLE>" --status "<STATUS>" --priority "<PRIORITY>"
+   powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/recover_chrome.ps1"
    ```
-   On exit 0 the script deletes its own `case.raw.json` scratch file — **no `del`/`rm` line needed**
-   (a manual delete kept thrashing between `del /F`, `Remove-Item`, and `rm` across shells).
-
-   **Update run — finalize with `--merge` instead.** The raw file is a PARTIAL capture (new posts
-   fully expanded, old posts possibly collapsed/truncated). Run the SAME extractor, then:
+2. **Verify CDP readiness**:
    ```bash
-   node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CASE_CODE> "data/cases/<CODE>/case.raw.json" --merge --status "<STATUS>" --priority "<PRIORITY>"
+   curl -s http://127.0.0.1:9222/json/version
    ```
-   The script keeps every cached comment (bodies, logs, timestamps) VERBATIM, prepends only comments
-   not already cached (dedup: author + normalized body prefix — relative-timestamp drift and
-   collapsed truncation don't break it), preserves `enrichment` untouched, refreshes
-   `url`/`displayedCommentCount`, lets fresh `--status`/`--priority` flags override the cache
-   (they're the current truth from the PHASE 1 row), and recomputes the hash. `--title` is not
-   needed — the cached title survives. Branch on the emitted JSON:
-
-   | Emitted (exit 0, merge) | Meaning | Action |
-   |------------------------|---------|--------|
-   | `newComments > 0` | new comments merged (ids in `newCommentIds`) | PHASE 3 (enrich ONLY those ids) → PHASE 4 |
-   | `newComments: 0, headerChanged: true` | no new comments, but status/priority changed | skip PHASE 3 → PHASE 4 (re-render outputs) |
-   | `newComments: 0, headerChanged: false, changed: false` | nothing new | report "no update since `<syncedAt>`", STOP |
-
-**Exit codes:**
-
-| Code | Meaning | Action |
-|------|---------|--------|
-| 0 | OK | Full run: compare new hash vs old — identical → "No update since `<syncedAt>`", STOP; changed → PHASE 3. Update run: branch on `newComments`/`headerChanged` (table above). |
-| 2 | Bad args / bad raw JSON / `--merge` without a cached `case.json` | Fix invocation; ensure `raw.comments` is an array (clean single-encoded JSON, no BOM). `--merge` without cache → run a full extraction instead. |
-| 5 | Incomplete — 0 comments, or merged/captured `comments.length < displayedCommentCount` | 0 comments = wrong page / session lapsed / Feed not loaded → re-check you're on the case page, finish PHASE 1.5, re-extract. Short = expand more (update run: paginate further past the anchor) or, if virtualized, progressive extraction (extraction.md). STOP if still 5. |
-
-Auth redirect / "case not found" are caught earlier by the PHASE 1 hostname guard — PHASE 2 no longer
-navigates, so it never re-triggers them.
-
+   *Expected result*: HTTP 200 with JSON payload containing `webSocketDebuggerUrl`.
+3. **Retry capture**:
+   ```bash
+   node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE>
+   ```
 
 ---
 
-## PHASE 4 — Persist
+## Recovery 1: Okta Session Re-Authentication (`auth-required`)
 
-All artifacts go in the case folder `data\cases\<CODE>\` (created by `scrape_case.mjs` in PHASE 2).
+Triggered when the saved session in `data/chrome-profile/` has lapsed and Qualcomm redirects to `account.qualcomm.com`.
 
-1. **`data\cases\<CODE>\case.json`** — full object (source of truth), comments newest-first:
-   ```
-   { caseNumber, title, status, priority, severity, product, customer, created, updated,
-     description, url, displayedCommentCount, commentCount, hash, extractedAt,
-     comments: [{ id, timestamp, company, author, role, body, analysisLog[], attachments[] }],
-     enrichment?: { engineerSummary, currentStatus, rootCause, caseFlow[], openQuestions[],
-                    recommendedActions[], tags[], timeline[],
-                    commentAnalyses: { <id>: { summary, role, keyPoints[], citations[], answered } },
-                    enrichedAt } }
-   ```
-
-2. **Render files** (output dir + stem follow the input path → all written beside `case.json`):
-   ```bash
-   node ".claude/skills/qualcomm-case-agent/scripts/render_case.mjs" "data/cases/<CODE>/case.json"
-   ```
-   Writes: `case.report.md` (concise summary, ⚠ if captured < displayed), `case.md` + `case.html` + `case.txt` (full verbatim).
-
-3. **PDF (mandatory)** — Chrome is always attached (PHASE 0 is non-skippable), so the PDF is a
-   required artifact, NOT optional. On Windows, build the `file://` URL from the Windows path
-   (`pwd -W`); a bare `$(pwd)` is Git-bash `/e/...` → Chrome `ERR_FILE_NOT_FOUND`:
-   ```bash
-   agent-browser open "file:///$(pwd -W)/data/cases/<CODE>/case.html"
-   agent-browser pdf "data/cases/<CODE>/case.pdf"
-   ```
-   **Verify it landed** — `case.pdf` must exist and be non-zero before PHASE 4 is done:
-   ```bash
-   test -s "data/cases/<CODE>/case.pdf" && echo "PDF OK" || echo "PDF MISSING — retry"
-   ```
-   If missing: the `file://` URL was malformed (re-check `pwd -W`) or Chrome lost its attach
-   (→ **[Recovery 0]**, re-attach, redo this step). Only after two failed attempts may PHASE 4
-   finish without it — and then PHASE 5 must report the PDF as failed, not silently omit it.
-
-4. **Update `_index.json`** (at `data/cases/` root): `"<CODE>": { "syncedAt": "<ISO>", "commentCount": N, "hash": "<sha256>" }`.
-
+1. **User manual login in visible Chrome**:
+   - Switch to the Chrome window opened on port 9222.
+   - Enter credentials on `account.qualcomm.com`.
+   - Retrieve 6-digit MFA OTP from Samsung email (expires in ~5 min) and submit.
+   - Confirm navigation lands on `support.qualcomm.com`.
+2. **Resume execution**:
+   - Run `node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE>`.
+   - New session cookies will automatically persist in `data/chrome-profile/`.
 
 ---
 
-## Setup on New Windows Machine
+## Recovery 2: Case Not Found / Authorization (`not-found`)
 
-1. Install Node.js (≥18) + `npm i -g agent-browser`. Install real Google Chrome (bundled Chromium not needed).
-2. Copy project folder — skill travels in `.claude/skills/qualcomm-case-agent/`.
-3. Do NOT copy `data/chrome-profile/`, `data/.secrets/`, `data/cases/` — DPAPI `qid.bin` is machine/user-bound. All git-ignored.
-4. First run: try PHASE 1 → Recovery 0 launches Chrome → Recovery 1 handles first login. Log in manually when prompted.
+Triggered when Global Search returns no results for the case number.
+
+1. **Verify case code format**: Must be exactly 8 digits (e.g. `08460319`).
+2. **Check account permissions**: Ensure the logged-in Qualcomm account has view privileges for this case.
+3. If code is incorrect, re-run with valid code. If code is correct but unsearchable, report access limitation to user and STOP.
 
 ---
 
-## Troubleshooting
+## Recovery 3: Stuck Page / Incomplete Expansion (`blocked`)
 
-**`os error 10060` on `agent-browser connect 9222`**
+Triggered when the page DOM fails to hydrate or the feed expansion loop hits stuck limits.
 
-`connect 9222` uses `http://localhost:9222`. Windows resolves `localhost` to IPv6 `::1` first; Chrome binds only IPv4 `127.0.0.1`. Fix: use the explicit ws:// URL from `connect_chrome.ps1` output:
-```bash
-agent-browser connect "ws://127.0.0.1:9222/devtools/browser/<id>"
-```
-Diagnose: `curl -s http://127.0.0.1:9222/json/version` → HTTP 200 means Chrome is fine; 10060 is pure IPv6 mismatch.
+1. **Inspect verdict evidence**:
+   - Check `reason` and `evidence` in the JSON stdout.
+   - Check diagnostic screenshot saved at `data/cases/<CODE>/capture.png` or `probe.png`.
+2. **Force full re-pagination**:
+   ```bash
+   node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE> --mode full
+   ```
+3. If portal UI has changed, inspect `.claude/skills/qualcomm-case-agent/scripts/expand_step.js` or `extract_case.js`.
 
-Recovery 0 already handles the stale-daemon case (clears pid/port/stream files before re-launching). If Recovery 0 ran but `connect_chrome.ps1` still fails, check Chrome installation path and run the script manually to see its output.
+---
 
-**"Input redirection is not supported" (Windows)**
+## Recovery 4: Lock Contention (`busy`)
 
-Chrome must launch via `Start-Process` (not `&` operator) — avoids inheriting redirected stdin. `connect_chrome.ps1` handles this. agent-browser auto-denies prompts on non-TTY stdin — do NOT add `< /dev/null` (bash-only; fails in PowerShell/cmd).
+Triggered when another process holds `data/.capture.lock`.
 
-**PowerShell syntax in Bash tool**
-
-`if (...) { ... }` is PowerShell — errors in Git-Bash. Use PowerShell tool or `powershell -File …` for PS snippets; Bash tool for POSIX one-liners.
+1. Wait ~30 seconds and retry once.
+2. If a previous run crashed or terminated uncleanly leaving a stale lock:
+   - Check if the process recorded in `data/.capture.lock` is still active.
+   - Delete `data/.capture.lock` if stale and re-run.
