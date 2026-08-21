@@ -178,28 +178,28 @@ describe('migrateIds', () => {
 });
 
 describe('mergeComments', () => {
-  const cached = m.assignIds([comment('Alice', 'second'), comment('Bob', 'first')]).comments;
+  const cached = m.assignIds([comment('Bob', 'first', { timestamp: '5 days ago' }), comment('Alice', 'second', { timestamp: '3 days ago' })]).comments;
 
   it('prepends only genuinely new comments, keeping cached ones verbatim', () => {
-    const raw = m.assignIds([comment('Carol', 'third'), comment('Alice', 'second')]).comments;
+    const raw = m.assignIds([comment('Carol', 'third', { timestamp: '1 hour ago' }), comment('Alice', 'second', { timestamp: '3 days ago' })]).comments;
     const { merged, newIds } = m.mergeComments(cached, raw);
     assert.equal(merged.length, 3);
-    assert.equal(merged[0].author, 'Carol');
-    assert.deepEqual(newIds, [merged[0].id]);
-    assert.deepEqual(merged.slice(1), cached);
+    assert.equal(merged[2].author, 'Carol');
+    assert.deepEqual(newIds, [merged[2].id]);
+    assert.deepEqual(merged.slice(0, 2), cached);
   });
 
   it('reports nothing new when the partial capture only re-saw cached posts', () => {
-    const raw = m.assignIds([comment('Alice', 'second')]).comments;
+    const raw = m.assignIds([comment('Alice', 'second', { timestamp: '3 days ago' })]).comments;
     const { merged, newIds } = m.mergeComments(cached, raw);
     assert.deepEqual(newIds, []);
     assert.deepEqual(merged, cached);
   });
 
   it('does not re-add a post that came back truncated in the update capture', () => {
-    const long = comment('Dave', 'y'.repeat(300));
-    const withLong = m.assignIds([long, ...cached]).comments;
-    const collapsed = m.assignIds([comment('Dave', 'y'.repeat(140))]).comments;
+    const long = comment('Dave', 'y'.repeat(300), { timestamp: '1 day ago' });
+    const withLong = m.assignIds([...cached, long]).comments;
+    const collapsed = m.assignIds([comment('Dave', 'y'.repeat(140), { timestamp: '1 day ago' })]).comments;
     assert.deepEqual(m.mergeComments(withLong, collapsed).newIds, []);
   });
 
@@ -210,10 +210,10 @@ describe('mergeComments', () => {
   // but a same-author, high-similarity match is surfaced so a human can look.
   it('flags a same-author near-duplicate as a possible edit instead of silently duplicating it', () => {
     const original = m.assignIds([
-      comment('Alice', 'RRC reject seen on n78 during the initial attach attempt. QXDM log attached below.'),
+      comment('Alice', 'RRC reject seen on n78 during the initial attach attempt. QXDM log attached below.', { timestamp: '2 days ago' }),
     ]).comments;
     const edited = m.assignIds([
-      comment('Alice', 'RRC reject seen on n78 during the initial attach attempt. QXDM log attached below. Updated per QCOM request.'),
+      comment('Alice', 'RRC reject seen on n78 during the initial attach attempt. QXDM log attached below. Updated per QCOM request.', { timestamp: '1 day ago' }),
     ]).comments;
     const { merged, newIds, possibleEdits } = m.mergeComments(original, edited);
     assert.equal(merged.length, 2, 'both versions are kept — never silently merged or dropped');
@@ -223,20 +223,20 @@ describe('mergeComments', () => {
 
   it('does not flag a genuinely different comment by the same author as a possible edit', () => {
     const cached = m.assignIds([
-      comment('Alice', 'RRC reject seen on n78 during the initial attach attempt. QXDM log attached below.'),
+      comment('Alice', 'RRC reject seen on n78 during the initial attach attempt. QXDM log attached below.', { timestamp: '2 days ago' }),
     ]).comments;
     const raw = m.assignIds([
-      comment('Alice', 'Please close this case, issue resolved after a firmware update on our end, thank you.'),
+      comment('Alice', 'Please close this case, issue resolved after a firmware update on our end, thank you.', { timestamp: '1 day ago' }),
     ]).comments;
     assert.deepEqual(m.mergeComments(cached, raw).possibleEdits, []);
   });
 
   it('does not flag a near-duplicate posted by a different author', () => {
     const cached = m.assignIds([
-      comment('Alice', 'RRC reject seen on n78 during the initial attach attempt. QXDM log attached below.'),
+      comment('Alice', 'RRC reject seen on n78 during the initial attach attempt. QXDM log attached below.', { timestamp: '2 days ago' }),
     ]).comments;
     const raw = m.assignIds([
-      comment('Bob', 'RRC reject seen on n78 during the initial attach attempt. QXDM log attached below. +1'),
+      comment('Bob', 'RRC reject seen on n78 during the initial attach attempt. QXDM log attached below. +1', { timestamp: '1 day ago' }),
     ]).comments;
     assert.deepEqual(m.mergeComments(cached, raw).possibleEdits, []);
   });
@@ -265,7 +265,7 @@ function runFinalize(root, raw, args = []) {
 const RAW = {
   caseNumber: '08603854', title: 'NR SA attach failure', status: 'Open', priority: 'P2',
   displayedCommentCount: 2,
-  comments: [comment('Alice', 'RRC reject on n78'), comment('Bob', 'Initial report')],
+  comments: [comment('Alice', 'RRC reject on n78', { timestamp: '2 days ago' }), comment('Bob', 'Initial report', { timestamp: '5 days ago' })],
 };
 
 describe('finalize (child process)', () => {
@@ -277,7 +277,8 @@ describe('finalize (child process)', () => {
     const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
     assert.equal(saved.title, 'NR SA attach failure');
     assert.equal(saved.hash, verdict.hash);
-    assert.equal(saved.comments[0].id, m.commentId(comment('Alice', 'RRC reject on n78')));
+    assert.equal(saved.comments[0].id, m.commentId(comment('Bob', 'Initial report', { timestamp: '5 days ago' })));
+    assert.equal(saved.comments[1].id, m.commentId(comment('Alice', 'RRC reject on n78', { timestamp: '2 days ago' })));
     const index = JSON.parse(readFileSync(join(root, 'data', 'cases', '_index.json'), 'utf8'));
     assert.equal(index['08603854'].commentCount, 2);
   });
@@ -289,16 +290,17 @@ describe('finalize (child process)', () => {
     const root = fixture();
     runFinalize(root, RAW);
     const first = JSON.parse(readFileSync(casePath(root), 'utf8'));
-    const aliceId = first.comments[0].id;
+    const aliceId = first.comments.find(c => c.author === 'Alice').id;
+    const bobId = first.comments.find(c => c.author === 'Bob').id;
     first.enrichment = {
       engineerSummary: 'UE fails SA attach.',
-      caseFlow: [{ step: 1, what: 'symptom', refComments: [first.comments[1].id] }],
+      caseFlow: [{ step: 1, what: 'symptom', refComments: [bobId] }],
       commentAnalyses: { [aliceId]: { summary: 'RRC reject', role: 'Analysis' } },
       enrichedAt: '2026-07-02T00:00:00.000Z',
     };
     writeFileSync(casePath(root), JSON.stringify(first, null, 2), 'utf8');
 
-    const grown = { ...RAW, displayedCommentCount: 3, comments: [comment('Carol', 'log attached'), ...RAW.comments] };
+    const grown = { ...RAW, displayedCommentCount: 3, comments: [comment('Carol', 'log attached', { timestamp: '1 hour ago' }), ...RAW.comments] };
     const { exit, verdict } = runFinalize(root, grown);
 
     assert.equal(exit, m.EXIT.OK);
@@ -308,7 +310,7 @@ describe('finalize (child process)', () => {
       'the cached analysis must re-attach to the SAME comment after a re-capture');
     assert.equal(saved.comments.length, 3);
     // Only the genuinely new comment is offered for analysis.
-    assert.deepEqual(verdict.newCommentIds, [m.commentId(comment('Carol', 'log attached'))]);
+    assert.deepEqual(verdict.newCommentIds, [m.commentId(comment('Carol', 'log attached', { timestamp: '1 hour ago' }))]);
     assert.equal(verdict.newComments, 1);
     // …and the index still knows the case is analyzed.
     const index = JSON.parse(readFileSync(join(root, 'data', 'cases', '_index.json'), 'utf8'));
@@ -323,7 +325,7 @@ describe('finalize (child process)', () => {
   it('does not drop a cached comment when a FULL re-capture comes back thinner', () => {
     const root = fixture();
     runFinalize(root, RAW); // caches both Alice and Bob
-    const thinner = { ...RAW, displayedCommentCount: 2, comments: [comment('Bob', 'Initial report')] };
+    const thinner = { ...RAW, displayedCommentCount: 2, comments: [comment('Bob', 'Initial report', { timestamp: '5 days ago' })] };
     const { exit, verdict } = runFinalize(root, thinner);
 
     assert.equal(exit, m.EXIT.OK);
@@ -342,7 +344,7 @@ describe('finalize (child process)', () => {
       enrichment: { commentAnalyses: { c1: { summary: 'about Alice' }, c2: { summary: 'about Bob' } } },
     }), 'utf8');
 
-    const grown = { ...RAW, displayedCommentCount: 3, comments: [comment('Carol', 'log attached'), ...RAW.comments] };
+    const grown = { ...RAW, displayedCommentCount: 3, comments: [comment('Carol', 'log attached', { timestamp: '1 hour ago' }), ...RAW.comments] };
     runFinalize(root, grown);
 
     const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
@@ -357,7 +359,7 @@ describe('finalize (child process)', () => {
     runFinalize(root, RAW);
     const partial = {
       ...RAW, displayedCommentCount: 3,
-      comments: [comment('Carol', 'log attached'), comment('Alice', 'RRC reject on n78')],
+      comments: [comment('Carol', 'log attached', { timestamp: '1 hour ago' }), comment('Alice', 'RRC reject on n78', { timestamp: '2 days ago' })],
     };
     const { exit, verdict } = runFinalize(root, partial, ['--merge', '--status', 'Closed']);
     assert.equal(exit, m.EXIT.OK);
@@ -365,7 +367,7 @@ describe('finalize (child process)', () => {
     assert.equal(verdict.changed, true);
     assert.equal(verdict.headerChanged, true);
     const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
-    assert.deepEqual(saved.comments.map(c => c.author), ['Carol', 'Alice', 'Bob']);
+    assert.deepEqual(saved.comments.map(c => c.author), ['Bob', 'Alice', 'Carol']);
     assert.equal(saved.status, 'Closed', 'a fresh header flag is the current truth on an update run');
   });
 
@@ -375,14 +377,15 @@ describe('finalize (child process)', () => {
 
     // Annotate a cached comment with analysisLog
     const cached = JSON.parse(readFileSync(casePath(root), 'utf8'));
-    cached.comments[0].analysisLog = ['QXDM debug trace 0xB0C0', 'Packet capture attached'];
-    cached.comments[0].role = 'Customer';
+    const alice = cached.comments.find(c => c.author === 'Alice');
+    alice.analysisLog = ['QXDM debug trace 0xB0C0', 'Packet capture attached'];
+    alice.role = 'Customer';
     writeFileSync(casePath(root), JSON.stringify(cached, null, 2), 'utf8');
 
     // 1. Run update (--merge) with a new comment
     const partial = {
       ...RAW, displayedCommentCount: 3,
-      comments: [comment('Carol', 'new comment from Qualcomm'), comment('Alice', 'RRC reject on n78')],
+      comments: [comment('Carol', 'new comment from Qualcomm', { timestamp: '1 hour ago' }), comment('Alice', 'RRC reject on n78', { timestamp: '2 days ago' })],
     };
     const r1 = runFinalize(root, partial, ['--merge']);
     assert.equal(r1.exit, m.EXIT.OK);
@@ -395,7 +398,7 @@ describe('finalize (child process)', () => {
     // 2. Run full re-capture (no --merge) with all comments
     const fullReCapture = {
       ...RAW, displayedCommentCount: 3,
-      comments: [comment('Carol', 'new comment from Qualcomm'), ...RAW.comments],
+      comments: [comment('Carol', 'new comment from Qualcomm', { timestamp: '1 hour ago' }), ...RAW.comments],
     };
     const r2 = runFinalize(root, fullReCapture);
     assert.equal(r2.exit, m.EXIT.OK);

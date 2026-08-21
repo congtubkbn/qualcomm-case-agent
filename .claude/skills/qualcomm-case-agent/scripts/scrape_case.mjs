@@ -224,11 +224,107 @@ function bodySimilarity(a, b) {
 // only surfaces same-author, high-similarity matches for a human to check.
 const POSSIBLE_EDIT_SIMILARITY = 0.55;
 
-// Prepend the raw comments not already cached (feed order is newest-first).
+/**
+ * Normalizes and parses various timestamp formats into epoch milliseconds.
+ * Supports ISO-8601, standard date strings, and Chatter relative formats.
+ */
+export function parseTimestamp(ts, referenceDate = new Date()) {
+  if (!ts || typeof ts !== 'string') return 0;
+  const s = ts.trim();
+  if (!s) return 0;
+
+  const now = referenceDate instanceof Date ? referenceDate.getTime() : (Number(referenceDate) || Date.now());
+
+  // 1. Relative seconds / just now
+  if (/^(?:just\s+now|right\s+now|a\s+few\s+seconds?\s+ago|seconds?\s+ago)$/i.test(s)) {
+    return now;
+  }
+  const secMatch = s.match(/^(\d+)\s*s(?:ec(?:ond)?s?)?\s*ago$/i);
+  if (secMatch) {
+    return now - Number(secMatch[1]) * 1000;
+  }
+
+  // 2. Relative minutes
+  const minMatch = s.match(/^(\d+)\s*(?:m|min(?:ute)?s?)\s*ago$/i);
+  if (minMatch) {
+    return now - Number(minMatch[1]) * 60 * 1000;
+  }
+
+  // 3. Relative hours
+  const hrMatch = s.match(/^(\d+)\s*(?:h|hr|hours?|hrs?)\s*ago$/i);
+  if (hrMatch) {
+    return now - Number(hrMatch[1]) * 3600 * 1000;
+  }
+
+  // 4. Relative days
+  const dayMatch = s.match(/^(\d+)\s*(?:d|days?)\s*ago$/i);
+  if (dayMatch) {
+    return now - Number(dayMatch[1]) * 86400 * 1000;
+  }
+
+  // 5. Relative weeks
+  const wkMatch = s.match(/^(\d+)\s*(?:w|weeks?|wks?)\s*ago$/i);
+  if (wkMatch) {
+    return now - Number(wkMatch[1]) * 7 * 86400 * 1000;
+  }
+
+  // 6. Relative months
+  const moMatch = s.match(/^(\d+)\s*(?:mo|month|months?|mos?)\s*ago$/i);
+  if (moMatch) {
+    return now - Number(moMatch[1]) * 30 * 86400 * 1000;
+  }
+
+  // 7. Relative years
+  const yrMatch = s.match(/^(\d+)\s*(?:y|yr|years?|yrs?)\s*ago$/i);
+  if (yrMatch) {
+    return now - Number(yrMatch[1]) * 365 * 86400 * 1000;
+  }
+
+  // 8. Yesterday / Today
+  if (/^yesterday/i.test(s)) {
+    return now - 86400 * 1000;
+  }
+  if (/^today/i.test(s)) {
+    return now;
+  }
+
+  // 9. Standard Date format (e.g. ISO 8601 or 'August 20, 2026 at 3:45 PM')
+  const cleanDateStr = s.replace(/\bat\b/gi, ' ').replace(/\s+/g, ' ').trim();
+  const parsed = Date.parse(cleanDateStr);
+  if (!isNaN(parsed)) {
+    return parsed;
+  }
+
+  return 0;
+}
+
+/**
+ * Sorts comments strictly in chronological order (Oldest -> Newest).
+ * Preserves original index order for tie-breaking when timestamps are identical.
+ */
+export function sortCommentsChronological(comments, referenceDate = new Date()) {
+  if (!Array.isArray(comments)) return [];
+  const indexed = comments.map((c, i) => ({
+    c,
+    originalIndex: i,
+    parsedTime: parseTimestamp(c.timestamp, referenceDate),
+  }));
+
+  indexed.sort((a, b) => {
+    if (a.parsedTime !== b.parsedTime) {
+      return a.parsedTime - b.parsedTime;
+    }
+    return a.originalIndex - b.originalIndex;
+  });
+
+  return indexed.map(item => item.c);
+}
+
+// Merge raw comments not already cached and enforce chronological sorting (Oldest -> Newest).
 // Cached comments are kept verbatim — an update run never rewrites old bodies.
 // Both lists must already carry content ids (see assignIds), so dedup is an id
 // lookup rather than a second, separately-drifting heuristic.
-export function mergeComments(cachedComments, rawComments) {
+export function mergeComments(cachedComments, rawComments, referenceDate = new Date()) {
   const cache = cachedComments || [];
   const have = new Set(cache.map(c => c.id));
   const fresh = [];
@@ -246,7 +342,9 @@ export function mergeComments(cachedComments, rawComments) {
       possibleEdits.push({ author, oldId: candidate.o.id, newId: c.id });
     }
   }
-  return { merged: [...fresh, ...cache], newIds: fresh.map(c => c.id), possibleEdits };
+  const freshChronological = [...fresh].reverse();
+  const merged = sortCommentsChronological([...cache, ...freshChronological], referenceDate);
+  return { merged, newIds: fresh.map(c => c.id), possibleEdits };
 }
 
 // ---- Index path ----
