@@ -119,7 +119,8 @@ export function buildPayload(src, vars = {}) {
   const preamble = Object.entries(vars)
     .map(([k, v]) => `var ${k} = ${JSON.stringify(v)};`)
     .join('\n');
-  return `(function(){\n${preamble}\nreturn ${src}\n})()`;
+  const cleanSrc = src.trim().replace(/;+$/, '');
+  return `(function(){\n${preamble}\nreturn (${cleanSrc}\n);\n})()`;
 }
 
 /** Drop whole-line `//` comments and blank lines. A line whose first non-space

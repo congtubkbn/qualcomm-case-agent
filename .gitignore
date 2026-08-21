@@ -18,3 +18,4 @@ data/cases/
 temp/
 .scratch/
 *.log
+debug_*.mjs

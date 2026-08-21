@@ -23,14 +23,14 @@ export function isStubUrl(url) {
  */
 const IN_PAGE_OBSERVE_SCRIPT = `
 (function() {
-  var timeout = typeof __TIMEOUT !== 'undefined' ? __TIMEOUT : 5000;
+  var timeout = typeof __TIMEOUT !== 'undefined' ? __TIMEOUT : 15000;
   var code = typeof __CODE !== 'undefined' ? String(__CODE) : '';
 
   function checkState() {
     if (location.hostname === 'account.qualcomm.com') {
       return { state: 'AUTH', url: location.href };
     }
-    if (location.pathname.indexOf('/s/case/') >= 0 && !/\\/s\\/case\\/Case\\/Default/i.test(location.pathname)) {
+    if (location.pathname.indexOf('/s/case/') >= 0 && location.pathname.indexOf('/s/case/Case/Default') === -1) {
       return { state: 'ON_CASE', href: location.href };
     }
     return null;
@@ -41,10 +41,12 @@ const IN_PAGE_OBSERVE_SCRIPT = `
 
   return new Promise(function(resolve) {
     var timer = null;
+    var pollTimer = null;
     var observer = null;
 
     function cleanup() {
       if (timer) clearTimeout(timer);
+      if (pollTimer) clearInterval(pollTimer);
       if (observer) observer.disconnect();
     }
 
@@ -54,6 +56,14 @@ const IN_PAGE_OBSERVE_SCRIPT = `
       if (last) resolve(last);
       else resolve({ state: 'TIMEOUT', href: location.href });
     }, timeout);
+
+    pollTimer = setInterval(function() {
+      var res = checkState();
+      if (res) {
+        cleanup();
+        resolve(res);
+      }
+    }, 500);
 
     if (typeof MutationObserver !== 'undefined') {
       observer = new MutationObserver(function() {
@@ -74,7 +84,7 @@ const IN_PAGE_OBSERVE_SCRIPT = `
  */
 const IN_PAGE_SEARCH_SCRIPT = `
 (function() {
-  var timeout = typeof __TIMEOUT !== 'undefined' ? __TIMEOUT : 8000;
+  var timeout = typeof __TIMEOUT !== 'undefined' ? __TIMEOUT : 25000;
   var code = typeof __CODE !== 'undefined' ? String(__CODE) : '';
 
   var txt = function (el) {
@@ -88,22 +98,30 @@ const IN_PAGE_SEARCH_SCRIPT = `
     if (location.hostname === 'account.qualcomm.com') {
       return { state: 'AUTH', url: location.href };
     }
-    if (location.pathname.indexOf('/s/case/') >= 0 && !/\\/s\\/case\\/Case\\/Default/i.test(location.pathname)) {
+    if (location.pathname.indexOf('/s/case/') >= 0 && location.pathname.indexOf('/s/case/Case/Default') === -1) {
       return { state: 'ON_CASE', href: location.href, fields: {} };
     }
 
-    var links = qsa('a[href*="/s/case/"]');
-    if (!links.length) return null;
+    var nonStubLinks = qsa('a[href*="/s/case/"]').filter(function(a) {
+      return a.href.indexOf('/s/case/Case/Default') === -1;
+    });
 
     var hit = null, row = null;
-    for (var i = 0; i < links.length; i++) {
-      var r = links[i].closest('tr, li, [role="row"]');
-      if (txt(links[i]).indexOf(code) >= 0 || (r && txt(r).indexOf(code) >= 0)) {
-        hit = links[i]; row = r; break;
+    for (var i = 0; i < nonStubLinks.length; i++) {
+      var r = nonStubLinks[i].closest('tr, li, [role="row"]');
+      if (txt(nonStubLinks[i]).indexOf(code) >= 0 || (r && txt(r).indexOf(code) >= 0)) {
+        hit = nonStubLinks[i]; row = r; break;
       }
     }
     var exact = !!hit;
-    if (!hit) { hit = links[0]; row = hit.closest('tr, li, [role="row"]'); }
+    if (!hit && nonStubLinks.length > 0) {
+      hit = nonStubLinks[0];
+      row = hit.closest('tr, li, [role="row"]');
+    }
+
+    if (!hit) {
+      return null;
+    }
 
     var fields = {};
     var cells = [];
@@ -143,7 +161,7 @@ const IN_PAGE_SEARCH_SCRIPT = `
       href: hit.href,
       exact: exact,
       fields: fields,
-      rows: links.length
+      rows: nonStubLinks.length
     };
   }
 
@@ -152,10 +170,12 @@ const IN_PAGE_SEARCH_SCRIPT = `
 
   return new Promise(function(resolve) {
     var timer = null;
+    var pollTimer = null;
     var observer = null;
 
     function cleanup() {
       if (timer) clearTimeout(timer);
+      if (pollTimer) clearInterval(pollTimer);
       if (observer) observer.disconnect();
     }
 
@@ -165,6 +185,14 @@ const IN_PAGE_SEARCH_SCRIPT = `
       if (last) resolve(last);
       else resolve({ state: 'NO_LINK', href: '', fields: {}, rows: 0, reason: 'Timeout waiting for search results to render' });
     }, timeout);
+
+    pollTimer = setInterval(function() {
+      var res = checkSearch();
+      if (res) {
+        cleanup();
+        resolve(res);
+      }
+    }, 500);
 
     if (typeof MutationObserver !== 'undefined') {
       observer = new MutationObserver(function() {
@@ -187,7 +215,7 @@ const IN_PAGE_SEARCH_SCRIPT = `
  * @param {import('./cdp_client.mjs').CdpClient} options.cdp Active CDP client
  * @param {Object} [options.cached] Cached case metadata (caseUrl, url, title, fields)
  * @param {string} [options.portalUrl='https://support.qualcomm.com']
- * @param {number} [options.timeout=10000]
+ * @param {number} [options.timeout=25000]
  * @returns {Promise<{
  *   state: 'OK' | 'AUTH' | 'NOT_FOUND' | 'BLOCKED' | 'STUB',
  *   href: string,
@@ -204,7 +232,7 @@ export async function fastLandOnCase(code, options = {}) {
     cdp,
     cached,
     portalUrl = 'https://support.qualcomm.com',
-    timeout = 10000,
+    timeout = 25000,
   } = options;
 
   const start = performance.now();
@@ -221,11 +249,11 @@ export async function fastLandOnCase(code, options = {}) {
   if (caseUrl && !isStubUrl(caseUrl)) {
     logDiag(`Attempting direct navigation to cached URL: ${caseUrl}`);
     try {
-      await cdp.navigate(caseUrl, { waitUntil: 'load', timeout: Math.min(timeout, 15000) });
+      await cdp.navigate(caseUrl, { waitUntil: 'load', timeout: Math.min(timeout, 25000) });
 
       const probe = await cdp.eval(
         IN_PAGE_OBSERVE_SCRIPT,
-        { __CODE: code, __TIMEOUT: Math.min(timeout, 5000) },
+        { __CODE: code, __TIMEOUT: Math.min(timeout, 15000) },
         { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
       );
 
@@ -236,7 +264,13 @@ export async function fastLandOnCase(code, options = {}) {
         return {
           state: 'OK',
           href: probe.href || caseUrl,
-          fields: cached?.fields || (cached?.title ? { title: cached.title } : {}),
+          fields: {
+            title: cached?.title || cached?.fields?.title || '',
+            status: cached?.status || cached?.fields?.status || '',
+            priority: cached?.priority || cached?.fields?.priority || '',
+            customer: cached?.customer || cached?.fields?.customer || '',
+            ...(cached?.fields || {}),
+          },
           fastPathUsed: true,
           durationMs,
           diagnostics,
@@ -271,11 +305,11 @@ export async function fastLandOnCase(code, options = {}) {
   const searchUrl = `${baseUrl}/s/global-search/${code}`;
   logDiag(`Navigating to global search: ${searchUrl}`);
   try {
-    await cdp.navigate(searchUrl, { waitUntil: 'load', timeout: Math.min(timeout, 15000) });
+    await cdp.navigate(searchUrl, { waitUntil: 'load', timeout: Math.min(timeout, 25000) });
 
     const searchProbe = await cdp.eval(
       IN_PAGE_SEARCH_SCRIPT,
-      { __CODE: code, __TIMEOUT: Math.min(timeout, 8000) },
+      { __CODE: code, __TIMEOUT: Math.min(timeout, 25000) },
       { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
     );
 

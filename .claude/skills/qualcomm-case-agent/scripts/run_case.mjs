@@ -305,7 +305,7 @@ export async function run(code, opts = {}) {
   let confirmedZero = 0;
   for (let s = 0; s < SETTLE_ROUNDS; s++) {
     await sleep(1000);
-    const unexpanded = evalFile(page('check_collapsed.js'));
+    const unexpanded = evalFile(page('check_collapsed.js'), { __ANCHOR: anchor });
     const pending = (unexpanded?.stillCollapsed || 0) + (unexpanded?.stillHasMoreComments || 0);
     if (pending === 0) {
       confirmedZero++;
@@ -321,7 +321,7 @@ export async function run(code, opts = {}) {
   }
 
   // Trusted-click fallback for stubborn collapsed posts
-  let lastUnexpanded = evalFile(page('check_collapsed.js'));
+  let lastUnexpanded = evalFile(page('check_collapsed.js'), { __ANCHOR: anchor });
   const stubbornCount = (lastUnexpanded?.stillCollapsed || 0) + (lastUnexpanded?.stillHasMoreComments || 0);
   if (stubbornCount > 0) {
     const settleBudget = Math.min(POST_EXPAND_SETTLE_ROUNDS, stubbornCount * 3 + 6);
@@ -333,7 +333,7 @@ export async function run(code, opts = {}) {
       clicks.moreComments += attempt.clickedMoreComments || 0;
       clicks.description += attempt.clickedDescription || 0;
       await sleep(2000);
-      lastUnexpanded = evalFile(page('check_collapsed.js'));
+      lastUnexpanded = evalFile(page('check_collapsed.js'), { __ANCHOR: anchor });
       const remaining = (lastUnexpanded?.stillCollapsed || 0) + (lastUnexpanded?.stillHasMoreComments || 0);
       if (remaining === 0) {
         consecutiveClean++;
@@ -362,7 +362,7 @@ export async function run(code, opts = {}) {
   }
 
   // Final pre-extraction gate
-  const gateUnexpanded = evalFile(page('check_collapsed.js'));
+  const gateUnexpanded = evalFile(page('check_collapsed.js'), { __ANCHOR: anchor });
   const pendingAfterSettle = (gateUnexpanded?.stillCollapsed || 0) + (gateUnexpanded?.stillHasMoreComments || 0);
   if (pendingAfterSettle > 0) {
     shoot(caseDir, 'capture.png');
