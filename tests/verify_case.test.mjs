@@ -5,7 +5,7 @@
 // built from a known-good fixture with exactly one thing broken.
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -30,15 +30,23 @@ function fixture(overrides = {}, { screenshot = true } = {}) {
     ...overrides,
   };
   writeFileSync(join(dir, 'case.json'), JSON.stringify(data, null, 2), 'utf8');
-  for (const f of ['case.md', 'case.html', 'case.txt']) writeFileSync(join(dir, f), 'rendered', 'utf8');
+  writeFileSync(join(dir, 'case.md'), '# Case Title\n\n- **Status:** Open\n', 'utf8');
   if (screenshot) writeFileSync(join(dir, 'capture.png'), 'PNG', 'utf8');
   return dir;
 }
 
-describe('verifyCase capture evidence', () => {
-  it('passes a capture that left no control unexpanded', () => {
+describe('verifyCase capture evidence and artifacts', () => {
+  it('passes a capture that left no control unexpanded with case.json and case.md', () => {
     const r = verifyCase('08000001', fixture());
     assert.equal(r.ok, true, r.errors.join('; '));
+  });
+
+  it('fails when case.md is missing', () => {
+    const dir = fixture();
+    rmSync(join(dir, 'case.md'));
+    const r = verifyCase('08000001', dir);
+    assert.equal(r.ok, false);
+    assert.match(r.errors.join('\n'), /case\.md was not rendered/);
   });
 
   // The whole point of the evidence block: a capture that persisted while a

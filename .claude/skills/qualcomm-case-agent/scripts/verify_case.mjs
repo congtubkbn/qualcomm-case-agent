@@ -3,15 +3,14 @@
 // Independent of the capture pipeline: reads only the persisted files under
 // data/cases/<CODE>/ and checks that what got written is actually complete
 // and accurate, catching anything a capture bug could have let through
-// (collapsed teaser text, a rendered file the JSON's data never reached,
-// duplicate/missing comment ids, empty required fields).
+// (collapsed teaser text, duplicate/missing comment ids, empty required fields).
 //
 //     node verify_case.mjs <CODE> [<CODE>...]
 //     node verify_case.mjs --all              (every cached case)
 //
 // Exit 0 if every case has zero ERRORs (WARNs are informational, e.g. a
-// header field the base capture never fills without --enrich or a Detail-tab
-// pass — see extract_case.js). Exit 1 if any case has at least one ERROR.
+// header field the base capture never fills without a Detail-tab pass).
+// Exit 1 if any case has at least one ERROR.
 // Prints one JSON report line per case to stdout, a human summary to stderr.
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -23,7 +22,7 @@ const COLLAPSED_BODY_RE = /\bExpand Post\s*$/i;
 const MOJIBAKE_RE = /â”¬Ã¡|Â(?=[\s\n]|$)/;
 const REQUIRED_CORE_FIELDS = ['caseNumber', 'title', 'status', 'url', 'hash', 'extractedAt'];
 const OPTIONAL_FIELDS_WARN_IF_EMPTY = ['created', 'updated', 'product', 'description', 'priority', 'customer'];
-const RENDERED_FILES = ['case.md', 'case.html', 'case.txt'];
+const RENDERED_FILES = ['case.md'];
 
 function readJsonLoose(path) {
   const t = readFileSync(path, 'utf8');
@@ -50,7 +49,7 @@ export function verifyCase(code, dir = join(DATA_DIR, code)) {
     if (!String(c[f] ?? '').trim()) errors.push(`required field "${f}" is empty`);
   }
   for (const f of OPTIONAL_FIELDS_WARN_IF_EMPTY) {
-    if (!String(c[f] ?? '').trim()) warnings.push(`field "${f}" is empty (expected without --enrich / a Detail-tab pass)`);
+    if (!String(c[f] ?? '').trim()) warnings.push(`field "${f}" is empty (expected without a Detail-tab pass)`);
   }
 
   if (!Array.isArray(c.comments) || c.comments.length === 0) {
@@ -114,10 +113,6 @@ export function verifyCase(code, dir = join(DATA_DIR, code)) {
     if (COLLAPSED_BODY_RE.test(body.trim())) {
       warnings.push(`${f} ends in a literal "Expand Post" — check rendering, not just the source JSON`);
     }
-  }
-  const pdfPath = join(dir, 'case.pdf');
-  if (existsSync(pdfPath) && statSync(pdfPath).size === 0) {
-    errors.push('case.pdf exists but is 0 bytes (failed print left an empty file)');
   }
 
   return { code, ok: errors.length === 0, errors, warnings };

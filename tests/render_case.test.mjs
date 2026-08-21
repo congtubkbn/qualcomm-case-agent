@@ -1,19 +1,11 @@
-// QA coverage for render_case.mjs — previously untested. This script turns
-// case.json (Chatter feed content from OTHER companies on a shared support
-// portal — not fully trusted input) into a single-file case.html that a human
-// opens locally. The main risk surface is HTML injection/XSS from comment
-// bodies, titles, attachment names/hrefs; secondary risk is a crash on
-// missing/malformed fields wiping no files (it writes 4 files with no
-// atomicity) or a BOM-prefixed case.json (other scripts in this repo
-// explicitly strip a BOM; this one must too, for consistency).
-//
-// render_case.mjs has no exports — it's a top-level script driven by argv —
-// so it is exercised the same way scrape_case.test.mjs drives finalize():
-// spawn it against a real file and inspect what it wrote.
+// QA coverage for render_case.mjs
+// Tests that render_case.mjs generates ONLY case.md (clean markdown)
+// with Header metadata, Initial Description, and Chronological Timeline of comments,
+// without generating HTML, PDF, txt, or report.md files.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -27,33 +19,39 @@ function renderFixture(data) {
   writeFileSync(jsonPath, typeof data === 'string' ? data : JSON.stringify(data), 'utf8');
   const r = spawnSync(process.execPath, [SCRIPT, jsonPath], { encoding: 'utf8' });
   return {
-    dir, exit: r.status, stdout: r.stdout, stderr: r.stderr,
-    html: () => readFileSync(join(dir, 'case.html'), 'utf8'),
+    dir,
+    exit: r.status,
+    stdout: r.stdout,
+    stderr: r.stderr,
+    hasFile: (name) => existsSync(join(dir, name)),
     md: () => readFileSync(join(dir, 'case.md'), 'utf8'),
-    report: () => readFileSync(join(dir, 'case.report.md'), 'utf8'),
-    txt: () => readFileSync(join(dir, 'case.txt'), 'utf8'),
   };
 }
 
 const comment = (author, body, extra = {}) => ({ author, body, timestamp: '2 days ago', ...extra });
 
 const MINIMAL = {
-  caseNumber: '08460319', title: 'NR SA attach failure', status: 'Open', priority: 'P2',
+  caseNumber: '08460319',
+  title: 'NR SA attach failure',
+  status: 'Open',
+  priority: 'P2',
   comments: [comment('Alice', 'RRC reject on n78')],
 };
 
-describe('render_case: happy path', () => {
-  it('writes all four artifacts with the expected identifiers', () => {
+describe('render_case: output artifacts', () => {
+  it('generates ONLY case.md and does NOT generate case.html, case.report.md, or case.txt', () => {
     const r = renderFixture(MINIMAL);
     assert.equal(r.exit, 0);
-    assert.match(r.html(), /08460319/);
-    assert.match(r.html(), /NR SA attach failure/);
-    assert.match(r.md(), /RRC reject on n78/);
-    assert.match(r.report(), /Case Report/);
-    assert.match(r.txt(), /RRC reject on n78/);
+    assert.ok(r.hasFile('case.md'), 'case.md must be generated');
+    assert.ok(!r.hasFile('case.html'), 'case.html must NOT be generated');
+    assert.ok(!r.hasFile('case.report.md'), 'case.report.md must NOT be generated');
+    assert.ok(!r.hasFile('case.txt'), 'case.txt must NOT be generated');
+    assert.ok(!r.hasFile('case.pdf'), 'case.pdf must NOT be generated');
   });
+});
 
-  it('renders complete markdown with metadata, timeline, analysisLog, and attachments', () => {
+describe('render_case: case.md content structure', () => {
+  it('renders complete markdown with metadata, description, chronological comments, logs and attachments', () => {
     const fullCase = {
       caseNumber: '08460319',
       title: 'NR SA attach failure on band n78',
@@ -61,38 +59,32 @@ describe('render_case: happy path', () => {
       priority: 'P1',
       severity: 'S1',
       product: 'Snapdragon X75',
+      component: 'Modem RF',
       customer: 'OEM-Alpha',
       url: 'https://support.qualcomm.com/case/08460319',
-      description: 'UE fails registration on n78 standalone cell during initial attach.',
+      created: '2026-08-18T08:00:00.000Z',
+      updated: '2026-08-20T14:30:00.000Z',
       extractedAt: '2026-08-22T00:00:00.000Z',
-      enrichment: {
-        engineerSummary: 'UE registration fails due to RACH preamble timeout.',
-        currentStatus: 'Qualcomm requested modem QXDM logs with 0xB0C0 mask.',
-        rootCause: 'Timing advance misconfiguration in gNB SIB1.',
-        caseFlow: [
-          { phase: 'Triage', date: '2026-08-20', by: 'Engineer A', what: 'Analyzed initial crash dump' },
-        ],
-        openQuestions: ['Is SIB1 periodicity set to 20ms?'],
-        recommendedActions: ['Provide full QXDM binary log from bootup.'],
-        tags: ['5G-SA', 'n78', 'Attach-Failure'],
-      },
+      description: 'UE fails registration on n78 standalone cell during initial attach.',
       comments: [
-        comment('Qualcomm Support', 'Please provide QXDM log with 0xB0C0 message mask.', {
+        comment('Alice', 'Initial case filing with issue description.', {
           id: 'c1',
+          role: 'Customer',
+          company: 'OEM-Alpha',
+          timestamp: '2026-08-18T08:30:00.000Z',
+          attachments: [
+            { name: 'modem_boot.pcap', href: 'https://support.qualcomm.com/f/pcap123' },
+          ],
+        }),
+        comment('Qualcomm Support', 'Please provide QXDM log with 0xB0C0 message mask.', {
+          id: 'c2',
           role: 'Qualcomm',
           company: 'Qualcomm Inc.',
+          timestamp: '2026-08-19T10:15:00.000Z',
           analysisLog: ['QXDM mask config: 0xB0C0, 0xB0CD, 0xB197'],
           attachments: [
             { name: 'mask_config.cfg', href: 'https://support.qualcomm.com/f/cfg123' },
             { name: 'readme.txt', href: 'https://support.qualcomm.com/f/txt123' },
-          ],
-        }),
-        comment('Alice', 'Initial case filing with issue description.', {
-          id: 'c2',
-          role: 'Customer',
-          company: 'OEM-Alpha',
-          attachments: [
-            { name: 'modem_boot.pcap', href: 'https://support.qualcomm.com/f/pcap123' },
           ],
         }),
       ],
@@ -108,32 +100,54 @@ describe('render_case: happy path', () => {
     assert.match(md, /- \*\*Priority:\*\* P1/);
     assert.match(md, /- \*\*Severity:\*\* S1/);
     assert.match(md, /- \*\*Product:\*\* Snapdragon X75/);
+    assert.match(md, /- \*\*Component:\*\* Modem RF/);
     assert.match(md, /- \*\*Customer:\*\* OEM-Alpha/);
+    assert.match(md, /- \*\*Created:\*\* 2026-08-18T08:00:00\.000Z/);
+    assert.match(md, /- \*\*Updated:\*\* 2026-08-20T14:30:00\.000Z/);
+    assert.match(md, /- \*\*Comments:\*\* 2/);
+    assert.match(md, /- \*\*Synced:\*\* 2026-08-22T00:00:00\.000Z/);
     assert.match(md, /- \*\*URL:\*\* https:\/\/support\.qualcomm\.com\/case\/08460319/);
 
-    // 2. Description & Enrichment assertions
+    // 2. Initial Description
     assert.match(md, /## Description\n\nUE fails registration on n78 standalone cell/);
-    assert.match(md, /## Engineer Summary \(overview\)\n\nUE registration fails/);
-    assert.match(md, /## Current Status\n\nQualcomm requested modem QXDM logs/);
-    assert.match(md, /## Root Cause\n\nTiming advance misconfiguration/);
-    assert.match(md, /## Analysis Flow/);
-    assert.match(md, /Triage · 2026-08-20 · Engineer A/);
-    assert.match(md, /## Open Questions \/ Awaiting Feedback/);
-    assert.match(md, /- Is SIB1 periodicity set to 20ms\?/);
-    assert.match(md, /## Recommended Actions/);
-    assert.match(md, /- Provide full QXDM binary log from bootup\./);
-    assert.match(md, /`5G-SA` `n78` `Attach-Failure`/);
 
-    // 3. Comments Timeline, Roles, analysisLog, and Attachments assertions
-    assert.match(md, /## Comments \(newest first\)/);
-    assert.match(md, /### 1\. 2 days ago · Qualcomm Inc\. · Qualcomm Support \(Qualcomm\)/);
+    // 3. Chronological timeline of comments
+    assert.match(md, /## Chronological Timeline of Comments/);
+    assert.match(md, /### 1\. 2026-08-18T08:30:00\.000Z · OEM-Alpha · Alice \(Customer\)/);
+    assert.match(md, /Initial case filing with issue description\./);
+    assert.match(md, /\*\*Attachments:\*\* \[modem_boot\.pcap\]\(https:\/\/support\.qualcomm\.com\/f\/pcap123\)/);
+
+    assert.match(md, /### 2\. 2026-08-19T10:15:00\.000Z · Qualcomm Inc\. · Qualcomm Support \(Qualcomm\)/);
     assert.match(md, /Please provide QXDM log with 0xB0C0 message mask\./);
     assert.match(md, /```\nQXDM mask config: 0xB0C0, 0xB0CD, 0xB197\n```/);
     assert.match(md, /\*\*Attachments:\*\* \[mask_config\.cfg\]\(https:\/\/support\.qualcomm\.com\/f\/cfg123\), \[readme\.txt\]\(https:\/\/support\.qualcomm\.com\/f\/txt123\)/);
+  });
 
-    assert.match(md, /### 2\. 2 days ago · OEM-Alpha · Alice \(Customer\)/);
-    assert.match(md, /Initial case filing with issue description\./);
-    assert.match(md, /\*\*Attachments:\*\* \[modem_boot\.pcap\]\(https:\/\/support\.qualcomm\.com\/f\/pcap123\)/);
+  it('does not render obsolete enrichment / LLM sections', () => {
+    const caseWithEnrich = {
+      ...MINIMAL,
+      enrichment: {
+        engineerSummary: 'UE registration fails due to RACH preamble timeout.',
+        currentStatus: 'Qualcomm requested modem QXDM logs with 0xB0C0 mask.',
+        rootCause: 'Timing advance misconfiguration in gNB SIB1.',
+        caseFlow: [{ phase: 'Triage', date: '2026-08-20', by: 'Engineer A', what: 'Analyzed initial crash dump' }],
+        openQuestions: ['Is SIB1 periodicity set to 20ms?'],
+        recommendedActions: ['Provide full QXDM binary log from bootup.'],
+        tags: ['5G-SA', 'n78', 'Attach-Failure'],
+      },
+    };
+
+    const r = renderFixture(caseWithEnrich);
+    assert.equal(r.exit, 0);
+    const md = r.md();
+
+    assert.ok(!md.includes('Engineer Summary'));
+    assert.ok(!md.includes('Current Status'));
+    assert.ok(!md.includes('Root Cause'));
+    assert.ok(!md.includes('Analysis Flow'));
+    assert.ok(!md.includes('Open Questions'));
+    assert.ok(!md.includes('Recommended Actions'));
+    assert.ok(!md.includes('5G-SA'));
   });
 
   it('exits 2 with a usage message when no path is given', () => {
@@ -143,141 +157,46 @@ describe('render_case: happy path', () => {
   });
 });
 
-describe('render_case: HTML/XSS safety (comment content is third-party, not trusted)', () => {
-  it('escapes a <script> tag in a comment body instead of emitting it live', () => {
-    const r = renderFixture({
-      ...MINIMAL,
-      comments: [comment('Mallory', '<script>alert(document.cookie)</script>')],
-    });
-    const html = r.html();
-    assert.ok(!html.includes('<script>alert(document.cookie)</script>'),
-      'raw <script> tag must never appear unescaped in case.html');
-    assert.match(html, /&lt;script&gt;alert\(document\.cookie\)&lt;\/script&gt;/);
-  });
-
-  it('escapes an attribute-breakout attempt in the case title', () => {
-    const r = renderFixture({ ...MINIMAL, title: `"><img src=x onerror=alert(1)>` });
-    const html = r.html();
-    assert.ok(!html.includes('<img src=x onerror=alert(1)>'),
-      'title must not be able to break out of the <title>/<h1> context');
-  });
-
-  it('escapes HTML in engineer-analysis fields (root cause, summary, key points)', () => {
-    const r = renderFixture({
-      ...MINIMAL,
-      comments: [comment('Alice', 'RRC reject on n78', { id: 'c1' })],
-      enrichment: {
-        engineerSummary: '<img src=x onerror=alert(1)>',
-        rootCause: '<svg onload=alert(2)>',
-        commentAnalyses: {
-          c1: { summary: 's', role: 'Analysis', keyPoints: ['<b>bold-injected</b>'], citations: [] },
-        },
-      },
-    });
-    const html = r.html();
-    assert.ok(!/<img src=x onerror=alert\(1\)>/.test(html));
-    assert.ok(!/<svg onload=alert\(2\)>/.test(html));
-    assert.ok(!html.includes('<b>bold-injected</b>'));
-  });
-
-  it('escapes an injection in an attachment file name', () => {
-    const r = renderFixture({
-      ...MINIMAL,
-      comments: [comment('Bob', 'see log', {
-        attachments: [{ name: '<script>evil()</script>.log', href: 'https://support.qualcomm.com/f/x' }],
-      })],
-    });
-    assert.ok(!r.html().includes('<script>evil()</script>'));
-  });
-
-  // Comment attachments come from the live Chatter feed of a SHARED portal —
-  // other companies on the same case can post them, not just the signed-in
-  // account. `esc()` alone does not stop a `javascript:`/`data:` URI from
-  // reaching `href="..."` verbatim, which would execute on click.
-  it('neutralizes a javascript: URI in an attachment href', () => {
-    const r = renderFixture({
-      ...MINIMAL,
-      comments: [comment('Mallory', 'see attachment', {
-        attachments: [{ name: 'evil.log', href: 'javascript:alert(document.cookie)' }],
-      })],
-    });
-    assert.ok(!r.html().includes('href="javascript:'), 'a javascript: href must never reach the DOM live');
-  });
-
-  it('neutralizes a data: URI in an attachment href', () => {
-    const r = renderFixture({
-      ...MINIMAL,
-      comments: [comment('Mallory', 'see attachment', {
-        attachments: [{ name: 'evil.html', href: 'data:text/html,<script>alert(1)</script>' }],
-      })],
-    });
-    assert.ok(!r.html().includes('href="data:'));
-  });
-
-  it('keeps a normal https:// attachment href intact', () => {
-    const r = renderFixture({
-      ...MINIMAL,
-      comments: [comment('Bob', 'see log', {
-        attachments: [{ name: 'ok.log', href: 'https://support.qualcomm.com/f/abc123' }],
-      })],
-    });
-    assert.match(r.html(), /href="https:\/\/support\.qualcomm\.com\/f\/abc123"/);
-  });
-
-  it('neutralizes a javascript: URI in the case URL footer link', () => {
-    const r = renderFixture({ ...MINIMAL, url: 'javascript:alert(1)' });
-    assert.ok(!r.html().includes('href="javascript:'));
-  });
-});
-
-describe('render_case: malformed / missing data does not crash', () => {
+describe('render_case: malformed / missing data tolerance', () => {
   it('tolerates a case with no comments array at all', () => {
     const { comments, ...noComments } = MINIMAL;
     const r = renderFixture(noComments);
     assert.equal(r.exit, 0);
-    assert.match(r.html(), /Comments \(newest first\)/);
+    assert.match(r.md(), /Chronological Timeline of Comments/);
   });
 
   it('tolerates an empty comments array', () => {
     const r = renderFixture({ ...MINIMAL, comments: [] });
     assert.equal(r.exit, 0);
+    assert.match(r.md(), /Chronological Timeline of Comments/);
   });
 
-  it('tolerates missing optional header fields (status/priority/customer/product)', () => {
+  it('tolerates missing optional header fields', () => {
     const r = renderFixture({ caseNumber: '08460319', title: 'x', comments: [comment('A', 'b')] });
     assert.equal(r.exit, 0);
     assert.ok(!r.md().includes('**Status:**'));
+    assert.ok(!r.md().includes('**Product:**'));
   });
 
-  it('falls back to "Untitled case" when title is missing, without crashing', () => {
+  it('falls back to "Untitled case" when title is missing', () => {
     const { title, ...noTitle } = MINIMAL;
     const r = renderFixture(noTitle);
     assert.equal(r.exit, 0);
-    assert.match(r.html(), /Untitled case/);
+    assert.match(r.md(), /Untitled case/);
   });
 
-  it('reads a UTF-8 BOM-prefixed case.json (same tolerance as scrape_case.mjs)', () => {
-    const r = renderFixture('﻿' + JSON.stringify(MINIMAL));
+  it('reads a UTF-8 BOM-prefixed case.json', () => {
+    const r = renderFixture('\uFEFF' + JSON.stringify(MINIMAL));
     assert.equal(r.exit, 0);
-    assert.match(r.html(), /08460319/);
+    assert.match(r.md(), /08460319/);
   });
 
-  it('exits non-zero on malformed JSON rather than writing partial/garbage artifacts', () => {
+  it('exits non-zero on malformed JSON without writing partial artifacts', () => {
     const dir = mkdtempSync(join(tmpdir(), 'qc-render-'));
     const jsonPath = join(dir, 'case.json');
     writeFileSync(jsonPath, '{ not valid json', 'utf8');
     const r = spawnSync(process.execPath, [SCRIPT, jsonPath], { encoding: 'utf8' });
     assert.notEqual(r.status, 0);
-    assert.throws(() => readFileSync(join(dir, 'case.html'), 'utf8'));
-  });
-
-  it('supports the legacy flat commentSummaries schema alongside commentAnalyses', () => {
-    const c = comment('Alice', 'RRC reject on n78', { id: 'c1' });
-    const r = renderFixture({
-      ...MINIMAL, comments: [c],
-      enrichment: { commentSummaries: { c1: 'legacy one-line summary' } },
-    });
-    assert.match(r.html(), /legacy one-line summary/);
-    assert.match(r.md(), /legacy one-line summary/);
+    assert.ok(!existsSync(join(dir, 'case.md')));
   });
 });
