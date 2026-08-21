@@ -53,6 +53,89 @@ describe('render_case: happy path', () => {
     assert.match(r.txt(), /RRC reject on n78/);
   });
 
+  it('renders complete markdown with metadata, timeline, analysisLog, and attachments', () => {
+    const fullCase = {
+      caseNumber: '08460319',
+      title: 'NR SA attach failure on band n78',
+      status: 'In Progress',
+      priority: 'P1',
+      severity: 'S1',
+      product: 'Snapdragon X75',
+      customer: 'OEM-Alpha',
+      url: 'https://support.qualcomm.com/case/08460319',
+      description: 'UE fails registration on n78 standalone cell during initial attach.',
+      extractedAt: '2026-08-22T00:00:00.000Z',
+      enrichment: {
+        engineerSummary: 'UE registration fails due to RACH preamble timeout.',
+        currentStatus: 'Qualcomm requested modem QXDM logs with 0xB0C0 mask.',
+        rootCause: 'Timing advance misconfiguration in gNB SIB1.',
+        caseFlow: [
+          { phase: 'Triage', date: '2026-08-20', by: 'Engineer A', what: 'Analyzed initial crash dump' },
+        ],
+        openQuestions: ['Is SIB1 periodicity set to 20ms?'],
+        recommendedActions: ['Provide full QXDM binary log from bootup.'],
+        tags: ['5G-SA', 'n78', 'Attach-Failure'],
+      },
+      comments: [
+        comment('Qualcomm Support', 'Please provide QXDM log with 0xB0C0 message mask.', {
+          id: 'c1',
+          role: 'Qualcomm',
+          company: 'Qualcomm Inc.',
+          analysisLog: ['QXDM mask config: 0xB0C0, 0xB0CD, 0xB197'],
+          attachments: [
+            { name: 'mask_config.cfg', href: 'https://support.qualcomm.com/f/cfg123' },
+            { name: 'readme.txt', href: 'https://support.qualcomm.com/f/txt123' },
+          ],
+        }),
+        comment('Alice', 'Initial case filing with issue description.', {
+          id: 'c2',
+          role: 'Customer',
+          company: 'OEM-Alpha',
+          attachments: [
+            { name: 'modem_boot.pcap', href: 'https://support.qualcomm.com/f/pcap123' },
+          ],
+        }),
+      ],
+    };
+
+    const r = renderFixture(fullCase);
+    assert.equal(r.exit, 0);
+    const md = r.md();
+
+    // 1. Metadata assertions
+    assert.match(md, /# 08460319 — NR SA attach failure on band n78/);
+    assert.match(md, /- \*\*Status:\*\* In Progress/);
+    assert.match(md, /- \*\*Priority:\*\* P1/);
+    assert.match(md, /- \*\*Severity:\*\* S1/);
+    assert.match(md, /- \*\*Product:\*\* Snapdragon X75/);
+    assert.match(md, /- \*\*Customer:\*\* OEM-Alpha/);
+    assert.match(md, /- \*\*URL:\*\* https:\/\/support\.qualcomm\.com\/case\/08460319/);
+
+    // 2. Description & Enrichment assertions
+    assert.match(md, /## Description\n\nUE fails registration on n78 standalone cell/);
+    assert.match(md, /## Engineer Summary \(overview\)\n\nUE registration fails/);
+    assert.match(md, /## Current Status\n\nQualcomm requested modem QXDM logs/);
+    assert.match(md, /## Root Cause\n\nTiming advance misconfiguration/);
+    assert.match(md, /## Analysis Flow/);
+    assert.match(md, /Triage · 2026-08-20 · Engineer A/);
+    assert.match(md, /## Open Questions \/ Awaiting Feedback/);
+    assert.match(md, /- Is SIB1 periodicity set to 20ms\?/);
+    assert.match(md, /## Recommended Actions/);
+    assert.match(md, /- Provide full QXDM binary log from bootup\./);
+    assert.match(md, /`5G-SA` `n78` `Attach-Failure`/);
+
+    // 3. Comments Timeline, Roles, analysisLog, and Attachments assertions
+    assert.match(md, /## Comments \(newest first\)/);
+    assert.match(md, /### 1\. 2 days ago · Qualcomm Inc\. · Qualcomm Support \(Qualcomm\)/);
+    assert.match(md, /Please provide QXDM log with 0xB0C0 message mask\./);
+    assert.match(md, /```\nQXDM mask config: 0xB0C0, 0xB0CD, 0xB197\n```/);
+    assert.match(md, /\*\*Attachments:\*\* \[mask_config\.cfg\]\(https:\/\/support\.qualcomm\.com\/f\/cfg123\), \[readme\.txt\]\(https:\/\/support\.qualcomm\.com\/f\/txt123\)/);
+
+    assert.match(md, /### 2\. 2 days ago · OEM-Alpha · Alice \(Customer\)/);
+    assert.match(md, /Initial case filing with issue description\./);
+    assert.match(md, /\*\*Attachments:\*\* \[modem_boot\.pcap\]\(https:\/\/support\.qualcomm\.com\/f\/pcap123\)/);
+  });
+
   it('exits 2 with a usage message when no path is given', () => {
     const r = spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8' });
     assert.equal(r.status, 2);

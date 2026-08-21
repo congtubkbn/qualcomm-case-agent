@@ -369,6 +369,43 @@ describe('finalize (child process)', () => {
     assert.equal(saved.status, 'Closed', 'a fresh header flag is the current truth on an update run');
   });
 
+  it('preserves comment-level analysisLog annotations through update and full re-captures', () => {
+    const root = fixture();
+    runFinalize(root, RAW);
+
+    // Annotate a cached comment with analysisLog
+    const cached = JSON.parse(readFileSync(casePath(root), 'utf8'));
+    cached.comments[0].analysisLog = ['QXDM debug trace 0xB0C0', 'Packet capture attached'];
+    cached.comments[0].role = 'Customer';
+    writeFileSync(casePath(root), JSON.stringify(cached, null, 2), 'utf8');
+
+    // 1. Run update (--merge) with a new comment
+    const partial = {
+      ...RAW, displayedCommentCount: 3,
+      comments: [comment('Carol', 'new comment from Qualcomm'), comment('Alice', 'RRC reject on n78')],
+    };
+    const r1 = runFinalize(root, partial, ['--merge']);
+    assert.equal(r1.exit, m.EXIT.OK);
+
+    const saved1 = JSON.parse(readFileSync(casePath(root), 'utf8'));
+    const aliceComment1 = saved1.comments.find(c => c.author === 'Alice');
+    assert.deepEqual(aliceComment1.analysisLog, ['QXDM debug trace 0xB0C0', 'Packet capture attached']);
+    assert.equal(aliceComment1.role, 'Customer');
+
+    // 2. Run full re-capture (no --merge) with all comments
+    const fullReCapture = {
+      ...RAW, displayedCommentCount: 3,
+      comments: [comment('Carol', 'new comment from Qualcomm'), ...RAW.comments],
+    };
+    const r2 = runFinalize(root, fullReCapture);
+    assert.equal(r2.exit, m.EXIT.OK);
+
+    const saved2 = JSON.parse(readFileSync(casePath(root), 'utf8'));
+    const aliceComment2 = saved2.comments.find(c => c.author === 'Alice');
+    assert.deepEqual(aliceComment2.analysisLog, ['QXDM debug trace 0xB0C0', 'Packet capture attached']);
+    assert.equal(aliceComment2.role, 'Customer');
+  });
+
   it('reports no change when an update run re-saw the same feed', () => {
     const root = fixture();
     const first = runFinalize(root, RAW);
