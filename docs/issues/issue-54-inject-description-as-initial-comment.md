@@ -24,11 +24,11 @@ Update `scrape_case.mjs` so that when processing raw case data:
 
 ## Acceptance criteria
 
-- [ ] Non-empty `description` is injected as a comment in `case.json`.
-- [ ] Comment metadata (`author`, `timestamp`, `summary`, `body`) is populated accurately.
-- [ ] Stable content hash ID is generated via `assignIds()`.
-- [ ] Repeated `--merge` invocations do not duplicate the description comment.
-- [ ] Empty or whitespace-only descriptions do not create blank comments.
+- [x] Non-empty `description` is injected as a comment in `case.json`.
+- [x] Comment metadata (`author`, `timestamp`, `summary`, `body`) is populated accurately.
+- [x] Stable content hash ID is generated via `assignIds()`.
+- [x] Repeated `--merge` invocations do not duplicate the description comment.
+- [x] Empty or whitespace-only descriptions do not create blank comments.
 
 ## Blocked by
 
