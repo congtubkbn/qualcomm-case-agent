@@ -211,4 +211,46 @@ describe('finalize()', () => {
     const md = readFileSync(result.mdPath, 'utf8');
     assert.match(md, /Customer reported x\./);
   });
+
+  it('update run: reads prior summary.json off disk, preserves its comments untouched, appends the new batch', async (t) => {
+    mockDeps(t, { status: 'updated' });
+    writeCaseJson('08000021', {
+      status: 'Pending Qualcomm',
+      comments: [
+        { id: 'c1', timestamp: 't1', author: 'A', body: 'first' },
+        { id: 'c2', timestamp: 't2', author: 'B', body: 'second' },
+        { id: 'c3', timestamp: 't3', author: 'C', body: 'third' },
+      ],
+    });
+    const priorC1 = { id: 'c1', timestamp: 't1', author: 'A', issue: 'x', status: 'FAIL' };
+    const priorC2 = { id: 'c2', timestamp: 't2', author: 'B', nextAction: 'wait for logs' };
+    writeSummaryJson('08000021', {
+      caseNumber: '08000021',
+      status: 'Open',
+      summarizedCommentIds: ['c1', 'c2'],
+      comments: [priorC1, priorC2],
+      flow: 'A reported x (FAIL); B said wait for logs.',
+      lastSummarizedAt: '2026-08-20T00:00:00.000Z',
+    });
+
+    const { finalize } = await importOrchestrator();
+    const result = finalize('08000021', {
+      comments: [{ id: 'c3', timestamp: 't3', author: 'C', nextAction: 'escalate' }],
+      flow: 'A reported x (FAIL); B said wait for logs; C escalated.',
+    });
+
+    const written = JSON.parse(readFileSync(result.summaryPath, 'utf8'));
+    assert.deepEqual(written.summarizedCommentIds, ['c1', 'c2', 'c3']);
+    assert.deepEqual(written.comments[0], priorC1);
+    assert.deepEqual(written.comments[1], priorC2);
+    assert.deepEqual(written.comments[2], { id: 'c3', timestamp: 't3', author: 'C', nextAction: 'escalate' });
+    assert.equal(written.flow, 'A reported x (FAIL); B said wait for logs; C escalated.');
+    assert.equal(written.status, 'Pending Qualcomm');
+
+    const md = readFileSync(result.mdPath, 'utf8');
+    const c3Idx = md.indexOf('### C (t3)');
+    const c2Idx = md.indexOf('### B (t2)');
+    const c1Idx = md.indexOf('### A (t1)');
+    assert.ok(c3Idx < c2Idx && c2Idx < c1Idx, 'newest comment (c3) must render above older ones');
+  });
 });
