@@ -19,10 +19,10 @@ Update `render_case.mjs` to reflect the unified chronological comment timeline:
 
 ## Acceptance criteria
 
-- [ ] Standalone `## Description` section is removed from `case.md` rendering.
-- [ ] Description comment appears cleanly as Comment #1 in `## Chronological Timeline of Comments`.
-- [ ] Summary rendering (`render_summary.mjs`) handles the description comment seamlessly.
-- [ ] Existing markdown layout and metadata headers remain intact.
+- [x] Standalone `## Description` section is removed from `case.md` rendering.
+- [x] Description comment appears cleanly as Comment #1 in `## Chronological Timeline of Comments`.
+- [x] Summary rendering (`render_summary.mjs`) handles the description comment seamlessly.
+- [x] Existing markdown layout and metadata headers remain intact.
 
 ## Blocked by
 

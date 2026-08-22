@@ -67,6 +67,11 @@ describe('render_case: case.md content structure', () => {
       extractedAt: '2026-08-22T00:00:00.000Z',
       description: 'UE fails registration on n78 standalone cell during initial attach.',
       comments: [
+        comment('OEM-Alpha', 'UE fails registration on n78 standalone cell during initial attach.', {
+          id: 'c0',
+          timestamp: '2026-08-18T08:00:00.000Z',
+          summary: 'UE fails registration on n78 standalone cell during initial attach.',
+        }),
         comment('Alice', 'Initial case filing with issue description.', {
           id: 'c1',
           timestamp: '2026-08-18T08:30:00.000Z',
@@ -101,20 +106,23 @@ describe('render_case: case.md content structure', () => {
     assert.match(md, /- \*\*Customer:\*\* OEM-Alpha/);
     assert.match(md, /- \*\*Created:\*\* 2026-08-18T08:00:00\.000Z/);
     assert.match(md, /- \*\*Updated:\*\* 2026-08-20T14:30:00\.000Z/);
-    assert.match(md, /- \*\*Comments:\*\* 2/);
+    assert.match(md, /- \*\*Comments:\*\* 3/);
     assert.match(md, /- \*\*Synced:\*\* 2026-08-22T00:00:00\.000Z/);
     assert.match(md, /- \*\*URL:\*\* https:\/\/support\.qualcomm\.com\/case\/08460319/);
 
-    // 2. Initial Description
-    assert.match(md, /## Description\n\nUE fails registration on n78 standalone cell/);
+    // 2. Standalone Description section is NOT rendered
+    assert.doesNotMatch(md, /^## Description$/m, 'Standalone ## Description section must be removed to avoid duplication');
 
-    // 3. Chronological timeline of comments
+    // 3. Chronological timeline of comments with description comment as #1
     assert.match(md, /## Chronological Timeline of Comments/);
-    assert.match(md, /### 1\. 2026-08-18T08:30:00\.000Z · Alice/);
+    assert.match(md, /### 1\. 2026-08-18T08:00:00\.000Z · OEM-Alpha/);
+    assert.match(md, /UE fails registration on n78 standalone cell during initial attach\./);
+
+    assert.match(md, /### 2\. 2026-08-18T08:30:00\.000Z · Alice/);
     assert.match(md, /Initial case filing with issue description\./);
     assert.match(md, /\*\*Attachments:\*\* \[modem_boot\.pcap\]\(https:\/\/support\.qualcomm\.com\/f\/pcap123\)/);
 
-    assert.match(md, /### 2\. 2026-08-19T10:15:00\.000Z · Qualcomm Support/);
+    assert.match(md, /### 3\. 2026-08-19T10:15:00\.000Z · Qualcomm Support/);
     assert.match(md, /> \*\*Summary:\*\* Please provide QXDM log with 0xB0C0 message mask\./);
     assert.match(md, /Please provide QXDM log with 0xB0C0 message mask\./);
     assert.match(md, /\*\*Attachments:\*\* \[mask_config\.cfg\]\(https:\/\/support\.qualcomm\.com\/f\/cfg123\), \[readme\.txt\]\(https:\/\/support\.qualcomm\.com\/f\/txt123\)/);

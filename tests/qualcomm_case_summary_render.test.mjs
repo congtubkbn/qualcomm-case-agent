@@ -111,4 +111,37 @@ describe('renderSummaryMd — six-field comment schema', () => {
     });
     assert.doesNotMatch(md, /References:/);
   });
+
+  it('renders initial description comment (problem-statement / reporter) cleanly in summary comments flow', () => {
+    const md = renderSummaryMd({
+      caseNumber: '08642051',
+      title: 'NR SA attach failure',
+      status: 'Open',
+      comments: [
+        {
+          id: 'c0',
+          timestamp: 'Aug 18, 2026',
+          author: 'OEM-Alpha',
+          kind: 'problem-statement',
+          summary: 'UE fails registration on n78 standalone cell during initial attach.',
+          impact: 'blocker',
+          owner: 'reporter',
+        },
+        {
+          id: 'c1',
+          timestamp: 'Aug 19, 2026',
+          author: 'Qualcomm Engineer',
+          kind: 'investigation',
+          summary: 'Requested QXDM logs with mask 0xB0C0.',
+          nextAction: 'OEM to provide logs',
+        },
+      ],
+      flow: 'Customer reported an NR SA attach failure on n78; Qualcomm requested QXDM logs.',
+    });
+    assert.match(md, /### OEM-Alpha \(Aug 18, 2026\)/);
+    assert.match(md, /- Kind: problem-statement/);
+    assert.match(md, /- Summary: UE fails registration on n78 standalone cell during initial attach\./);
+    assert.match(md, /- Impact: blocker/);
+    assert.match(md, /- Owner: reporter/);
+  });
 });

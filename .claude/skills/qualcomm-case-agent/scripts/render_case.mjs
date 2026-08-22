@@ -47,11 +47,6 @@ function md() {
   for (const [k, v] of meta) L.push(`- **${k}:** ${S(v)}`);
   if (S(data.url)) L.push(`- **URL:** ${S(data.url)}`);
   L.push('');
-
-  if (S(data.description)) {
-    L.push('## Description', '', S(data.description), '');
-  }
-
   L.push('## Chronological Timeline of Comments', '');
   comments.forEach((c, i) => {
     const head = [S(c.timestamp), S(c.author)].filter(Boolean).join(' · ');
