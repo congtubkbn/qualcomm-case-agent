@@ -16,15 +16,12 @@ only `_index.json` sits at the `data/cases/` root.
 
 | File | Contents |
 |------|----------|
-| `data/cases/_index.json` | Registry (root): `{ "<CODE>": { syncedAt, commentCount, hash, enrichedAt? } }` |
-| `data/cases/<CODE>/case.json` | Full case data — raw + enrichment (see schema below) |
-| `data/cases/<CODE>/case.report.md` | Human-readable summary (quick context; no structured parsing needed) |
-| `data/cases/<CODE>/case.md` / `.html` / `.txt` | Full human review — every comment verbatim + per-comment analysis (`.html` richest, `.txt` grep-friendly) |
-| `data/cases/<CODE>/case.pdf` | Optional — PDF printed from the HTML report |
+| `data/cases/_index.json` | Registry (root): `{ "<CODE>": { syncedAt, commentCount, hash } }` |
+| `data/cases/<CODE>/case.json` | Full case data (see schema below) |
+| `data/cases/<CODE>/case.md` | Full human review — every comment verbatim |
 
 ## Key schema fields
 
-**Raw (always present):**
 ```json
 {
   "caseNumber": "string",
@@ -54,39 +51,6 @@ only `_index.json` sits at the `data/cases/` root.
 }
 ```
 
-**Enrichment (present unless raw-only sync — always check before reading):**
-```json
-{
-  "enrichment": {
-    "engineerSummary": "5-8 sentence overview",
-    "currentStatus": "1-2 sentences: where the case stands now",
-    "rootCause": "best hypothesis or Unresolved",
-    "caseFlow": [
-      { "step": 1, "phase": "Symptom|Hypothesis|Experiment|Data/Log|Analysis|Request|Decision|Resolution|Pending",
-        "date": "string", "by": "string", "what": "string", "refComments": ["<comment id>"] }
-    ],
-    "openQuestions": ["unanswered question / awaiting feedback"],
-    "recommendedActions": ["string"],
-    "tags": ["NR", "n78", "desense"],
-    "timeline": [{ "date": "string", "event": "string" }],
-    "commentAnalyses": {
-      "<comment id>": {
-        "summary": "2-4 sentence summary",
-        "role": "Symptom|Question|Hypothesis|Data/Log|Analysis|Request|Resolution|Info",
-        "keyPoints": ["string"],
-        "citations": ["TS 38.331 §5.3.7"],
-        "answered": true
-      }
-    },
-    "enrichedAt": "ISO-8601"
-  }
-}
-```
-
-> **Schema note:** older caches may carry a flat `commentSummaries: { "<id>": "string" }` instead of
-> `commentAnalyses`. Consumers that read per-comment analysis should check `commentAnalyses` first,
-> then fall back to `commentSummaries`. The renderer (`render_case.mjs`) handles both.
-
 ## Invoke pattern
 
 When `data/cases/<CODE>/case.json` is missing:
@@ -109,8 +73,6 @@ if (!fileExists(casePath)) {
   // wait for completion
 }
 const caseData = JSON.parse(readFile(casePath));
-const summary   = caseData.enrichment?.engineerSummary;   // may be absent (raw-only)
-const rootCause = caseData.enrichment?.rootCause;
 const comments  = caseData.comments;                       // newest-first
 ```
 
@@ -120,8 +82,6 @@ const comments  = caseData.comments;                       // newest-first
   Both are owned by qualcomm-case-agent.
 - **NDA content.** Never pass `comments[].body` or `comments[].analysisLog` verbatim to
   external services. These contain Qualcomm NDA material.
-- **Enrichment may be absent.** Always check `caseData.enrichment` before reading enrichment
-  fields (`engineerSummary`, `rootCause`, etc.). A raw-only sync produces no `enrichment` key.
 - **Comments are newest-first.** Index 0 is the most recent comment.
 
 ## Full schema reference

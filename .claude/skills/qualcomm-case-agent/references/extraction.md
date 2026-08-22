@@ -90,8 +90,8 @@ What the merge does (all in code, deterministic):
   truncated; the prefix survives both. (Known limit: editing the first 120 chars of an old comment
   makes it look new.)
 - Comments not in the cache are **prepended** (feed is newest-first) with collision-free ids;
-  cached comments, `analysisLog`s, timestamps and `enrichment` are kept **verbatim** — a truncated
-  re-capture never overwrites a full cached body.
+  cached comments, `analysisLog`s and timestamps are kept **verbatim** — a truncated re-capture
+  never overwrites a full cached body.
 - `url` + `displayedCommentCount` are refreshed; `--status`/`--priority` flags override the cache
   (fresh PHASE 1 row is the current truth); other raw fields only fill blanks. `--title` not needed.
 - Completeness assert runs on the MERGED set; the hash is recomputed over it.
@@ -116,7 +116,7 @@ DOM verified after login with a real Chrome session. These are the structures th
 | Subject (title) | NOT on the Feed view — Detail tab + PHASE 1 search row | search results row exposes Subject; fill from there |
 | Status | NOT on case page — search-results table `cell` | from PHASE 1 row; or Detail tab |
 | Priority | same — search-results table `cell "1 - Critical"` | from PHASE 1 row |
-| Chipset / Problem Area / Customer Project / Account | Detail tab fields (not the Feed view) | click "Detail" tab to read, or leave for enrichment |
+| Chipset / Problem Area / Customer Project / Account | Detail tab fields (not the Feed view) | click "Detail" tab to read, or leave blank |
 | Description | Detail tab (the original problem is also the oldest Feed post) | often `""` on Feed; oldest comment carries the same text |
 | Feed / comment container | `article` elements (top-level posts AND nested replies are both `<article>`) | `document.querySelectorAll("article")` catches all |
 | → author | first `<a>` inside the article | e.g. "Mai Ngoc" |

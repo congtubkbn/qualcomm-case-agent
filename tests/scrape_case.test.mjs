@@ -5,8 +5,8 @@
 //   1. the pure helpers (identity, hashing, merging, gates), imported directly;
 //   2. finalize() itself, exercised by SPAWNING the script against a throwaway
 //      cache root. finalize() ends in process.exit, so a child process is the
-//      honest way to test it — and the P0 it guards (a full re-capture wiping
-//      `enrichment`) only shows up through the real file it writes.
+//      honest way to test it — and what it actually persists only shows up
+//      through the real file it writes.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -24,9 +24,9 @@ const comment = (author, body, extra = {}) => ({ author, body, timestamp: '2 day
 describe('computeHash', () => {
   const base = { displayedCommentCount: 2, comments: [comment('Alice', 'RRC reject on n78')] };
 
-  it('is stable across runs and ignores enrichment', () => {
-    const withAnalysis = { ...base, enrichment: { engineerSummary: 'x', commentAnalyses: { a: {} } } };
-    assert.equal(m.computeHash(base), m.computeHash(withAnalysis));
+  it('is stable across runs and ignores fields outside comments', () => {
+    const withExtra = { ...base, someOtherField: { x: 1 } };
+    assert.equal(m.computeHash(base), m.computeHash(withExtra));
     assert.equal(m.computeHash(base), m.computeHash(structuredClone(base)));
   });
 
@@ -119,7 +119,7 @@ describe('commentKey / commentId', () => {
 });
 
 describe('assignIds', () => {
-  it('is position-independent — the P0 that broke enrichment mapping', () => {
+  it('is position-independent — a comment keeps its id wherever it now sits in the feed', () => {
     const older = comment('Bob', 'Initial report');
     const newer = comment('Alice', 'RRC reject on n78');
     const first = m.assignIds([newer, older]).comments;
@@ -149,23 +149,22 @@ describe('migrateIds', () => {
     comments: [comment('Alice', 'newest', { id: 'c1' }), comment('Bob', 'oldest', { id: 'c2' })],
     enrichment: {
       commentAnalyses: { c1: { summary: 'about newest' }, c2: { summary: 'about oldest' } },
-      commentSummaries: { c1: 'legacy flat' },
-      caseFlow: [{ step: 1, what: 'reported', refComments: ['c2'] }],
     },
   };
 
-  it('re-keys comments and every enrichment back-reference together', () => {
+  it('re-keys legacy positional ids onto content ids', () => {
     const out = m.migrateIds(structuredClone(legacy));
     const [newest, oldest] = out.comments;
     assert.equal(newest.id, m.commentId(comment('Alice', 'newest')));
-    assert.equal(out.enrichment.commentAnalyses[newest.id].summary, 'about newest');
-    assert.equal(out.enrichment.commentAnalyses[oldest.id].summary, 'about oldest');
-    assert.equal(out.enrichment.commentSummaries[newest.id], 'legacy flat');
-    assert.deepEqual(out.enrichment.caseFlow[0].refComments, [oldest.id]);
-    assert.equal(Object.keys(out.enrichment.commentAnalyses).includes('c1'), false);
+    assert.equal(oldest.id, m.commentId(comment('Bob', 'oldest')));
   });
 
-  it('is a no-op on a cache already using content ids', () => {
+  it('drops a legacy enrichment field rather than carrying it forward', () => {
+    const out = m.migrateIds(structuredClone(legacy));
+    assert.equal(out.enrichment, undefined);
+  });
+
+  it('is a no-op on a cache already using content ids with no enrichment', () => {
     const once = m.migrateIds(structuredClone(legacy));
     assert.equal(m.migrateIds(once), once);
   });
@@ -281,18 +280,13 @@ describe('finalize (child process)', () => {
     assert.equal(index['08603854'].commentCount, 2);
   });
 
-  // The P0: `--mode full` is the documented remedy when the fast no-update probe
-  // may have missed a nested reply. Before this fix it silently replaced the file
-  // with the raw capture, destroying every analysis in the case.
-  it('preserves enrichment through a FULL re-capture of a cached case', () => {
+  it('drops a legacy enrichment field on a FULL re-capture of a cached case', () => {
     const root = fixture();
     runFinalize(root, RAW);
     const first = JSON.parse(readFileSync(casePath(root), 'utf8'));
     const aliceId = first.comments.find(c => c.author === 'Alice').id;
-    const bobId = first.comments.find(c => c.author === 'Bob').id;
     first.enrichment = {
       engineerSummary: 'UE fails SA attach.',
-      caseFlow: [{ step: 1, what: 'symptom', refComments: [bobId] }],
       commentAnalyses: { [aliceId]: { summary: 'RRC reject', role: 'Analysis' } },
       enrichedAt: '2026-07-02T00:00:00.000Z',
     };
@@ -303,16 +297,12 @@ describe('finalize (child process)', () => {
 
     assert.equal(exit, m.EXIT.OK);
     const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
-    assert.equal(saved.enrichment.engineerSummary, 'UE fails SA attach.');
-    assert.equal(saved.enrichment.commentAnalyses[aliceId].summary, 'RRC reject',
-      'the cached analysis must re-attach to the SAME comment after a re-capture');
+    assert.equal(saved.enrichment, undefined);
     assert.equal(saved.comments.length, 3);
-    // Only the genuinely new comment is offered for analysis.
     assert.deepEqual(verdict.newCommentIds, [m.commentId(comment('Carol', 'log attached', { timestamp: '1 hour ago' }))]);
     assert.equal(verdict.newComments, 1);
-    // …and the index still knows the case is analyzed.
     const index = JSON.parse(readFileSync(join(root, 'data', 'cases', '_index.json'), 'utf8'));
-    assert.equal(index['08603854'].enrichedAt, '2026-07-02T00:00:00.000Z');
+    assert.equal(index['08603854'].enrichedAt, undefined);
   });
 
   // A hard open()/reload can reset the Chatter feed to a thinner default view
@@ -333,7 +323,7 @@ describe('finalize (child process)', () => {
     assert.deepEqual(verdict.newCommentIds, [], 'nothing genuinely new — the cache already had both');
   });
 
-  it('migrates a legacy positional-id cache instead of mis-attaching analyses', () => {
+  it('migrates a legacy positional-id cache onto content ids, dropping any old enrichment', () => {
     const root = fixture();
     writeFileSync(casePath(root), JSON.stringify({
       ...RAW,
@@ -347,9 +337,9 @@ describe('finalize (child process)', () => {
 
     const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
     const byAuthor = Object.fromEntries(saved.comments.map(c => [c.author, c.id]));
-    assert.equal(saved.enrichment.commentAnalyses[byAuthor.Alice].summary, 'about Alice');
-    assert.equal(saved.enrichment.commentAnalyses[byAuthor.Bob].summary, 'about Bob');
-    assert.equal(saved.enrichment.commentAnalyses.c1, undefined);
+    assert.equal(byAuthor.Alice, m.commentId(comment('Alice', 'RRC reject on n78', { timestamp: '2 days ago' })));
+    assert.equal(byAuthor.Bob, m.commentId(comment('Bob', 'Initial report', { timestamp: '5 days ago' })));
+    assert.equal(saved.enrichment, undefined);
   });
 
   it('merges only the new comments on an update run', () => {

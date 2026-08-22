@@ -4,11 +4,9 @@ Local workspace for capturing Qualcomm Support (support.qualcomm.com) cases.
 
 ## What it does
 
-Drives real Chrome (via the `agent-browser` CLI) to sign in to the Qualcomm Support portal,
-extracts a full support case — metadata plus **every** comment (verbatim, with analysis logs and
-attachments) — adds engineer-grade analysis (Protocol / RF / 3GPP), and writes a local cache per
-case in several formats. Re-running an unchanged case reports **"no update"** (incremental,
-hash-based).
+Drives real Chrome (via the `agent-browser` CLI) to sign in to the Qualcomm Support portal and
+extracts a full support case — metadata plus **every** comment, verbatim — into a local cache.
+Re-running an unchanged case reports **"no update"** (incremental, hash-based).
 
 The capture itself is deterministic code, not agent choreography:
 
@@ -16,7 +14,7 @@ The capture itself is deterministic code, not agent choreography:
 node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" 08603854
 ```
 
-One command, one JSON verdict line, no browser babysitting — see [`docs/AUTOMATION.md`](docs/AUTOMATION.md).
+One command, one JSON verdict line, no browser babysitting.
 
 ## Usage
 
@@ -33,9 +31,6 @@ so it travels with the repo. One case per run.
 
 ```bash
 npm run case -- 08603854          # capture one case
-npm run sync                      # one sweep of everything due in data/watchlist.json
-npm run watch                     # resident scheduler
-npm run web                       # dashboard on http://127.0.0.1:8787 + sweeps
 npm test                          # unit tests
 ```
 
@@ -48,26 +43,6 @@ terminal, so it runs under any agent that can run commands and edit files:
 - **Cline (VS Code)** — reads `.clinerules/qualcomm-case-agent.md`; the capture is a single
   `execute_command`. Do not use Cline's built-in `browser_action`.
 - **Other agents** — point them at the same SKILL.md; every step is a plain terminal command.
-
-## Scheduling + dashboard
-
-`data/watchlist.json` lists the cases to keep in sync and how often. `scheduler.mjs` runs the due
-ones (`--once` for Task Scheduler / cron, or resident), records each verdict in `data/runs.json`,
-and stops at the first `auth-required` — the email OTP is the one step a schedule cannot do.
-`web/server.mjs` serves a localhost-only dashboard over the same cache: status, comment counts,
-enrichment, artifact links, add/remove a case, force a sync. Details in
-[`docs/AUTOMATION.md`](docs/AUTOMATION.md).
-
-## Analysis on a local LLM
-
-Per-comment and case-level analysis can run on a **local model in 4–7 GB of RAM** (Qwen3-4B at
-4 GB, Qwen2.5-7B at 6–7 GB, any OpenAI-compatible server), for zero cloud tokens:
-
-```bash
-node .claude/skills/qualcomm-case-agent/scripts/enrich_local.mjs 08603854
-```
-
-What fits, what it must not be trusted with, and setup: [`docs/LOCAL_LLM.md`](docs/LOCAL_LLM.md).
 
 ## Login / MFA
 
@@ -85,13 +60,8 @@ What fits, what it must not be trusted with, and setup: [`docs/LOCAL_LLM.md`](do
 ```
 data/chrome-profile/            # persistent Chrome --user-data-dir (real Chrome via CDP)
 data/cases/<CODE>/case.json     # complete per-case data (source of truth, machine-readable)
-data/cases/<CODE>/case.report.md# concise SUMMARY report (engineer summary, root cause, actions)
 data/cases/<CODE>/case.md       # full readable snapshot (every comment verbatim)
-data/cases/<CODE>/case.html     # full single-file HTML (easiest human review)
-data/cases/<CODE>/case.txt      # plain text  ·  case.pdf — printed from the HTML
 data/cases/_index.json          # <CODE> -> { syncedAt, commentCount, hash } for incremental sync
-data/watchlist.json             # scheduled cases + intervals
-data/runs.json                  # last verdict per case (the dashboard reads this)
 ```
 
 All of `data/` is git-ignored — case content is Qualcomm NDA material, kept local only.
@@ -110,7 +80,6 @@ when it is stale.
 - `agent-browser` CLI (`npm i -g agent-browser`) + **real Google Chrome** — the pipeline attaches
   to system Chrome over CDP 9222, not the bundled Chromium (a broken bundled build caused
   `os error 10060`). Launch helper: `scripts/connect_chrome.ps1`, or let `run_case.mjs` do it.
-- Optional: an OpenAI-compatible local LLM server for `enrich_local.mjs`.
 
 ## New machine
 

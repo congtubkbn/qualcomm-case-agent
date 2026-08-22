@@ -1,4 +1,4 @@
-// Unit tests for the headless pipeline's pure logic + a dashboard smoke test.
+// Unit tests for the headless pipeline's pure logic.
 //     node --test tests/
 //
 // _paths.mjs reads QUALCOMM_ROOT once, at first evaluation, and ESM caches the
@@ -26,7 +26,6 @@ function fixtureRoot() {
       { id: 'c1', author: 'Alice', timestamp: '2 days ago', body: '  RRC   reject seen on band n78 ' },
       { id: 'c2', author: 'Bob', timestamp: '5 days ago', body: 'Initial report' },
     ],
-    enrichment: { engineerSummary: 'UE fails SA attach.', commentAnalyses: { c1: { summary: 's', role: 'Analysis' } } },
   }));
   return root;
 }

@@ -1,1 +1,0 @@
-{ "tool": "claude", "commands": { "claude": ["claude", "-p", "{prompt}", "--output-format", "json"] } }
