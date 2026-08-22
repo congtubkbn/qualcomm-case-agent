@@ -1,6 +1,6 @@
 ---
 ID: #35
-Status: AFK
+Status: Done
 Blocked by: [#33, #34]
 Type: Polish
 ---

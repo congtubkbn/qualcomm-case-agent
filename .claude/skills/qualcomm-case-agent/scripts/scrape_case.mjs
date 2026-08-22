@@ -225,6 +225,89 @@ function bodySimilarity(a, b) {
 const POSSIBLE_EDIT_SIMILARITY = 0.55;
 
 /**
+ * Checks if a timestamp string contains Salesforce/Chatter UI tooltip noise.
+ */
+export function isBlacklistedTs(s) {
+  if (!s || typeof s !== 'string') return true;
+  const lower = s.toLowerCase();
+  return (
+    lower.includes('click for single-item view') ||
+    lower.includes('expand post') ||
+    lower.includes('chatter feed item') ||
+    lower.includes('view more comments') ||
+    lower.includes('more comments')
+  );
+}
+
+/**
+ * Extracts a concise 1-2 sentence preview summary from raw comment body,
+ * stripping common email greetings/salutations.
+ */
+export function extractSummary(body) {
+  if (!body || typeof body !== 'string') return '';
+  let text = body.trim();
+  // Strip common salutation lines (Dear ..., Hi ..., Hello ..., etc.)
+  text = text.replace(/^(?:(?:dear|hi|hello|hey|good\s+(?:morning|afternoon|evening))\b[^\n,:]*[,\n:]*)+/i, '').trim();
+  if (!text) return '';
+
+  // Split into sentences or lines
+  const sentences = text.match(/[^.!?\n]+(?:[.!?]+|$)/g) || [text];
+  const meaningful = sentences
+    .map(s => s.replace(/\s+/g, ' ').trim())
+    .filter(s => s.length > 0 && !/^(?:thanks|thank you|regards|best regards|sincerely|cheers)[,.\s]*$/i.test(s));
+
+  if (!meaningful.length) return '';
+  let summary = meaningful.slice(0, 2).join(' ');
+  if (summary.length > 300) {
+    summary = summary.slice(0, 297) + '...';
+  }
+  return summary;
+}
+
+/**
+ * Classifies author role into 'Qualcomm', 'Customer', or 'System' based on author name, company, and body clues.
+ */
+export function classifyRole(author, company = '', context = '', body = '') {
+  const combined = ((author || '') + ' ' + (company || '') + ' ' + (context || '')).toLowerCase();
+  if (
+    combined.includes('qualcomm') ||
+    combined.includes('@qualcomm.com') ||
+    combined.includes('@qti.qualcomm.com') ||
+    combined.includes('qcom') ||
+    combined.includes('qti') ||
+    combined.includes('qualcomm technologies') ||
+    combined.includes('qualcomm support') ||
+    combined.includes('qualcomm employee') ||
+    combined.includes('qualcomm engineer')
+  ) {
+    return 'Qualcomm';
+  }
+  if (combined.includes('system') || combined.includes('automated process')) {
+    return 'System';
+  }
+  const bodyLower = (body || '').toLowerCase();
+  const firstLines = bodyLower.slice(0, 250);
+  const lastLines = bodyLower.slice(-250);
+  if (
+    /^(?:dear|hi|hello)\s+customer\b/i.test(firstLines.trim()) ||
+    /\bqualcomm\s+team\b/i.test(bodyLower) ||
+    /\bqualcomm\s+support\b/i.test(bodyLower) ||
+    /\bqualcomm\s+case\s+team\b/i.test(bodyLower) ||
+    /(?:regards|thanks|sincerely)[,\s]+.*qualcomm/i.test(lastLines)
+  ) {
+    return 'Qualcomm';
+  }
+  if (/^(?:dear|hi|hello)\s+(?:qcom|qualcomm)\b/i.test(firstLines.trim())) {
+    return 'Customer';
+  }
+  const authorLower = (author || '').toLowerCase();
+  if (['aiden an', 'seunghoon lee', 'hoon lee', 'cs lee', 'kyungnam ken lee'].includes(authorLower)) {
+    return 'Qualcomm';
+  }
+  return 'Customer';
+}
+
+/**
  * Normalizes and parses various timestamp formats into epoch milliseconds.
  * Supports ISO-8601, standard date strings, and Chatter relative formats.
  */

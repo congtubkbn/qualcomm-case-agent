@@ -28,7 +28,8 @@ Build a robust, idempotent migration and verification tool (`scripts/migrate_cas
 - [ ] **US-5**: `npm test` has 100% passing tests for the migration module and full test suite regression.
 
 ## 4. Deep Modules Map
-- [NEW] [migrate_case.mjs](file:///e:/the.thoi/Project/access-qualcomm/.claude/skills/qualcomm-case-agent/scripts/migrate_case.mjs): Deep module handling case schema sanitization, hashing, index update, and markdown regeneration.
+- [NEW] [tools/migrate_case.mjs](file:///e:/the.thoi/Project/access-qualcomm/tools/migrate_case.mjs): Core migration tool handling case schema sanitization, hashing, index update, and markdown regeneration.
+- [NEW] [scripts/migrate_case.mjs](file:///e:/the.thoi/Project/access-qualcomm/.claude/skills/qualcomm-case-agent/scripts/migrate_case.mjs): Skill wrapper script delegating to `tools/migrate_case.mjs`.
 - [MODIFY] [tests/migrate_case.test.mjs](file:///e:/the.thoi/Project/access-qualcomm/tests/migrate_case.test.mjs): Comprehensive unit tests covering single case migration, bulk migration, idempotency, and hash updates.
 
 ## 5. Testing Decisions

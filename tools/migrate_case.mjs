@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // tools/migrate_case.mjs — Re-sort comments chronologically, re-classify roles,
-// re-calculate case hash, and re-render case.md for cached cases.
+// sanitize comment schema, re-calculate case hash, and re-render case.md for cached cases.
 //
 // Usage:
 //   node tools/migrate_case.mjs [path-to-case.json | caseCode | all]
@@ -10,88 +10,137 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { computeHash, sortCommentsChronological } from '../.claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs';
+import {
+  computeHash,
+  sortCommentsChronological,
+  classifyRole,
+  isBlacklistedTs,
+  extractSummary,
+} from '../.claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const RENDER_SCRIPT = join(__dirname, '../.claude/skills/qualcomm-case-agent/scripts/render_case.mjs');
 const DATA_CASES_DIR = join(__dirname, '../data/cases');
 
-export function classifyRole(author, company = '', context = '', body = '') {
-  const combined = ((author || '') + ' ' + (company || '') + ' ' + (context || '')).toLowerCase();
-  if (combined.includes('qualcomm') || combined.includes('@qualcomm.com') || combined.includes('qcom support')) {
-    return 'Qualcomm';
+export { classifyRole, isBlacklistedTs, extractSummary };
+
+export function sanitizeComment(comment) {
+  if (!comment || typeof comment !== 'object') return comment;
+
+  const rawTs = comment.timestamp || '';
+  const timestamp = isBlacklistedTs(rawTs) ? '' : rawTs;
+
+  const body = comment.body || '';
+  let summary = comment.summary;
+  if (!summary || summary.trim() === '' || summary.trim() === body.trim()) {
+    summary = extractSummary(body);
   }
-  if (combined.includes('system') || combined.includes('automated process')) {
-    return 'System';
-  }
-  const firstLines = (body || '').slice(0, 200).toLowerCase();
-  if (/^(?:dear|hi|hello)\s+customer\b/i.test(firstLines.trim()) || /\bqualcomm\s+team\b/i.test(firstLines)) {
-    return 'Qualcomm';
-  }
-  if (/^(?:dear|hi|hello)\s+(?:qcom|qualcomm)\b/i.test(firstLines.trim())) {
-    return 'Customer';
-  }
-  const authorLower = (author || '').toLowerCase();
-  if (['aiden an', 'seunghoon lee', 'hoon lee', 'cs lee', 'kyungnam ken lee'].includes(authorLower)) {
-    return 'Qualcomm';
-  }
-  return 'Customer';
+
+  const sanitized = {
+    ...comment,
+    timestamp,
+    summary,
+  };
+
+  delete sanitized.analysisLog;
+
+  return sanitized;
 }
 
-export function migrateCaseJson(jsonPath) {
-  if (!existsSync(jsonPath)) {
-    throw new Error(`File not found: ${jsonPath}`);
-  }
-  const raw = readFileSync(jsonPath, 'utf8');
-  const data = JSON.parse(raw.charCodeAt(0) === 0xFEFF ? raw.slice(1) : raw);
+export function migrateCaseData(caseData) {
+  if (!caseData || typeof caseData !== 'object') return caseData;
 
-  let comments = Array.isArray(data.comments) ? data.comments : [];
-  
+  let comments = Array.isArray(caseData.comments) ? caseData.comments : [];
+
   // 1. Detect legacy corrupted head where empty-timestamp comments were dumped at index 0..k-1
   // while the rest of the array (k..n-1) is in increasing chronological order.
   let firstNonEmptyIdx = -1;
   for (let i = 0; i < comments.length; i++) {
-    if ((comments[i].timestamp || '').trim() !== '') {
+    const rawTs = comments[i].timestamp || '';
+    if (!isBlacklistedTs(rawTs) && rawTs.trim() !== '') {
       firstNonEmptyIdx = i;
       break;
     }
   }
 
   if (firstNonEmptyIdx > 0) {
-    // Check if the remaining comments with timestamps are in increasing order
     const remaining = comments.slice(firstNonEmptyIdx);
-    const hasTimestamps = remaining.filter(c => (c.timestamp || '').trim() !== '');
+    const hasTimestamps = remaining.filter(c => {
+      const ts = c.timestamp || '';
+      return !isBlacklistedTs(ts) && ts.trim() !== '';
+    });
     if (hasTimestamps.length > 0) {
-      // Rotate leading empty-timestamp comments to the end
       comments = [...comments.slice(firstNonEmptyIdx), ...comments.slice(0, firstNonEmptyIdx)];
     }
   }
 
-  // 2. Update roles
-  const updatedComments = comments.map(c => ({
-    ...c,
-    role: classifyRole(c.author, c.company, '', c.body),
-  }));
+  // 2. Sanitize comments & update roles
+  const sanitizedComments = comments.map(c => {
+    const sanitized = sanitizeComment(c);
+    return {
+      ...sanitized,
+      role: classifyRole(sanitized.author, sanitized.company, '', sanitized.body),
+    };
+  });
 
   // 3. Re-sort chronologically with relative interpolation
-  const sortedComments = sortCommentsChronological(updatedComments);
+  const sortedComments = sortCommentsChronological(sanitizedComments);
 
-  // 4. Update case object
+  // 4. Form updated case object
   const updatedCase = {
-    ...data,
+    ...caseData,
     comments: sortedComments,
   };
 
   // 5. Re-calculate hash
   updatedCase.hash = computeHash(updatedCase);
 
-  // 6. Write back to json
+  return updatedCase;
+}
+
+export function migrateCaseJson(jsonPath, options = {}) {
+  if (!existsSync(jsonPath)) {
+    throw new Error(`File not found: ${jsonPath}`);
+  }
+  const raw = readFileSync(jsonPath, 'utf8');
+  const data = JSON.parse(raw.charCodeAt(0) === 0xFEFF ? raw.slice(1) : raw);
+
+  const updatedCase = migrateCaseData(data);
+
+  // Write back to json
   writeFileSync(jsonPath, JSON.stringify(updatedCase, null, 2), 'utf8');
 
-  // 7. Re-render case.md
+  // Re-render case.md
   spawnSync(process.execPath, [RENDER_SCRIPT, jsonPath], { encoding: 'utf8' });
 
-  return { ok: true, jsonPath, commentCount: sortedComments.length };
+  // Update _index.json if present
+  const caseCode = updatedCase.caseNumber || basename(dirname(jsonPath));
+  const candidateIndex = options.indexPath || join(dirname(dirname(jsonPath)), '_index.json');
+  const indexPath = existsSync(candidateIndex)
+    ? candidateIndex
+    : (existsSync(join(DATA_CASES_DIR, '_index.json')) ? join(DATA_CASES_DIR, '_index.json') : null);
+
+  if (indexPath && existsSync(indexPath)) {
+    try {
+      let index = {};
+      try {
+        index = JSON.parse(readFileSync(indexPath, 'utf8'));
+      } catch {
+        index = {};
+      }
+      index[caseCode] = {
+        syncedAt: new Date().toISOString(),
+        commentCount: updatedCase.comments.length,
+        hash: updatedCase.hash,
+        ...(updatedCase.enrichment?.enrichedAt ? { enrichedAt: updatedCase.enrichment.enrichedAt } : {}),
+      };
+      writeFileSync(indexPath, JSON.stringify(index, null, 2), 'utf8');
+    } catch (e) {
+      process.stderr.write(`Warning: Failed to update _index.json: ${e.message}\n`);
+    }
+  }
+
+  return { ok: true, jsonPath, caseNumber: caseCode, commentCount: updatedCase.comments.length, hash: updatedCase.hash };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -119,7 +168,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   for (const t of targets) {
     try {
       const res = migrateCaseJson(t);
-      console.log(`Migrated ${res.jsonPath} (${res.commentCount} comments)`);
+      console.log(`Migrated ${res.caseNumber || res.jsonPath}: ${res.commentCount} comments, hash=${res.hash}`);
     } catch (e) {
       console.error(`Error migrating ${t}: ${e.message}`);
       process.exit(1);

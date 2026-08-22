@@ -1,6 +1,6 @@
 ---
 ID: #33
-Status: AFK
+Status: Done
 Blocked by: []
 Type: Tracer Bullet
 ---
