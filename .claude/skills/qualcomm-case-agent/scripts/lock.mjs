@@ -26,7 +26,7 @@ function pidAlive(pid) {
 }
 
 /** Try to take the capture lock. Returns { ok } or { ok:false, holder }. */
-export function acquireLock(path = LOCK_PATH, now = Date.now()) {
+export function acquireLock(path = LOCK_PATH, now = Date.now(), code) {
   mkdirSync(dirname(path), { recursive: true });
   if (existsSync(path)) {
     let holder = null;
@@ -36,10 +36,43 @@ export function acquireLock(path = LOCK_PATH, now = Date.now()) {
       && pidAlive(holder.pid);
     if (fresh) return { ok: false, holder };
   }
-  writeFileSync(path, JSON.stringify({ pid: process.pid, at: new Date(now).toISOString() }));
+  writeFileSync(path, JSON.stringify({ pid: process.pid, at: new Date(now).toISOString(), code }));
   return { ok: true };
 }
 
 export function releaseLock(path = LOCK_PATH) {
   try { rmSync(path, { force: true }); } catch { /* already gone */ }
+}
+
+const DEFAULT_POLL_MS = 3000;
+const DEFAULT_TIMEOUT_MS = 60000;
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Same as acquireLock, but a refusal by a holder capturing the SAME code polls
+ * (bounded by timeoutMs) instead of refusing immediately — a same-case collision
+ * is usually about to resolve itself once the other run finishes. A refusal by a
+ * holder on a DIFFERENT code still returns instantly, exactly like acquireLock,
+ * so an unrelated caller is never made to wait.
+ *
+ * Returns { ok: true, waited, waitedMs } once acquired, or the same
+ * { ok: false, holder } refusal shape as acquireLock (plus waited/waitedMs) once
+ * the wait budget is exhausted.
+ */
+export async function acquireLockOrWaitForSameCode(path = LOCK_PATH, code, opts = {}) {
+  const pollMs = opts.pollMs ?? DEFAULT_POLL_MS;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const start = Date.now();
+
+  let attempt = acquireLock(path, Date.now(), code);
+  if (attempt.ok) return { ok: true, waited: false, waitedMs: 0 };
+  if (attempt.holder?.code !== code) return { ...attempt, waited: false, waitedMs: 0 };
+
+  while (Date.now() - start < timeoutMs) {
+    await sleep(pollMs);
+    attempt = acquireLock(path, Date.now(), code);
+    if (attempt.ok) return { ok: true, waited: true, waitedMs: Date.now() - start };
+    if (attempt.holder?.code !== code) return { ...attempt, waited: true, waitedMs: Date.now() - start };
+  }
+  return { ...attempt, waited: true, waitedMs: Date.now() - start };
 }

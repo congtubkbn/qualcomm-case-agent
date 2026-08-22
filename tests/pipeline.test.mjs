@@ -6,7 +6,7 @@
 // is pulled in with a dynamic import that resolves against it.
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -108,7 +108,7 @@ describe('run_case.mjs', async () => {
 });
 
 describe('lock.mjs', async () => {
-  const { acquireLock, releaseLock } = await import(new URL('lock.mjs', SCRIPTS));
+  const { acquireLock, acquireLockOrWaitForSameCode, releaseLock } = await import(new URL('lock.mjs', SCRIPTS));
   const lockPath = join(mkdtempSync(join(tmpdir(), 'qc-lock-')), 'capture.lock');
 
   it('grants, then refuses while held, then grants after release', () => {
@@ -128,6 +128,52 @@ describe('lock.mjs', async () => {
     assert.equal(acquireLock(lockPath).ok, true, 'old timestamp = stale');
     writeFileSync(lockPath, 'not json');
     assert.equal(acquireLock(lockPath).ok, true, 'corrupt lock = stale');
+    releaseLock(lockPath);
+  });
+
+  it('acquireLock persists the case code on success', () => {
+    assert.equal(acquireLock(lockPath, Date.now(), '08603854').ok, true);
+    const holder = JSON.parse(readFileSync(lockPath, 'utf8'));
+    assert.equal(holder.code, '08603854');
+    releaseLock(lockPath);
+  });
+
+  it('waits out a same-code collision, then succeeds once the holder releases', async () => {
+    assert.equal(acquireLock(lockPath, Date.now(), '08603854').ok, true);
+    setTimeout(() => releaseLock(lockPath), 30);
+    const result = await acquireLockOrWaitForSameCode(lockPath, '08603854', { pollMs: 10, timeoutMs: 500 });
+    assert.equal(result.ok, true);
+    assert.equal(result.waited, true);
+    releaseLock(lockPath);
+  });
+
+  it('refuses a different-code collision immediately, without waiting', async () => {
+    assert.equal(acquireLock(lockPath, Date.now(), '08603854').ok, true);
+    const startedAt = Date.now();
+    const result = await acquireLockOrWaitForSameCode(lockPath, '99999999', { pollMs: 10, timeoutMs: 500 });
+    assert.equal(result.ok, false);
+    assert.equal(result.holder.code, '08603854');
+    assert.ok(Date.now() - startedAt < 50, 'must not poll on a different-case collision');
+    releaseLock(lockPath);
+  });
+
+  it('gives up on a same-code collision that never releases, after the wait budget', async () => {
+    assert.equal(acquireLock(lockPath, Date.now(), '08603854').ok, true);
+    const startedAt = Date.now();
+    const result = await acquireLockOrWaitForSameCode(lockPath, '08603854', { pollMs: 10, timeoutMs: 60 });
+    assert.equal(result.ok, false);
+    assert.equal(result.holder.code, '08603854');
+    assert.ok(Date.now() - startedAt >= 60, 'must wait out the full budget before refusing');
+    releaseLock(lockPath);
+  });
+
+  it('takes over a stale lock immediately through the wait-aware function, regardless of code match', async () => {
+    writeFileSync(lockPath, JSON.stringify({ pid: 2 ** 30, at: new Date().toISOString(), code: '08603854' }));
+    const startedAt = Date.now();
+    const result = await acquireLockOrWaitForSameCode(lockPath, '08603854', { pollMs: 10, timeoutMs: 500 });
+    assert.equal(result.ok, true);
+    assert.equal(result.waited, false);
+    assert.ok(Date.now() - startedAt < 50, 'stale lock must be taken over without polling');
     releaseLock(lockPath);
   });
 });

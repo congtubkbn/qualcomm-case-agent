@@ -75,7 +75,7 @@ Optional: `--mode full|update` (override the auto choice).
 | `auth-required` | 3 | saved Okta session lapsed | The user must sign in MANUALLY in the open Chrome window (enter password + email OTP) (Recovery 1 → `references/login-flow.md`). Once logged in, re-run the command. |
 | `not-found` | 4 | search returned nothing for this code | STOP — wrong code, or the account cannot see it |
 | `blocked` | 5 | page never rendered / capture short | load `references/manual-flow.md` and finish by hand; `reason` says where it stopped |
-| `busy` | 6 | another capture holds the lock (`data/.capture.lock`) | wait ~30s, re-run **once**; still `busy` after 2 retries → report and STOP |
+| `busy` | 6 | another capture holds the lock for a **different** case, or a same-case collision's ~60s wait budget ran out | wait ~30s, re-run **once**; still `busy` after 2 retries → report and STOP |
 | `error` | 1 | bad invocation or script failure | fix per `reason`; do not retry blindly |
 
 > **A non-zero exit here is BY DESIGN for `auth-required`/`not-found`/`blocked`/`busy` — it is not a crash.** Whatever ran the command (Bash tool, Cline `execute_command`, a background-task wrapper) may still surface it as a generic "failed" result. **Ignore that label — always branch on the `status` field inside stdout's JSON line, never on the shell exit-status label alone.**

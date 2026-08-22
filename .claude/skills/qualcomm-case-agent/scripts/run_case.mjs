@@ -29,7 +29,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
 import { intake } from './intake.mjs';
-import { acquireLock, releaseLock } from './lock.mjs';
+import { acquireLockOrWaitForSameCode, releaseLock } from './lock.mjs';
 import { BrowserError, ensureChrome, evalFile, evalFileViaCdp, getCdpClient, open, screenshot, sleep } from './browser.mjs';
 import { fastLandOnCase } from './fast_landing.mjs';
 import { verifyCase } from './verify_case.mjs';
@@ -497,16 +497,19 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
   let lock;
   try {
-    lock = acquireLock();
+    lock = await acquireLockOrWaitForSameCode(undefined, code);
   } catch (e) {
     const verdict = formatVerdict(code, { status: 'error', reason: `lock acquisition failed: ${e.message}` }, started);
     process.stdout.write(JSON.stringify(verdict) + '\n');
     process.exit(1);
   }
   if (!lock.ok) {
+    const waitedNote = lock.waited ? `, waited ${Math.round(lock.waitedMs / 1000)}s for it to finish` : '';
     const verdict = formatVerdict(code, {
       status: 'busy',
-      reason: `another capture is running (pid ${lock.holder.pid} since ${lock.holder.at})`,
+      reason: `another capture is running (pid ${lock.holder.pid} since ${lock.holder.at})${waitedNote}`,
+      waited: lock.waited,
+      waitedMs: lock.waitedMs,
     }, started);
     process.stdout.write(JSON.stringify(verdict) + '\n');
     process.exit(STATUS_EXIT.busy);
@@ -520,7 +523,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }))
     .then(v => {
       releaseLock();
-      const verdict = formatVerdict(code, v, started);
+      const verdict = formatVerdict(code, { ...v, waited: lock.waited, waitedMs: lock.waitedMs }, started);
       process.stdout.write(JSON.stringify(verdict) + '\n');
       process.exit(STATUS_EXIT[verdict.status] ?? 1);
     });
