@@ -72,16 +72,17 @@ describe('render_case: case.md content structure', () => {
           role: 'Customer',
           company: 'OEM-Alpha',
           timestamp: '2026-08-18T08:30:00.000Z',
+          summary: 'Initial case filing with issue description.',
           attachments: [
             { name: 'modem_boot.pcap', href: 'https://support.qualcomm.com/f/pcap123' },
           ],
         }),
-        comment('Qualcomm Support', 'Please provide QXDM log with 0xB0C0 message mask.', {
+        comment('Qualcomm Support', 'Dear customer,\nPlease provide QXDM log with 0xB0C0 message mask.', {
           id: 'c2',
           role: 'Qualcomm',
           company: 'Qualcomm Inc.',
           timestamp: '2026-08-19T10:15:00.000Z',
-          analysisLog: ['QXDM mask config: 0xB0C0, 0xB0CD, 0xB197'],
+          summary: 'Please provide QXDM log with 0xB0C0 message mask.',
           attachments: [
             { name: 'mask_config.cfg', href: 'https://support.qualcomm.com/f/cfg123' },
             { name: 'readme.txt', href: 'https://support.qualcomm.com/f/txt123' },
@@ -118,8 +119,8 @@ describe('render_case: case.md content structure', () => {
     assert.match(md, /\*\*Attachments:\*\* \[modem_boot\.pcap\]\(https:\/\/support\.qualcomm\.com\/f\/pcap123\)/);
 
     assert.match(md, /### 2\. 2026-08-19T10:15:00\.000Z · Qualcomm Inc\. · Qualcomm Support \(Qualcomm\)/);
+    assert.match(md, /> \*\*Summary:\*\* Please provide QXDM log with 0xB0C0 message mask\./);
     assert.match(md, /Please provide QXDM log with 0xB0C0 message mask\./);
-    assert.match(md, /```\nQXDM mask config: 0xB0C0, 0xB0CD, 0xB197\n```/);
     assert.match(md, /\*\*Attachments:\*\* \[mask_config\.cfg\]\(https:\/\/support\.qualcomm\.com\/f\/cfg123\), \[readme\.txt\]\(https:\/\/support\.qualcomm\.com\/f\/txt123\)/);
   });
 

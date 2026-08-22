@@ -69,7 +69,7 @@ export const EXIT = {
 export function computeHash(raw) {
   const lines = [
     ...raw.comments.map(c =>
-      `${c.timestamp}|${c.author}|${c.body}|${(c.analysisLog || []).join('|')}`
+      `${c.timestamp || ''}|${c.author || ''}|${c.body || ''}`
     ),
   ];
   return createHash('sha256').update(lines.join('\n'), 'utf8').digest('hex');

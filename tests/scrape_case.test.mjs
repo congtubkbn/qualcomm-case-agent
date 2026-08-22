@@ -32,10 +32,8 @@ describe('computeHash', () => {
 
   it('changes when verbatim content changes', () => {
     assert.notEqual(m.computeHash(base), m.computeHash({ ...base, comments: [comment('Alice', 'RRC reject on n41')] }));
-    assert.notEqual(
-      m.computeHash(base),
-      m.computeHash({ ...base, comments: [comment('Alice', 'RRC reject on n78', { analysisLog: ['0xB0C0'] })] }),
-    );
+    assert.notEqual(m.computeHash(base), m.computeHash({ ...base, comments: [comment('Bob', 'RRC reject on n78')] }));
+    assert.notEqual(m.computeHash(base), m.computeHash({ ...base, comments: [comment('Alice', 'RRC reject on n78', { timestamp: '1 day ago' })] }));
   });
 
   // displayedCommentCount is a portal-rendered counter, not case content: it

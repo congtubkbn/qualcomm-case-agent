@@ -111,33 +111,73 @@
     return "Customer";
   };
 
+  const isBlacklistedTs = s => {
+    if (!s) return true;
+    const lower = s.toLowerCase();
+    return (
+      lower.includes("click for single-item view") ||
+      lower.includes("expand post") ||
+      lower.includes("chatter feed item") ||
+      lower.includes("view more comments") ||
+      lower.includes("more comments")
+    );
+  };
+
   // Timestamp extraction helper
   const extractTimestamp = (a, named, author) => {
     const datePattern = /(?:ago|yesterday|today|\d{4}|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b)/i;
     const tsEl = a.querySelector("a.cuf-timestamp, span.cuf-timestamp, time, .uiOutputDateTime, [class*='timestamp'], [class*='Timestamp'], [class*='dateTime'], [class*='DateTime'], [class*='createdDate'], [class*='created-date']");
     if (tsEl) {
       const val = tsEl.getAttribute("title") || txt(tsEl) || tsEl.getAttribute("datetime") || "";
-      if (val) return val;
+      if (val && !isBlacklistedTs(val)) return val;
     }
     // Scan named links for date/time patterns
-    const match = named.find(t => t !== "Expand Post" && t !== author && datePattern.test(t));
+    const match = named.find(t => !isBlacklistedTs(t) && t !== author && datePattern.test(t));
     if (match) return match;
 
     // Scan all spans/elements for relative or date patterns
     const inlineCandidates = qsa("span, div, p, time", a);
     for (const el of inlineCandidates) {
       const t = txt(el);
-      if (t && t !== author && t !== "Expand Post" && t.length < 60 && datePattern.test(t)) {
+      if (t && t !== author && !isBlacklistedTs(t) && t.length < 60 && datePattern.test(t)) {
         return t;
       }
       const titleAttr = el.getAttribute("title");
-      if (titleAttr && datePattern.test(titleAttr)) {
+      if (titleAttr && !isBlacklistedTs(titleAttr) && datePattern.test(titleAttr)) {
         return titleAttr;
       }
     }
 
-    // Fallback: second or third named link
-    return (named[1] && named[1] !== "Expand Post" && named[1] !== author) ? named[1] : ((named[2] && named[2] !== "Expand Post") ? named[2] : "");
+    // Fallback: subsequent named links if valid and not blacklisted
+    for (let idx = 1; idx < named.length; idx++) {
+      const n = named[idx];
+      if (n && n !== author && !isBlacklistedTs(n)) {
+        return n;
+      }
+    }
+    return "";
+  };
+
+  // Extract deterministic summary preview (first 1-2 meaningful sentences without salutations)
+  const extractSummary = body => {
+    if (!body) return "";
+    let text = body.trim();
+    // Strip common salutation lines (Dear ..., Hi ..., Hello ..., etc.)
+    text = text.replace(/^(?:(?:dear|hi|hello|hey|good\s+(?:morning|afternoon|evening))\b[^\n,:]*[,\n:]*)+/i, "").trim();
+    if (!text) return "";
+
+    // Split into sentences or lines
+    const sentences = text.match(/[^.!?\n]+(?:[.!?]+|$)/g) || [text];
+    const meaningful = sentences
+      .map(s => s.replace(/\s+/g, " ").trim())
+      .filter(s => s.length > 0 && !/^(?:thanks|thank you|regards|best regards|sincerely|cheers)[,.\s]*$/i.test(s));
+
+    if (!meaningful.length) return "";
+    let summary = meaningful.slice(0, 2).join(" ");
+    if (summary.length > 300) {
+      summary = summary.slice(0, 297) + "...";
+    }
+    return summary;
   };
 
   // Attachments extraction helper
@@ -172,6 +212,7 @@
     const compEl = a.querySelector(".company, .title, [class*='company'], [class*='userTitle']");
     const company = compEl ? txt(compEl) : "";
     const role = classifyRole(author, company, a.className || "", body);
+    const summary = extractSummary(body);
     const attachments = extractAttachments(a);
 
     return {
@@ -180,8 +221,8 @@
       company,
       author,
       role,
+      summary,
       body,
-      analysisLog: [],
       attachments,
     };
   }).filter(c => c.body.length > 0);

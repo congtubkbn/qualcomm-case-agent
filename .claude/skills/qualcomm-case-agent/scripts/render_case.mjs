@@ -59,10 +59,10 @@ function md() {
     const head = [S(c.timestamp), S(c.company), authorWithRole]
       .filter(x => x && x !== '()').join(' · ');
     L.push(`### ${i + 1}. ${head || 'Comment'}`, '');
-    if (S(c.body)) L.push(S(c.body), '');
-    for (const log of arr(c.analysisLog)) {
-      if (S(log)) L.push('```', S(log), '```', '');
+    if (S(c.summary) && S(c.summary) !== S(c.body)) {
+      L.push(`> **Summary:** ${S(c.summary)}`, '');
     }
+    if (S(c.body)) L.push(S(c.body), '');
     const atts = arr(c.attachments).filter(a => a && (S(a.name) || S(a.href) || S(a.url)));
     if (atts.length) {
       L.push('**Attachments:** ' + atts.map(a => `[${S(a.name) || 'file'}](${S(a.href || a.url)})`).join(', '), '');

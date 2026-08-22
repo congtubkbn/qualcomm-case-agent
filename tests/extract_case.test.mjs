@@ -423,6 +423,71 @@ test('extract_case.js DOM extraction engine', async (t) => {
     assert.equal(result.comments[2].role, 'Qualcomm');
     assert.equal(result.comments[3].role, 'Customer');
   });
+
+  await t.test('filters out garbage timestamp text (tooltips/aria) and removes analysisLog field', () => {
+    const doc = createMockDocument();
+
+    const art1 = createMockElement('article', { id: 'garbage_ts_1' });
+    const a1 = createMockElement('a', {}, 'Test Engineer');
+    // Salesforce tooltip link that should be blacklisted
+    const aTooltip = createMockElement('a', {}, 'Click for single-item view of this post.');
+    const aExpand = createMockElement('a', {}, 'Expand Post');
+    const aChatter = createMockElement('a', {}, 'Chatter Feed Item');
+    const body1 = createMockElement('div', { className: 'feedBodyInner' }, 'Just a normal comment text.');
+    art1.appendChild(a1);
+    art1.appendChild(aTooltip);
+    art1.appendChild(aExpand);
+    art1.appendChild(aChatter);
+    art1.appendChild(body1);
+    doc.body.appendChild(art1);
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+
+    assert.equal(result.comments.length, 1);
+    const c = result.comments[0];
+    // Timestamp should NOT be the garbage string
+    assert.notEqual(c.timestamp, 'Click for single-item view of this post.');
+    assert.notEqual(c.timestamp, 'Expand Post');
+    assert.notEqual(c.timestamp, 'Chatter Feed Item');
+    assert.equal(c.timestamp, ''); // Since no valid timestamp candidate exists
+    // analysisLog should NOT exist on comment
+    assert.equal('analysisLog' in c, false);
+  });
+
+  await t.test('extracts clean deterministic summary preview by stripping salutations and taking first 1-2 sentences', () => {
+    const doc = createMockDocument();
+
+    // 1. Comment with greeting "Dear customer,"
+    const art1 = createMockElement('article', { id: 'sum_1' });
+    const a1 = createMockElement('a', {}, 'Ken Lee');
+    const body1 = createMockElement('div', { className: 'feedBodyInner' }, 'Dear customer,\n\nThank you for opening the case.\nWe will check and update.');
+    art1.appendChild(a1);
+    art1.appendChild(body1);
+    doc.body.appendChild(art1);
+
+    // 2. Comment with greeting "Dear QC team,"
+    const art2 = createMockElement('article', { id: 'sum_2' });
+    const a2 = createMockElement('a', {}, 'Customer Engineer');
+    const body2 = createMockElement('div', { className: 'feedBodyInner' }, 'Dear QC team,\nDevice cannot attach to 5G SA network. Please analyze attached QXDM trace.');
+    art2.appendChild(a2);
+    art2.appendChild(body2);
+    doc.body.appendChild(art2);
+
+    // 3. Short single sentence
+    const art3 = createMockElement('article', { id: 'sum_3' });
+    const a3 = createMockElement('a', {}, 'Alex Turner');
+    const body3 = createMockElement('div', { className: 'feedBodyInner' }, 'Root cause identified as RRC reject on n78.');
+    art3.appendChild(a3);
+    art3.appendChild(body3);
+    doc.body.appendChild(art3);
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+
+    assert.equal(result.comments.length, 3);
+    assert.equal(result.comments[0].summary, 'Thank you for opening the case. We will check and update.');
+    assert.equal(result.comments[1].summary, 'Device cannot attach to 5G SA network. Please analyze attached QXDM trace.');
+    assert.equal(result.comments[2].summary, 'Root cause identified as RRC reject on n78.');
+  });
 });
 
 test('expand_step.js DOM expansion engine', async (t) => {
