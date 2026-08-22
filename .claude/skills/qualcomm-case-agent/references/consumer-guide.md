@@ -73,7 +73,7 @@ if (!fileExists(casePath)) {
   // wait for completion
 }
 const caseData = JSON.parse(readFile(casePath));
-const comments  = caseData.comments;                       // newest-first
+const comments  = caseData.comments;                       // oldest-first
 ```
 
 ## Rules for consumers
@@ -82,7 +82,7 @@ const comments  = caseData.comments;                       // newest-first
   Both are owned by qualcomm-case-agent.
 - **NDA content.** Never pass `comments[].body` or `comments[].analysisLog` verbatim to
   external services. These contain Qualcomm NDA material.
-- **Comments are newest-first.** Index 0 is the most recent comment.
+- **Comments are oldest-first.** Index 0 is the earliest comment.
 
 ## Full schema reference
 
