@@ -300,19 +300,92 @@ export function parseTimestamp(ts, referenceDate = new Date()) {
 
 /**
  * Sorts comments strictly in chronological order (Oldest -> Newest).
- * Preserves original index order for tie-breaking when timestamps are identical.
+ * If some comments have missing/unparseable timestamps, interpolate their position
+ * based on their sequence in the input array and adjacent sibling timestamps
+ * rather than mapping them to epoch 0.
  */
 export function sortCommentsChronological(comments, referenceDate = new Date()) {
-  if (!Array.isArray(comments)) return [];
+  if (!Array.isArray(comments) || comments.length === 0) return [];
+  const n = comments.length;
+
+  // 1. Initial timestamp parsing
+  const parsedTimes = comments.map(c => parseTimestamp(c.timestamp, referenceDate));
+
+  // 2. Identify indices with known timestamps (> 0)
+  const knownIndices = [];
+  for (let i = 0; i < n; i++) {
+    if (parsedTimes[i] > 0) {
+      knownIndices.push(i);
+    }
+  }
+
+  const times = [...parsedTimes];
+  const STEP_MS = 1000; // 1 second spacing for extrapolations/offsets
+
+  if (knownIndices.length === 0) {
+    // All timestamps missing: preserve original index sequence
+    const base = referenceDate.getTime();
+    for (let i = 0; i < n; i++) {
+      times[i] = base + i * STEP_MS;
+    }
+  } else if (knownIndices.length === 1) {
+    // Single known timestamp: offset relative to it preserving index direction
+    const k = knownIndices[0];
+    const base = times[k];
+    for (let i = 0; i < n; i++) {
+      times[i] = base + (i - k) * STEP_MS;
+    }
+  } else {
+    // Determine overall trend of known timestamps (increasing vs decreasing)
+    const firstK = knownIndices[0];
+    const lastK = knownIndices[knownIndices.length - 1];
+    const isIncreasing = times[lastK] >= times[firstK];
+
+    // Interpolate gaps between known indices
+    for (let idx = 0; idx < knownIndices.length - 1; idx++) {
+      const startIdx = knownIndices[idx];
+      const endIdx = knownIndices[idx + 1];
+      const startTime = times[startIdx];
+      const endTime = times[endIdx];
+
+      for (let i = startIdx + 1; i < endIdx; i++) {
+        const fraction = (i - startIdx) / (endIdx - startIdx);
+        times[i] = startTime + fraction * (endTime - startTime);
+      }
+    }
+
+    // Extrapolate before first known index (indices 0 .. firstK - 1)
+    for (let i = 0; i < firstK; i++) {
+      if (isIncreasing) {
+        // Earlier index is older
+        times[i] = times[firstK] - (firstK - i) * STEP_MS;
+      } else {
+        // Earlier index is newer (DOM order where newest is at top)
+        times[i] = times[firstK] + (firstK - i) * STEP_MS;
+      }
+    }
+
+    // Extrapolate after last known index (indices lastK + 1 .. n - 1)
+    for (let i = lastK + 1; i < n; i++) {
+      if (isIncreasing) {
+        // Later index is newer
+        times[i] = times[lastK] + (i - lastK) * STEP_MS;
+      } else {
+        // Later index is older
+        times[i] = times[lastK] - (i - lastK) * STEP_MS;
+      }
+    }
+  }
+
   const indexed = comments.map((c, i) => ({
     c,
     originalIndex: i,
-    parsedTime: parseTimestamp(c.timestamp, referenceDate),
+    effectiveTime: times[i],
   }));
 
   indexed.sort((a, b) => {
-    if (a.parsedTime !== b.parsedTime) {
-      return a.parsedTime - b.parsedTime;
+    if (a.effectiveTime !== b.effectiveTime) {
+      return a.effectiveTime - b.effectiveTime;
     }
     return a.originalIndex - b.originalIndex;
   });

@@ -302,6 +302,38 @@ test('extract_case.js DOM extraction engine', async (t) => {
     assert.equal(result.comments[0].body, 'Case severity escalated to Level 1.');
     assert.equal(result.title, '');
   });
+
+  await t.test('extracts timestamps from span.cuf-timestamp, time, and uiOutputDateTime elements', () => {
+    const doc = createMockDocument();
+
+    // Nested reply with span.cuf-timestamp
+    const art1 = createMockElement('article', { id: 'reply_1' });
+    const a1 = createMockElement('a', {}, 'Aiden An');
+    const span1 = createMockElement('span', { className: 'cuf-timestamp' }, 'August 21, 2026 at 4:00 PM');
+    const body1 = createMockElement('div', { className: 'feedBodyInner' }, 'Dear customer, please check TAU logs.');
+    art1.appendChild(a1);
+    art1.appendChild(span1);
+    art1.appendChild(body1);
+    doc.body.appendChild(art1);
+
+    // Reply with <time> element
+    const art2 = createMockElement('article', { id: 'reply_2' });
+    const a2 = createMockElement('a', {}, 'beomjun kim');
+    const time2 = createMockElement('time', {}, '3 hours ago');
+    const body2 = createMockElement('div', { className: 'feedBodyInner' }, 'Dear QCOM, please focus on VoNR cap.');
+    art2.appendChild(a2);
+    art2.appendChild(time2);
+    art2.appendChild(body2);
+    doc.body.appendChild(art2);
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+
+    assert.equal(result.comments.length, 2);
+    assert.equal(result.comments[0].timestamp, 'August 21, 2026 at 4:00 PM');
+    assert.equal(result.comments[0].role, 'Qualcomm');
+    assert.equal(result.comments[1].timestamp, '3 hours ago');
+    assert.equal(result.comments[1].role, 'Customer');
+  });
 });
 
 test('expand_step.js DOM expansion engine', async (t) => {

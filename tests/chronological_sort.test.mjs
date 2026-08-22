@@ -121,6 +121,63 @@ describe('sortCommentsChronological', () => {
     assert.equal(sorted[0].author, 'Bob');
     assert.equal(sorted[1].author, 'Alice');
   });
+
+  it('interpolates missing timestamps at the beginning of a reverse-chronological DOM feed', () => {
+    // In DOM order: newest comment at index 0 (missing timestamp), then 1 day ago, then 5 days ago
+    const raw = [
+      comment('Aiden', 'latest reply with missing timestamp', ''),
+      comment('Bob', 'reply yesterday', '1 day ago'),
+      comment('Carol', 'initial problem description', '5 days ago'),
+    ];
+
+    const sorted = m.sortCommentsChronological(raw, refDate);
+    assert.equal(sorted.length, 3);
+    assert.equal(sorted[0].author, 'Carol'); // 5 days ago (oldest)
+    assert.equal(sorted[1].author, 'Bob');   // 1 day ago (middle)
+    assert.equal(sorted[2].author, 'Aiden'); // latest reply (newest - interpolated)
+  });
+
+  it('interpolates missing timestamps between known timestamps in chronological sequence', () => {
+    const raw = [
+      comment('Carol', 'opening post', '5 days ago'),
+      comment('Bob', 'middle reply missing timestamp', ''),
+      comment('Alice', 'latest resolution', '1 hour ago'),
+    ];
+
+    const sorted = m.sortCommentsChronological(raw, refDate);
+    assert.equal(sorted.length, 3);
+    assert.equal(sorted[0].author, 'Carol');
+    assert.equal(sorted[1].author, 'Bob');
+    assert.equal(sorted[2].author, 'Alice');
+  });
+
+  it('preserves order when all timestamps are missing or empty', () => {
+    const raw = [
+      comment('User1', 'first', ''),
+      comment('User2', 'second', ''),
+      comment('User3', 'third', ''),
+    ];
+
+    const sorted = m.sortCommentsChronological(raw, refDate);
+    assert.equal(sorted.length, 3);
+    assert.equal(sorted[0].author, 'User1');
+    assert.equal(sorted[1].author, 'User2');
+    assert.equal(sorted[2].author, 'User3');
+  });
+
+  it('handles single known timestamp with missing sibling timestamps', () => {
+    const raw = [
+      comment('User1', 'first', ''),
+      comment('User2', 'second with timestamp', '2 days ago'),
+      comment('User3', 'third', ''),
+    ];
+
+    const sorted = m.sortCommentsChronological(raw, refDate);
+    assert.equal(sorted.length, 3);
+    assert.equal(sorted[0].author, 'User1');
+    assert.equal(sorted[1].author, 'User2');
+    assert.equal(sorted[2].author, 'User3');
+  });
 });
 
 describe('mergeComments chronological ordering', () => {

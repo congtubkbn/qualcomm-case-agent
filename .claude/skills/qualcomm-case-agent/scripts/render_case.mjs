@@ -54,16 +54,18 @@ function md() {
 
   L.push('## Chronological Timeline of Comments', '');
   comments.forEach((c, i) => {
-    const head = [S(c.timestamp), S(c.company), S(c.author) + (S(c.role) ? ` (${S(c.role)})` : '')]
-      .filter(x => x && x !== ' ()').join(' · ');
+    const roleBadge = S(c.role) ? `(${S(c.role)})` : '';
+    const authorWithRole = [S(c.author), roleBadge].filter(Boolean).join(' ');
+    const head = [S(c.timestamp), S(c.company), authorWithRole]
+      .filter(x => x && x !== '()').join(' · ');
     L.push(`### ${i + 1}. ${head || 'Comment'}`, '');
     if (S(c.body)) L.push(S(c.body), '');
     for (const log of arr(c.analysisLog)) {
       if (S(log)) L.push('```', S(log), '```', '');
     }
-    const atts = arr(c.attachments).filter(a => a && (S(a.name) || S(a.href)));
+    const atts = arr(c.attachments).filter(a => a && (S(a.name) || S(a.href) || S(a.url)));
     if (atts.length) {
-      L.push('**Attachments:** ' + atts.map(a => `[${S(a.name) || 'file'}](${S(a.href)})`).join(', '), '');
+      L.push('**Attachments:** ' + atts.map(a => `[${S(a.name) || 'file'}](${S(a.href || a.url)})`).join(', '), '');
     }
     L.push('---', '');
   });

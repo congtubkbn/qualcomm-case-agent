@@ -150,6 +150,21 @@ describe('render_case: case.md content structure', () => {
     assert.ok(!md.includes('5G-SA'));
   });
 
+  it('renders attachments having url property instead of href', () => {
+    const caseWithUrlAtt = {
+      ...MINIMAL,
+      comments: [
+        comment('Alice', 'Attached logs with url.', {
+          attachments: [{ name: 'crash.bin', url: 'https://support.qualcomm.com/download/crash.bin' }],
+        }),
+      ],
+    };
+
+    const r = renderFixture(caseWithUrlAtt);
+    assert.equal(r.exit, 0);
+    assert.match(r.md(), /\*\*Attachments:\*\* \[crash\.bin\]\(https:\/\/support\.qualcomm\.com\/download\/crash\.bin\)/);
+  });
+
   it('exits 2 with a usage message when no path is given', () => {
     const r = spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8' });
     assert.equal(r.status, 2);

@@ -69,15 +69,44 @@
   };
 
   // Role heuristics: distinguish Qualcomm engineers from Customer/OEM vs System
-  const classifyRole = (author, company, context) => {
+  const classifyRole = (author, company, context, body = "") => {
     const combined = ((author || "") + " " + (company || "") + " " + (context || "")).toLowerCase();
-    if (combined.includes("qualcomm") || combined.includes("@qualcomm.com")) {
+    if (combined.includes("qualcomm") || combined.includes("@qualcomm.com") || combined.includes("qcom support")) {
       return "Qualcomm";
     }
     if (combined.includes("system") || combined.includes("automated process")) {
       return "System";
     }
+    // Contextual greeting heuristics
+    const firstLines = (body || "").slice(0, 200).toLowerCase();
+    if (/^(?:dear|hi|hello)\s+customer\b/i.test(firstLines.trim()) || /\bqualcomm\s+team\b/i.test(firstLines)) {
+      return "Qualcomm";
+    }
+    if (/^(?:dear|hi|hello)\s+(?:qcom|qualcomm)\b/i.test(firstLines.trim())) {
+      return "Customer";
+    }
+    // Known Qualcomm engineer name patterns
+    const authorLower = (author || "").toLowerCase();
+    if (["aiden an", "seunghoon lee", "hoon lee", "cs lee", "kyungnam ken lee"].includes(authorLower)) {
+      return "Qualcomm";
+    }
     return "Customer";
+  };
+
+  // Timestamp extraction helper
+  const extractTimestamp = (a, named, author) => {
+    const tsEl = a.querySelector("a.cuf-timestamp, span.cuf-timestamp, time, .uiOutputDateTime, [class*='timestamp'], [class*='Timestamp'], [class*='dateTime'], [class*='DateTime']");
+    if (tsEl) {
+      const val = txt(tsEl) || tsEl.getAttribute("datetime") || tsEl.getAttribute("title") || "";
+      if (val) return val;
+    }
+    // Scan named links for date/time patterns
+    const datePattern = /(?:ago|yesterday|today|\d{4}|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b)/i;
+    const match = named.find(t => t !== "Expand Post" && t !== author && datePattern.test(t));
+    if (match) return match;
+
+    // Fallback: second or third named link
+    return (named[1] && named[1] !== "Expand Post" && named[1] !== author) ? named[1] : ((named[2] && named[2] !== "Expand Post") ? named[2] : "");
   };
 
   // Attachments extraction helper
@@ -105,19 +134,18 @@
   const comments = qsa("article").map((a, i) => {
     const named = Array.from(a.querySelectorAll("a")).map(txt).filter(Boolean);
     const author = named[0] || "";
-    // Second named link is the timestamp unless it's the "Expand Post" control.
-    const tsCandidate = named[1] && named[1] !== "Expand Post" ? named[1] : (named[2] || "");
     const bodyEl = a.querySelector(".feedBodyInner, .cuf-feedBodyText, [class*='feedBody']");
     const body = cleanBody(bodyEl ? txt(bodyEl) : txt(a));
+    const timestamp = extractTimestamp(a, named, author);
 
     const compEl = a.querySelector(".company, .title, [class*='company'], [class*='userTitle']");
     const company = compEl ? txt(compEl) : "";
-    const role = classifyRole(author, company, a.className || "");
+    const role = classifyRole(author, company, a.className || "", body);
     const attachments = extractAttachments(a);
 
     return {
       id: a.id || ("c" + (i + 1)),
-      timestamp: tsCandidate,
+      timestamp,
       company,
       author,
       role,
