@@ -19,7 +19,7 @@ These rules govern all code modifications, feature designs, and implementations 
 
 ## 2. GIAI ĐOẠN 2: CODIFY THE DESTINATION (CREATE PRD)
 - Summarize the alignment decisions into a single **PRD (Product Requirements Document)**.
-- Save the PRD locally (e.g., `docs/prd/feature-name.md`) or write it directly to GitHub Issues.
+- Save the PRD locally (e.g., `docs/prd/feature-name.md`) AND create an issue on GitHub for the PRD immediately (`gh issue create`).
 - The PRD must contain:
   1. **Problem Statement**: What problem is the user facing?
   2. **Solution**: High-level architectural approach.
@@ -29,6 +29,7 @@ These rules govern all code modifications, feature designs, and implementations 
 
 ## 3. GIAI ĐOẠN 3: THE JOURNEY (CREATE GITHUB ISSUES WITH BLOCKING DAG)
 - **Vertical Slices Only**: Split the PRD into "vertical slices" of functionality. Every task/issue must cut through all layers of the stack (DB, Server API, Frontend UI) to ensure near-instant integrated feedback loops. No horizontal slicing (doing all DB first, then all API).
+- **Mandatory GitHub Issue Publishing**: ALWAYS immediately create every task as a GitHub Issue (`gh issue create`) along with the local `docs/issues/` markdown file.
 - **Define Dependencies (DAG)**: Format each GitHub Issue with the following metadata block at the very top to define the Directed Acyclic Graph (DAG) on the Kanban board:
   ```markdown
   ---
