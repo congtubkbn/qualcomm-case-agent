@@ -206,6 +206,56 @@ describe('migrateIds', () => {
   });
 });
 
+describe('synthesizeDescriptionComment', () => {
+  it('synthesizes a structured initial comment when description is non-empty', () => {
+    const raw = {
+      customer: 'Test OEM',
+      created: '2026-08-20T10:00:00Z',
+      description: 'Dear Qualcomm team,\n\nDevice encounters modem crash during VoNR call setup. Reproduction logs are attached.',
+    };
+    const c = m.synthesizeDescriptionComment(raw);
+    assert.ok(c);
+    assert.equal(c.author, 'Test OEM');
+    assert.equal(c.timestamp, '2026-08-20T10:00:00Z');
+    assert.equal(c.body, raw.description);
+    assert.equal(c.summary, 'Device encounters modem crash during VoNR call setup. Reproduction logs are attached.');
+    assert.deepEqual(c.attachments, []);
+  });
+
+  it('defaults author to "Reporter" and timestamp to empty string when missing', () => {
+    const raw = {
+      description: 'Simple issue report text.',
+    };
+    const c = m.synthesizeDescriptionComment(raw);
+    assert.ok(c);
+    assert.equal(c.author, 'Reporter');
+    assert.equal(c.timestamp, '');
+    assert.equal(c.body, 'Simple issue report text.');
+  });
+
+  it('returns null for empty or whitespace-only description', () => {
+    assert.equal(m.synthesizeDescriptionComment(null), null);
+    assert.equal(m.synthesizeDescriptionComment({}), null);
+    assert.equal(m.synthesizeDescriptionComment({ description: '' }), null);
+    assert.equal(m.synthesizeDescriptionComment({ description: '   \n\t  ' }), null);
+  });
+});
+
+describe('hasDescriptionComment', () => {
+  it('returns true if a comment body matches the description', () => {
+    const desc = 'Problem description body';
+    const comments = [{ body: 'Other comment' }, { body: '  Problem description body  ' }];
+    assert.equal(m.hasDescriptionComment(comments, desc), true);
+  });
+
+  it('returns false when no comment matches or description is empty', () => {
+    assert.equal(m.hasDescriptionComment([], 'some desc'), false);
+    assert.equal(m.hasDescriptionComment([{ body: 'other' }], 'some desc'), false);
+    assert.equal(m.hasDescriptionComment([{ body: 'other' }], ''), false);
+    assert.equal(m.hasDescriptionComment(null, 'some desc'), false);
+  });
+});
+
 describe('mergeComments', () => {
   const cached = m.assignIds([comment('Bob', 'first', { timestamp: '5 days ago' }), comment('Alice', 'second', { timestamp: '3 days ago' })]).comments;
 
@@ -564,4 +614,95 @@ describe('finalize (child process)', () => {
     const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
     assert.equal(saved.comments.length, 3, 'both the original and the edited version are kept — no silent overwrite');
   });
+
+  describe('case description injection', () => {
+    it('injects non-empty description as initial comment in case.json with accurate metadata', () => {
+      const root = fixture();
+      const rawWithDesc = {
+        ...RAW,
+        customer: 'Acme Corp',
+        created: 'August 15, 2026 at 9:00 AM',
+        description: 'Device crashes during 5G SA handover. Please find attached reproduction logs.',
+      };
+      const { exit, verdict } = runFinalize(root, rawWithDesc);
+      assert.equal(exit, m.EXIT.OK);
+      assert.equal(verdict.commentCount, 3); // 2 chatter + 1 description
+
+      const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
+      assert.equal(saved.comments.length, 3);
+      const descComment = saved.comments[0]; // Chronologically first
+      assert.equal(descComment.author, 'Acme Corp');
+      assert.equal(descComment.timestamp, 'August 15, 2026 at 9:00 AM');
+      assert.equal(descComment.body, rawWithDesc.description);
+      assert.equal(descComment.summary, 'Device crashes during 5G SA handover. Please find attached reproduction logs.');
+      assert.deepEqual(descComment.attachments, []);
+      assert.match(descComment.id, /^c[a-f0-9]{12}$/);
+      assert.equal(saved.description, rawWithDesc.description, 'retains root description for backward compatibility');
+    });
+
+    it('falls back to "Reporter" and empty timestamp when customer and created are absent', () => {
+      const root = fixture();
+      const rawWithDesc = {
+        ...RAW,
+        customer: '',
+        created: '',
+        description: 'Simple problem description without metadata.',
+      };
+      const { exit } = runFinalize(root, rawWithDesc);
+      assert.equal(exit, m.EXIT.OK);
+
+      const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
+      const descComment = saved.comments[0];
+      assert.equal(descComment.author, 'Reporter');
+      assert.equal(descComment.timestamp, '');
+      assert.equal(descComment.body, rawWithDesc.description);
+    });
+
+    it('does not create blank comments for empty or whitespace-only description', () => {
+      const root = fixture();
+      const rawEmptyDesc = {
+        ...RAW,
+        description: '   \n\t  ',
+      };
+      const { exit, verdict } = runFinalize(root, rawEmptyDesc);
+      assert.equal(exit, m.EXIT.OK);
+      assert.equal(verdict.commentCount, 2);
+
+      const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
+      assert.equal(saved.comments.length, 2);
+      assert.ok(!saved.comments.some(c => !c.body.trim()));
+    });
+
+    it('does not duplicate description comment across repeated --merge invocations', () => {
+      const root = fixture();
+      const initialRaw = {
+        ...RAW,
+        customer: 'Acme Corp',
+        created: 'August 18, 2026 at 9:00 AM',
+        description: 'UE fails to attach to cell.',
+      };
+      const r1 = runFinalize(root, initialRaw);
+      assert.equal(r1.exit, m.EXIT.OK);
+      assert.equal(r1.verdict.commentCount, 3);
+
+      // Subsequent update run with same or empty description
+      const updateRaw = {
+        ...initialRaw,
+        displayedCommentCount: 3,
+        comments: [
+          comment('Dave', 'New response from QCOM', { timestamp: '1 hour ago' }),
+          ...RAW.comments,
+        ],
+      };
+      const r2 = runFinalize(root, updateRaw, ['--merge']);
+      assert.equal(r2.exit, m.EXIT.OK);
+      assert.equal(r2.verdict.newComments, 1);
+
+      const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
+      assert.equal(saved.comments.length, 4); // 1 desc + 2 original chatter + 1 new chatter
+      const descOccurrences = saved.comments.filter(c => c.body === 'UE fails to attach to cell.');
+      assert.equal(descOccurrences.length, 1, 'description comment must not be duplicated');
+    });
+  });
 });
+

@@ -244,6 +244,34 @@ export function extractSummary(body) {
 }
 
 /**
+ * Synthesizes an initial comment representing the case problem statement
+ * from raw case description, if non-empty.
+ */
+export function synthesizeDescriptionComment(raw) {
+  if (!raw) return null;
+  const desc = typeof raw.description === 'string' ? raw.description.trim() : '';
+  if (!desc) return null;
+
+  return {
+    author: (typeof raw.customer === 'string' && raw.customer.trim()) ? raw.customer.trim() : 'Reporter',
+    timestamp: (typeof raw.created === 'string' && raw.created.trim()) ? raw.created.trim() : '',
+    summary: extractSummary(raw.description),
+    body: raw.description,
+    attachments: [],
+  };
+}
+
+/**
+ * Checks if a comment matching the case description is already present.
+ */
+export function hasDescriptionComment(comments, description) {
+  if (!Array.isArray(comments) || !description || typeof description !== 'string') return false;
+  const target = description.trim();
+  if (!target) return false;
+  return comments.some(c => c && typeof c.body === 'string' && c.body.trim() === target);
+}
+
+/**
  * Classifies author role into 'Qualcomm', 'Customer', or 'System' based on author name, company, and body clues.
  */
 export function classifyRole(author, company = '', context = '', body = '') {
@@ -545,8 +573,20 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
     process.exit(EXIT.BAD_ARGS);
   }
 
+  // Inject description as initial comment if non-empty and not already present.
+  const descRaw = {
+    description: String(raw.description || (cached && cached.description) || '').trim(),
+    customer: String(header.customer || raw.customer || (cached && cached.customer) || '').trim(),
+    created: String(raw.created || (cached && cached.created) || '').trim(),
+  };
+  const descComment = synthesizeDescriptionComment(descRaw);
+  let rawComments = [...raw.comments];
+  if (descComment && !hasDescriptionComment(rawComments, descRaw.description)) {
+    rawComments.push(descComment);
+  }
+
   // Identity is assigned HERE, in code, for every comment we persist.
-  const fresh = assignIds(raw.comments);
+  const fresh = assignIds(rawComments);
 
   // `out` is the object that gets persisted. Full capture: the raw itself.
   // Update run (--merge): the cached case with only the NEW comments prepended.
