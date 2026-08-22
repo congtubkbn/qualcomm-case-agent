@@ -334,6 +334,95 @@ test('extract_case.js DOM extraction engine', async (t) => {
     assert.equal(result.comments[1].timestamp, '3 hours ago');
     assert.equal(result.comments[1].role, 'Customer');
   });
+
+  await t.test('extracts timestamps from title attributes, uiOutputDateTime, and relative text patterns', () => {
+    const doc = createMockDocument();
+
+    // 1. Article with empty text but valid title attribute on timestamp anchor/span
+    const art1 = createMockElement('article', { id: 'reply_title' });
+    const a1 = createMockElement('a', {}, 'CS Lee');
+    const span1 = createMockElement('span', { className: 'cuf-timestamp', title: '2026-08-20T10:15:00Z' }, '');
+    const body1 = createMockElement('div', { className: 'feedBodyInner' }, 'Please check attached QXDM trace.');
+    art1.appendChild(a1);
+    art1.appendChild(span1);
+    art1.appendChild(body1);
+    doc.body.appendChild(art1);
+
+    // 2. Article with uiOutputDateTime class
+    const art2 = createMockElement('article', { id: 'reply_uiout' });
+    const a2 = createMockElement('a', {}, 'OEM Developer');
+    const uiDate2 = createMockElement('span', { className: 'uiOutputDateTime' }, 'Yesterday at 5:20 PM');
+    const body2 = createMockElement('div', { className: 'feedBodyInner' }, 'Uploaded modem dump.');
+    art2.appendChild(a2);
+    art2.appendChild(uiDate2);
+    art2.appendChild(body2);
+    doc.body.appendChild(art2);
+
+    // 3. Article with relative time in a span.feedItemTimestamp
+    const art3 = createMockElement('article', { id: 'reply_feeditem' });
+    const a3 = createMockElement('a', {}, 'Support Lead');
+    const span3 = createMockElement('span', { className: 'feedItemTimestamp' }, '45 minutes ago');
+    const body3 = createMockElement('div', { className: 'feedBodyInner' }, 'Reviewing the crash dump.');
+    art3.appendChild(a3);
+    art3.appendChild(span3);
+    art3.appendChild(body3);
+    doc.body.appendChild(art3);
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+
+    assert.equal(result.comments.length, 3);
+    assert.equal(result.comments[0].timestamp, '2026-08-20T10:15:00Z');
+    assert.equal(result.comments[0].role, 'Qualcomm');
+    assert.equal(result.comments[1].timestamp, 'Yesterday at 5:20 PM');
+    assert.equal(result.comments[1].role, 'Customer');
+    assert.equal(result.comments[2].timestamp, '45 minutes ago');
+  });
+
+  await t.test('classifies roles accurately with company variations, email domains, badges, signatures, and greetings', () => {
+    const doc = createMockDocument();
+
+    // 1. Qualcomm engineer via company "Qualcomm Technologies, Inc."
+    const art1 = createMockElement('article', { id: 'role_comp' });
+    const a1 = createMockElement('a', {}, 'Sarah Jenkins');
+    const comp1 = createMockElement('span', { className: 'company' }, 'Qualcomm Technologies, Inc.');
+    const body1 = createMockElement('div', { className: 'feedBodyInner' }, 'The PHY layer configuration is updated.');
+    art1.appendChild(a1);
+    art1.appendChild(comp1);
+    art1.appendChild(body1);
+    doc.body.appendChild(art1);
+
+    // 2. Qualcomm engineer via badge or author bracket "[QCOM]"
+    const art2 = createMockElement('article', { id: 'role_badge' });
+    const a2 = createMockElement('a', {}, 'David Kim [QCOM]');
+    const body2 = createMockElement('div', { className: 'feedBodyInner' }, 'Fix will be in standard release.');
+    art2.appendChild(a2);
+    art2.appendChild(body2);
+    doc.body.appendChild(art2);
+
+    // 3. Qualcomm engineer via email signature in body
+    const art3 = createMockElement('article', { id: 'role_sig' });
+    const a3 = createMockElement('a', {}, 'Alex Turner');
+    const body3 = createMockElement('div', { className: 'feedBodyInner' }, 'We analyzed the case.\n\nBest regards,\nQualcomm Case Team');
+    art3.appendChild(a3);
+    art3.appendChild(body3);
+    doc.body.appendChild(art3);
+
+    // 4. Customer asking question to Qualcomm team
+    const art4 = createMockElement('article', { id: 'role_cust' });
+    const a4 = createMockElement('a', {}, 'OEM Engineer');
+    const body4 = createMockElement('div', { className: 'feedBodyInner' }, 'Dear QCOM team, any update on this issue?');
+    art4.appendChild(a4);
+    art4.appendChild(body4);
+    doc.body.appendChild(art4);
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+
+    assert.equal(result.comments.length, 4);
+    assert.equal(result.comments[0].role, 'Qualcomm');
+    assert.equal(result.comments[1].role, 'Qualcomm');
+    assert.equal(result.comments[2].role, 'Qualcomm');
+    assert.equal(result.comments[3].role, 'Customer');
+  });
 });
 
 test('expand_step.js DOM expansion engine', async (t) => {

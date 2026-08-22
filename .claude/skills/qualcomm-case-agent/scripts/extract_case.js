@@ -71,15 +71,33 @@
   // Role heuristics: distinguish Qualcomm engineers from Customer/OEM vs System
   const classifyRole = (author, company, context, body = "") => {
     const combined = ((author || "") + " " + (company || "") + " " + (context || "")).toLowerCase();
-    if (combined.includes("qualcomm") || combined.includes("@qualcomm.com") || combined.includes("qcom support")) {
+    if (
+      combined.includes("qualcomm") ||
+      combined.includes("@qualcomm.com") ||
+      combined.includes("@qti.qualcomm.com") ||
+      combined.includes("qcom") ||
+      combined.includes("qti") ||
+      combined.includes("qualcomm technologies") ||
+      combined.includes("qualcomm support") ||
+      combined.includes("qualcomm employee") ||
+      combined.includes("qualcomm engineer")
+    ) {
       return "Qualcomm";
     }
     if (combined.includes("system") || combined.includes("automated process")) {
       return "System";
     }
-    // Contextual greeting heuristics
-    const firstLines = (body || "").slice(0, 200).toLowerCase();
-    if (/^(?:dear|hi|hello)\s+customer\b/i.test(firstLines.trim()) || /\bqualcomm\s+team\b/i.test(firstLines)) {
+    // Contextual greeting / signature heuristics
+    const bodyLower = (body || "").toLowerCase();
+    const firstLines = bodyLower.slice(0, 250);
+    const lastLines = bodyLower.slice(-250);
+    if (
+      /^(?:dear|hi|hello)\s+customer\b/i.test(firstLines.trim()) ||
+      /\bqualcomm\s+team\b/i.test(bodyLower) ||
+      /\bqualcomm\s+support\b/i.test(bodyLower) ||
+      /\bqualcomm\s+case\s+team\b/i.test(bodyLower) ||
+      /(?:regards|thanks|sincerely)[,\s]+.*qualcomm/i.test(lastLines)
+    ) {
       return "Qualcomm";
     }
     if (/^(?:dear|hi|hello)\s+(?:qcom|qualcomm)\b/i.test(firstLines.trim())) {
@@ -95,15 +113,28 @@
 
   // Timestamp extraction helper
   const extractTimestamp = (a, named, author) => {
-    const tsEl = a.querySelector("a.cuf-timestamp, span.cuf-timestamp, time, .uiOutputDateTime, [class*='timestamp'], [class*='Timestamp'], [class*='dateTime'], [class*='DateTime']");
+    const datePattern = /(?:ago|yesterday|today|\d{4}|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b)/i;
+    const tsEl = a.querySelector("a.cuf-timestamp, span.cuf-timestamp, time, .uiOutputDateTime, [class*='timestamp'], [class*='Timestamp'], [class*='dateTime'], [class*='DateTime'], [class*='createdDate'], [class*='created-date']");
     if (tsEl) {
-      const val = txt(tsEl) || tsEl.getAttribute("datetime") || tsEl.getAttribute("title") || "";
+      const val = tsEl.getAttribute("title") || txt(tsEl) || tsEl.getAttribute("datetime") || "";
       if (val) return val;
     }
     // Scan named links for date/time patterns
-    const datePattern = /(?:ago|yesterday|today|\d{4}|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b)/i;
     const match = named.find(t => t !== "Expand Post" && t !== author && datePattern.test(t));
     if (match) return match;
+
+    // Scan all spans/elements for relative or date patterns
+    const inlineCandidates = qsa("span, div, p, time", a);
+    for (const el of inlineCandidates) {
+      const t = txt(el);
+      if (t && t !== author && t !== "Expand Post" && t.length < 60 && datePattern.test(t)) {
+        return t;
+      }
+      const titleAttr = el.getAttribute("title");
+      if (titleAttr && datePattern.test(titleAttr)) {
+        return titleAttr;
+      }
+    }
 
     // Fallback: second or third named link
     return (named[1] && named[1] !== "Expand Post" && named[1] !== author) ? named[1] : ((named[2] && named[2] !== "Expand Post") ? named[2] : "");
