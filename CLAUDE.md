@@ -162,3 +162,20 @@ automated.
 `npm test` runs only the 3 files named in `package.json`'s `"test"` script — **not** a glob over
 `tests/*.test.mjs`. New tests must be added to that list or folded into an already-listed file
 (e.g. `tests/pipeline.test.mjs`), or they silently never run.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as GitHub issues in `congtubkbn/qualcomm-case-agent`. See
+`docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five canonical roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`,
+`wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at repo root (not yet created; skills proceed silently
+until they exist). See `docs/agents/domain.md`.
