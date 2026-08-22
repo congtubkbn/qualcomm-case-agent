@@ -1,11 +1,11 @@
 ---
-ID: #9
+ID: #34
 Status: AFK
-Blocked by: [#8]
+Blocked by: [#33]
 Type: Refactor
 ---
 
-# Issue #9: CLI & Multi-Case Migration with Index Synchronization
+# Issue #34: [Migration Slice 2] CLI & Multi-Case Migration with Index Synchronization
 
 ## Goal
 Implement CLI execution and file-system integration in `migrate_case.mjs`:

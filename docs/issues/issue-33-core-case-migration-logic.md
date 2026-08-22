@@ -1,11 +1,11 @@
 ---
-ID: #8
+ID: #33
 Status: AFK
 Blocked by: []
 Type: Tracer Bullet
 ---
 
-# Issue #8: Implement Core Case Migration Transformation Logic
+# Issue #33: [Migration Slice 1] Implement Core Case Migration Transformation Logic in migrate_case.mjs
 
 ## Goal
 Implement the core pure transformation functions in `migrate_case.mjs`:

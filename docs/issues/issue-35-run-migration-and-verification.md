@@ -1,11 +1,11 @@
 ---
-ID: #10
+ID: #35
 Status: AFK
-Blocked by: [#8, #9]
+Blocked by: [#33, #34]
 Type: Polish
 ---
 
-# Issue #10: Migrate Existing Cases & Full Verification
+# Issue #35: [Migration Slice 3] Migrate Existing Cached Cases & Full Verification
 
 ## Goal
 1. Execute `migrate_case.mjs` against existing cached cases in `data/cases/` (specifically case `08637663`).
@@ -13,6 +13,6 @@ Type: Polish
 3. Run `npm test` and `verify_case.mjs` to ensure 100% test pass rate and zero schema regressions.
 
 ## Verification
-- `data/cases/08637663/case.json` has clean timestamps, summaries, no `analysisLog`.
-- `npm test` passes cleanly.
+- `data/cases/08637663/case.json` has clean timestamps, summaries, and no `analysisLog`.
+- `npm test` passes cleanly (100% pass).
 - `node .claude/skills/qualcomm-case-agent/scripts/verify_case.mjs 08637663` passes with exit code 0.
