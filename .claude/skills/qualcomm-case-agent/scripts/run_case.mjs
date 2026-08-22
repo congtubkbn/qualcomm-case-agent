@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
 import { intake } from './intake.mjs';
 import { acquireLock, releaseLock } from './lock.mjs';
-import { BrowserError, ensureChrome, evalFile, getCdpClient, open, screenshot, sleep } from './browser.mjs';
+import { BrowserError, ensureChrome, evalFile, evalFileViaCdp, getCdpClient, open, screenshot, sleep } from './browser.mjs';
 import { fastLandOnCase } from './fast_landing.mjs';
 import { verifyCase } from './verify_case.mjs';
 
@@ -381,7 +381,10 @@ export async function run(code, opts = {}) {
   }
 
   // --- PHASE 2: extract
-  const raw = evalFile(page('extract_case.js'));
+  // extract_case.js's base64 payload now runs past evalFile's cmd.exe guard
+  // (script grew with the Chatter timestamp/role work) — send it over the
+  // already-open CDP WebSocket instead, which has no line-length ceiling.
+  const raw = await evalFileViaCdp(cdp, page('extract_case.js'));
   if (!raw || !Array.isArray(raw.comments) || raw.comments.length === 0) {
     return { status: 'blocked', reason: 'case extraction returned no comments', timing: { landingMs: landingDurationMs } };
   }

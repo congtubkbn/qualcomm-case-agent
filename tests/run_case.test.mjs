@@ -54,6 +54,16 @@ function mockBrowser(t, handlerOrQueue, cdpOverride = null) {
         if (next === undefined) throw new Error(`mockBrowser: evalFile queue exhausted on ${file}`);
         return next;
       },
+      evalFileViaCdp: async (_cdp, path, vars) => {
+        const file = path.split(/[\\/]/).pop();
+        evalFileCalls.push({ path: file, vars });
+        if (typeof handlerOrQueue === 'function') {
+          return handlerOrQueue(file, vars);
+        }
+        const next = handlerOrQueue.shift();
+        if (next === undefined) throw new Error(`mockBrowser: evalFileViaCdp queue exhausted on ${file}`);
+        return next;
+      },
     },
   });
   return { evalFileCalls, openCalls, clickCalls, screenshotCalls };

@@ -104,6 +104,18 @@ export function evalFile(scriptPath, vars = {}, opts = {}) {
 }
 
 /**
+ * Same page-script contract as evalFile (strip comments, wrap in the payload
+ * IIFE), but sent straight over an already-open CDP WebSocket via `cdp.eval`
+ * instead of shelling out through cmd.exe. Scripts of any size are safe here —
+ * there is no command-line length to blow past.
+ */
+export async function evalFileViaCdp(cdp, scriptPath, vars = {}) {
+  const src = stripComments(readFileSync(scriptPath, 'utf8'));
+  const payload = buildPayload(src, vars);
+  return cdp.eval(payload, {});
+}
+
+/**
  * Wrap a page script (always a single IIFE expression) in a function scope that
  * declares its parameters.
  *
