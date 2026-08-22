@@ -22,9 +22,9 @@ npm run cases:overview
 ```
 or with status filtering:
 ```bash
-node tools/cases_overview.mjs --filter=open
-node tools/cases_overview.mjs --filter=in_progress
-node tools/cases_overview.mjs --filter=closed
+node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --filter=open
+node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --filter=in_progress
+node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --filter=closed
 ```
 
 ### 2. Interactive Offline HTML Dashboard
@@ -35,21 +35,21 @@ npm run cases:dashboard
 ```
 or:
 ```bash
-node tools/cases_overview.mjs --open
+node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --open
 ```
 
 ### 3. Machine-Readable JSON Output
 Emits normalized aggregated JSON payload to stdout:
 
 ```bash
-node tools/cases_overview.mjs --json
+node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --json
 ```
 
 ### 4. Full Cache Rebuild
 Forces a clean re-scan and regeneration of `data/cases/_overview.json` and `data/cases/dashboard.html`:
 
 ```bash
-node tools/cases_overview.mjs --rebuild
+node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --rebuild
 ```
 
 ---
@@ -74,6 +74,6 @@ node tools/cases_overview.mjs --rebuild
 ## Reporting Guidance for Agents
 
 When the user asks for a case overview or list of cases:
-1. Run `node tools/cases_overview.mjs` (or filter with `--filter=<status>`).
+1. Run `node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs` (or filter with `--filter=<status>`).
 2. Present the formatted output or summary statistics.
 3. Inform the user they can also run `npm run cases:dashboard` to explore cases interactively in their browser.

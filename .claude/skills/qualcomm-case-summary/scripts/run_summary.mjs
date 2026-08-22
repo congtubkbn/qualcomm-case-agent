@@ -22,7 +22,7 @@ import { captureCase } from './deps.mjs';
 import { computeDelta } from './delta.mjs';
 import { mergeSummary } from './merge.mjs';
 import { renderSummaryMd } from './render_summary.mjs';
-import { updateCaseOverview } from '../../../../tools/cases_overview.mjs';
+import { updateCaseOverview } from '../../qualcomm-case-overview/scripts/cases_overview.mjs';
 
 const CAPTURE_OK = new Set(['created', 'updated', 'no-update']);
 

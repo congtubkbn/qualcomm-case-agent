@@ -37,7 +37,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
-import { updateCaseOverview } from '../../../../tools/cases_overview.mjs';
+import { updateCaseOverview } from '../../qualcomm-case-overview/scripts/cases_overview.mjs';
 
 // ---- Exit codes (exported so tests can import) ----
 export const EXIT = {

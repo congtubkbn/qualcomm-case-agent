@@ -17,7 +17,7 @@ const SCRIPT_SUMMARY = fileURLToPath(
   new URL('../.claude/skills/qualcomm-case-summary/scripts/run_summary.mjs', import.meta.url)
 );
 const SCRIPT_OVERVIEW = fileURLToPath(
-  new URL('../tools/cases_overview.mjs', import.meta.url)
+  new URL('../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs', import.meta.url)
 );
 
 function runScrape(root, rawData, caseCode, flags = []) {

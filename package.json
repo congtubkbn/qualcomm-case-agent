@@ -8,8 +8,8 @@
     "docs": "node tools/gen_design.mjs",
     "docs:check": "node tools/gen_design.mjs --check",
     "docs:hook": "git config core.hooksPath tools/hooks",
-    "cases:overview": "node tools/cases_overview.mjs",
-    "cases:dashboard": "node tools/cases_overview.mjs --open"
+    "cases:overview": "node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs",
+    "cases:dashboard": "node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --open"
   },
   "engines": { "node": ">=22.3.0" }
 }

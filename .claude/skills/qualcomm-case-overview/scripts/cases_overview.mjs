@@ -7,7 +7,21 @@ import { fileURLToPath } from 'node:url';
 // Discover project data directory
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const DEFAULT_CASES_DIR = resolve(__dirname, '../data/cases');
+
+function findProjectRoot(start) {
+  let d = start;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    if (existsSync(join(d, '.git')) || existsSync(join(d, 'data', 'cases'))) return d;
+    const parent = dirname(d);
+    if (parent === d) return null;
+    d = parent;
+  }
+}
+
+const PROJECT_ROOT =
+  process.env.QUALCOMM_ROOT || findProjectRoot(__dirname) || resolve(__dirname, '../../../../');
+const DEFAULT_CASES_DIR = join(PROJECT_ROOT, 'data', 'cases');
 
 /**
  * Escapes HTML characters in string to prevent XSS.
@@ -1104,7 +1118,7 @@ if (process.argv[1] && resolve(process.argv[1]) === __filename) {
 
   if (options.help) {
     console.log(`
-Usage: node tools/cases_overview.mjs [options]
+Usage: node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs [options]
 
 Options:
   --rebuild           Force full re-scan of case directories and update _overview.json and dashboard.html

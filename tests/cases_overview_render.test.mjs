@@ -10,9 +10,11 @@ import {
   escapeHtml,
   renderCliTable,
   renderDashboardHtml,
-} from '../tools/cases_overview.mjs';
+} from '../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs';
 
-const SCRIPT = fileURLToPath(new URL('../tools/cases_overview.mjs', import.meta.url));
+const SCRIPT = fileURLToPath(
+  new URL('../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs', import.meta.url)
+);
 
 function createSampleOverviewData() {
   return {

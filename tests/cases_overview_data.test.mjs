@@ -13,9 +13,11 @@ import {
   extractCaseOverview,
   extractProductFromTitle,
   updateCaseOverview,
-} from '../tools/cases_overview.mjs';
+} from '../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs';
 
-const SCRIPT = fileURLToPath(new URL('../tools/cases_overview.mjs', import.meta.url));
+const SCRIPT = fileURLToPath(
+  new URL('../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs', import.meta.url)
+);
 
 function createTempCasesDir() {
   const baseDir = mkdtempSync(join(tmpdir(), 'qc-overview-test-'));
@@ -414,6 +416,6 @@ describe('cases_overview: CLI contract', () => {
   it('supports --help flag via CLI', () => {
     const r = spawnSync(process.execPath, [SCRIPT, '--help'], { encoding: 'utf8' });
     assert.equal(r.status, 0);
-    assert.ok(r.stdout.includes('Usage: node tools/cases_overview.mjs'));
+    assert.ok(r.stdout.includes('Usage: node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs'));
   });
 });
