@@ -46,3 +46,69 @@ describe('renderSummaryMd', () => {
     assert.match(c2Block, /will check and get back/);
   });
 });
+
+describe('renderSummaryMd — six-field comment schema', () => {
+  it('renders all six new fields when present', () => {
+    const md = renderSummaryMd({
+      caseNumber: '08642051',
+      status: 'Open',
+      comments: [{
+        id: 'c9', timestamp: 'Aug 20, 2026', author: 'Qualcomm Engineer',
+        kind: 'bug-report', summary: 'RRC setup fails on retry.', impact: 'blocker-introduced',
+        owner: 'qualcomm', nextAction: 'Qualcomm to reproduce', references: ['c7', 'c8'],
+      }],
+      flow: 'flow text',
+    });
+    assert.match(md, /^- Kind: bug-report$/m);
+    assert.match(md, /^- Summary: RRC setup fails on retry\.$/m);
+    assert.match(md, /^- Impact: blocker-introduced$/m);
+    assert.match(md, /^- Owner: qualcomm$/m);
+    assert.match(md, /^- Next action: Qualcomm to reproduce$/m);
+    assert.match(md, /^- References: c7, c8$/m);
+  });
+
+  it('renders only present fields (kind + nextAction) with no blank lines for omitted ones', () => {
+    const md = renderSummaryMd({
+      caseNumber: '08642051',
+      status: 'Open',
+      comments: [{
+        id: 'c9', timestamp: 'Aug 20, 2026', author: 'Qualcomm Engineer',
+        kind: 'acknowledgment', nextAction: 'awaiting reply',
+      }],
+      flow: 'flow text',
+    });
+    const block = md.slice(md.indexOf('### Qualcomm Engineer'));
+    assert.match(block, /- Kind: acknowledgment/);
+    assert.match(block, /- Next action: awaiting reply/);
+    assert.doesNotMatch(block, /Summary:/);
+    assert.doesNotMatch(block, /Impact:/);
+    assert.doesNotMatch(block, /Owner:/);
+    assert.doesNotMatch(block, /References:/);
+    assert.doesNotMatch(block, /\n\n- /, 'no blank line between rendered field lines');
+  });
+
+  it('renders an old-shape comment (issue/status, no kind/impact) without crashing', () => {
+    const md = renderSummaryMd({
+      caseNumber: '08633581',
+      status: 'Pending Qualcomm',
+      comments: [{
+        id: 'c1', timestamp: 'Aug 5, 2026', author: 'Luyen Kieu Ba',
+        issue: 'RRC setup fails', status: 'FAIL', nextAction: 'wait for Qualcomm',
+      }],
+      flow: 'flow text',
+    });
+    assert.match(md, /- Issue: RRC setup fails/);
+    assert.match(md, /- Status: FAIL/);
+    assert.match(md, /- Next action: wait for Qualcomm/);
+  });
+
+  it('omits References entirely when absent', () => {
+    const md = renderSummaryMd({
+      caseNumber: '08642051',
+      status: 'Open',
+      comments: [{ id: 'c9', timestamp: 'Aug 20, 2026', author: 'Qualcomm Engineer', summary: 'no refs here' }],
+      flow: 'flow text',
+    });
+    assert.doesNotMatch(md, /References:/);
+  });
+});

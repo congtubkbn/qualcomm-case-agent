@@ -4,9 +4,14 @@
 
 function renderComment(c) {
   const lines = [`### ${c.author ?? c.id} (${c.timestamp ?? c.id})`];
+  if (c.kind) lines.push(`- Kind: ${c.kind}`);
+  if (c.summary) lines.push(`- Summary: ${c.summary}`);
+  if (c.impact) lines.push(`- Impact: ${c.impact}`);
+  if (c.owner) lines.push(`- Owner: ${c.owner}`);
   if (c.issue) lines.push(`- Issue: ${c.issue}`);
   if (c.status) lines.push(`- Status: ${c.status}`);
   if (c.nextAction) lines.push(`- Next action: ${c.nextAction}`);
+  if (c.references?.length) lines.push(`- References: ${c.references.join(', ')}`);
   return lines.join('\n');
 }
 

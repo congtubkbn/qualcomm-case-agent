@@ -46,12 +46,18 @@ pre-filtered version — the 20,000-char cap already applied is a pathological-i
 not a summarization step), produce an object:
 ```json
 { "id": "<comment id>", "timestamp": "<comment timestamp>", "author": "<comment author>",
-  "issue": "<optional>", "status": "<optional PASS/FAIL/etc>", "nextAction": "<optional>" }
+  "kind": "<optional, one of: bug-report | acknowledgment | investigation-data | blocker | resolution | workaround | question | fyi>",
+  "summary": "<optional, free-text 1-2 sentence technical digest>",
+  "impact": "<optional, one of: blocker-introduced | blocker-resolved | investigation-started | hypothesis-narrowed | hypothesis-disproven | root-cause-found | awaiting-info | fyi>",
+  "owner": "<optional, one of: qualcomm | engineer | support | unassigned>",
+  "nextAction": "<optional, a concrete actor + action>",
+  "references": ["<optional, prior comment ids in the same case>"] }
 ```
-Include only the `issue`/`status`/`nextAction` dimensions that actually fit the comment's content —
-a plain acknowledgement may only have `nextAction`, or none of the three. Then, using `priorFlow`
-as context, write an updated one-paragraph (or short multi-paragraph) `flow` narrative — update it,
-don't regenerate it from scratch.
+Include only the dimensions that actually fit the comment's content — a plain acknowledgement may
+only have `kind` and `nextAction`, or none of the six. `summary` replaces the old `issue` field;
+`nextAction` is unchanged in spirit but should stay tight (concrete actor + action). Then, using
+`priorFlow` as context, write an updated one-paragraph (or short multi-paragraph) `flow` narrative —
+update it, don't regenerate it from scratch.
 
 Write both into a JSON file (e.g. a scratch/temp path) shaped `{ "comments": [...], "flow": "..." }`.
 
