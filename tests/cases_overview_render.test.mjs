@@ -1,0 +1,227 @@
+// Unit and integration tests for cases_overview rendering (HTML Dashboard & CLI table).
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import {
+  escapeHtml,
+  renderCliTable,
+  renderDashboardHtml,
+} from '../tools/cases_overview.mjs';
+
+const SCRIPT = fileURLToPath(new URL('../tools/cases_overview.mjs', import.meta.url));
+
+function createSampleOverviewData() {
+  return {
+    cases: [
+      {
+        caseNumber: '08603854',
+        title: '[DE.3.1.4][SM7635] epsfb_if_emc_and_no_vonr does not work & test <script>',
+        status: 'Closed-Customer Requested',
+        priority: '2 - High',
+        product: 'SM7635',
+        url: 'https://support.qualcomm.com/s/case/500dK00000Njp7aQAB/test-case',
+        syncedAt: '2026-08-22T23:18:35.894Z',
+        lastCommentAt: 'July 22, 2026 at 5:42 AM',
+        lastCommentAuthor: 'Luyen Kieu Ba',
+        commentCount: 4,
+        hasSummary: true,
+        aiSummary: 'Resolution: CR3798678 fix delivered | Root cause: nr5g voice flag',
+        latestComments: [
+          {
+            id: 'c4',
+            author: 'Luyen Kieu Ba',
+            timestamp: 'July 22, 2026 at 5:42 AM',
+            snippet: 'MPSS. DE. Fix delivered to customer repo.',
+          },
+          {
+            id: 'c3',
+            author: 'Sang Bui',
+            timestamp: 'July 22, 2026 at 12:00 AM',
+            snippet: 'Testing on live UE setup.',
+          },
+        ],
+      },
+      {
+        caseNumber: '08642051',
+        title: 'Modem RF crash during 5G SA registration',
+        status: 'Open',
+        priority: '1 - Critical',
+        product: 'SDX75',
+        url: 'https://support.qualcomm.com/s/case/500dK00000HZeVSQA1/rf-crash',
+        syncedAt: '2026-08-21T10:00:00.000Z',
+        lastCommentAt: 'Aug 21, 2026',
+        lastCommentAuthor: 'Alex Chen',
+        commentCount: 1,
+        hasSummary: false,
+        aiSummary: null,
+        latestComments: [
+          {
+            id: 'c1',
+            author: 'Alex Chen',
+            timestamp: 'Aug 21, 2026',
+            snippet: 'Initial filing with crashdump pcap attached.',
+          },
+        ],
+      },
+    ],
+    stats: {
+      total: 2,
+      byStatus: {
+        'Closed-Customer Requested': 1,
+        'Open': 1,
+      },
+      lastUpdated: '2026-08-23T06:00:00.000Z',
+    },
+  };
+}
+
+describe('cases_overview_render: escapeHtml helper', () => {
+  it('escapes &, <, >, ", and \' characters properly', () => {
+    assert.equal(escapeHtml('Hello <World> & "Friends" \'test\''), 'Hello &lt;World&gt; &amp; &quot;Friends&quot; &#039;test&#039;');
+    assert.equal(escapeHtml(null), '');
+    assert.equal(escapeHtml(undefined), '');
+    assert.equal(escapeHtml(123), '123');
+  });
+});
+
+describe('cases_overview_render: renderDashboardHtml', () => {
+  it('generates self-contained HTML with zero external CDN dependencies', () => {
+    const data = createSampleOverviewData();
+    const html = renderDashboardHtml(data);
+
+    assert.ok(html.startsWith('<!DOCTYPE html>'));
+    assert.ok(html.includes('<html lang="en"'));
+    assert.ok(html.includes('Qualcomm Cases Dashboard'));
+
+    // Zero CDN rule: must not reference http(s) links in link tags or script tags
+    assert.doesNotMatch(html, /<link[^>]+href=["']https?:\/\//i, 'Must not load external stylesheets via CDN');
+    assert.doesNotMatch(html, /<script[^>]+src=["']https?:\/\//i, 'Must not load external scripts via CDN');
+  });
+
+  it('escapes dynamic user content to prevent XSS', () => {
+    const data = createSampleOverviewData();
+    const html = renderDashboardHtml(data);
+
+    assert.ok(html.includes('&amp; test &lt;script&gt;'));
+    assert.doesNotMatch(html, /<script>epsfb/);
+  });
+
+  it('renders stats, header badges, search input, and filter tabs', () => {
+    const data = createSampleOverviewData();
+    const html = renderDashboardHtml(data);
+
+    // Total cases and stats
+    assert.ok(html.includes('08603854'));
+    assert.ok(html.includes('08642051'));
+    assert.ok(html.includes('Total: 2'));
+
+    // Search bar
+    assert.ok(html.includes('id="searchInput"'));
+
+    // Filter tabs
+    assert.ok(html.includes('data-filter="all"'));
+    assert.ok(html.includes('data-filter="open"'));
+    assert.ok(html.includes('data-filter="in_progress"'));
+    assert.ok(html.includes('data-filter="closed"'));
+    assert.ok(html.includes('data-filter="action_required"'));
+  });
+
+  it('renders copy button for Case IDs with no broken direct portal hyperlinks as primary action', () => {
+    const data = createSampleOverviewData();
+    const html = renderDashboardHtml(data);
+
+    // 1-click Copy ID button
+    assert.ok(html.includes('copy-btn'));
+    assert.ok(html.includes('data-case-id="08603854"'));
+    assert.ok(html.includes('data-case-id="08642051"'));
+  });
+
+  it('renders expandable comment accordion with latest updates', () => {
+    const data = createSampleOverviewData();
+    const html = renderDashboardHtml(data);
+
+    assert.ok(html.includes('Luyen Kieu Ba'));
+    assert.ok(html.includes('MPSS. DE. Fix delivered to customer repo.'));
+    assert.ok(html.includes('Sang Bui'));
+    assert.ok(html.includes('Alex Chen'));
+    assert.ok(html.includes('comments-accordion'));
+  });
+
+  it('renders AI summary when available', () => {
+    const data = createSampleOverviewData();
+    const html = renderDashboardHtml(data);
+
+    assert.ok(html.includes('CR3798678 fix delivered'));
+    assert.ok(html.includes('ai-summary'));
+  });
+
+  it('writes HTML to disk when outputPath is provided', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'qc-dash-test-'));
+    const outputPath = join(tempDir, 'dashboard.html');
+    const data = createSampleOverviewData();
+
+    const html = renderDashboardHtml(data, outputPath);
+    assert.ok(existsSync(outputPath));
+    const diskContent = readFileSync(outputPath, 'utf8');
+    assert.equal(diskContent, html);
+
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+});
+
+describe('cases_overview_render: renderCliTable', () => {
+  it('renders formatted terminal summary and case cards', () => {
+    const data = createSampleOverviewData();
+    const output = renderCliTable(data);
+
+    assert.ok(output.includes('QUALCOMM CASES OVERVIEW (2 cases)'));
+    assert.ok(output.includes('[08603854]'));
+    assert.ok(output.includes('[08642051]'));
+    assert.ok(output.includes('Closed-Customer Requested'));
+    assert.ok(output.includes('SM7635'));
+    assert.ok(output.includes('CR3798678 fix delivered'));
+    assert.ok(output.includes('MPSS. DE. Fix delivered to customer repo.'));
+  });
+
+  it('supports filter option in CLI table rendering', () => {
+    const data = createSampleOverviewData();
+    const output = renderCliTable(data, { filter: 'open' });
+
+    assert.ok(output.includes('[08642051]'));
+    assert.ok(!output.includes('[08603854]'));
+  });
+});
+
+describe('cases_overview_render: CLI integration for HTML & dashboard', () => {
+  it('generates dashboard.html on --rebuild or --html', () => {
+    const casesDir = mkdtempSync(join(tmpdir(), 'qc-cli-render-'));
+    const case1Dir = join(casesDir, '08603854');
+    mkdirSync(case1Dir, { recursive: true });
+    writeFileSync(
+      join(case1Dir, 'case.json'),
+      JSON.stringify({
+        caseNumber: '08603854',
+        title: 'Case 1',
+        status: 'Open',
+        comments: [],
+      }),
+      'utf8'
+    );
+
+    const r = spawnSync(
+      process.execPath,
+      [SCRIPT, '--rebuild', `--cases-dir=${casesDir}`],
+      { encoding: 'utf8' }
+    );
+
+    assert.equal(r.status, 0);
+    assert.ok(existsSync(join(casesDir, 'dashboard.html')));
+    assert.ok(existsSync(join(casesDir, '_overview.json')));
+
+    rmSync(casesDir, { recursive: true, force: true });
+  });
+});
