@@ -14,6 +14,9 @@ narrative. Read-only downstream consumer of `qualcomm-case-agent`'s `case.json` 
 **Input contract.** Same as `qualcomm-case-agent`: one Qualcomm case code = exactly 8 digits
 (`CASE-` prefix accepted and stripped).
 
+**References** (`references/`) — load ON DEMAND: `references/workflow.md` (End-to-end flowchart & lifecycle reference).
+
+
 ---
 
 ## Flow — two script steps, you summarize in between
