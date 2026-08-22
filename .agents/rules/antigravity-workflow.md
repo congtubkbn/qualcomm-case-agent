@@ -48,7 +48,7 @@ These rules govern all code modifications, feature designs, and implementations 
   2. **Green**: Write the minimal code required to pass the test. Run tests to confirm it passes.
   3. **Refactor**: Clean up the code. Maintain the "Deep Module" principle.
 - **Run Feedback Loops**: Execute local build, type-checks (`npm run typecheck`), and the test suite. Do not declare a task complete if any feedback loop fails. Fix errors iteratively.
-- **Commit**: Make a clean, atomic git commit for the issue containing both the implementation and the tests.
+- **Commit & Push**: Make a clean, atomic git commit for the issue containing both the implementation and the tests, and **ALWAYS push (`git push`)** to the remote repository whenever committing or merging.
 
 ## 5. GIAI ĐOẠN 5: SMART-ZONE CODE REVIEW & HUMAN QA
 - **Context Clearing for Review**: Review your own code in an isolated session or fresh context window. Do not review code with a bloated history (>100k tokens), as it forces you into the "Dumb Zone."
