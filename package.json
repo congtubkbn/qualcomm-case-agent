@@ -7,7 +7,8 @@
     "case": "node .claude/skills/qualcomm-case-agent/scripts/run_case.mjs",
     "docs": "node tools/gen_design.mjs",
     "docs:check": "node tools/gen_design.mjs --check",
-    "docs:hook": "git config core.hooksPath tools/hooks"
+    "docs:hook": "git config core.hooksPath tools/hooks",
+    "cases:overview": "node tools/cases_overview.mjs"
   },
   "engines": { "node": ">=22.3.0" }
 }
