@@ -46,7 +46,7 @@ export async function prepare(code) {
   const delta = computeDelta(caseJson.comments, prior?.summarizedCommentIds ?? []);
 
   if (delta.length === 0) {
-    return { status: 'no-delta', summary: prior, summaryPath, mdPath };
+    return { status: 'no-delta', summary: prior, summaryPath, mdPath, caseStatus: caseJson.status };
   }
 
   return {

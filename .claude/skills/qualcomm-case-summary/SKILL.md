@@ -32,7 +32,7 @@ Prints one JSON line. Branch on `status`:
 | `status` | Meaning | Your next step |
 |----------|---------|----------------|
 | `needs-summary` | New comments since last run (`deltaComments`, `priorFlow`, `caseStatus`) | Go to Step 2 |
-| `no-delta` | Nothing new; `summary` is the cached result | Report `summary` directly, STOP |
+| `no-delta` | Nothing new; `summary` is the cached result, `caseStatus` is the case's current status (may differ from `summary.status` if it changed with no new comments) | Report `caseStatus` (not `summary.status`) and the rest of `summary` as-is, STOP |
 | `created` / `updated` / `no-update` never appear here — those only gate whether capture succeeded | | |
 | `auth-required` / `not-found` / `blocked` / `busy` / `error` | `qualcomm-case-agent`'s capture didn't succeed cleanly (`capture` holds its verdict) | Surface that verdict's guidance as-is (see `qualcomm-case-agent`'s SKILL.md table). Do not attempt summarization. |
 

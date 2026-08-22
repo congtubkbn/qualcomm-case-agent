@@ -87,6 +87,55 @@ describe('prepare()', () => {
     const result = await prepare('08000011');
     assert.equal(result.status, 'no-delta');
     assert.deepEqual(result.summary, priorSummary);
+    assert.equal(result.deltaComments, undefined);
+  });
+
+  it('no-delta run reports the case\'s current status verbatim, even when stale in the cached summary', async (t) => {
+    mockDeps(t, { status: 'no-update' });
+    writeCaseJson('08000014', {
+      status: 'Closed',
+      comments: [{ id: 'c1', timestamp: 't1', author: 'A', body: 'first' }],
+    });
+    writeSummaryJson('08000014', {
+      caseNumber: '08000014',
+      status: 'Pending Qualcomm',
+      summarizedCommentIds: ['c1'],
+      comments: [{ id: 'c1', issue: 'x', nextAction: 'wait' }],
+      flow: 'Nothing new yet.',
+      lastSummarizedAt: '2026-08-20T00:00:00.000Z',
+    });
+
+    const { prepare } = await importOrchestrator();
+    const result = await prepare('08000014');
+    assert.equal(result.status, 'no-delta');
+    assert.equal(result.caseStatus, 'Closed');
+    assert.equal(result.summary.status, 'Pending Qualcomm');
+  });
+
+  it('no-delta run does not rewrite summary.json/summary.md on disk', async (t) => {
+    mockDeps(t, { status: 'no-update' });
+    writeCaseJson('08000015', {
+      status: 'Closed',
+      comments: [{ id: 'c1', timestamp: 't1', author: 'A', body: 'first' }],
+    });
+    writeSummaryJson('08000015', {
+      caseNumber: '08000015',
+      status: 'Pending Qualcomm',
+      summarizedCommentIds: ['c1'],
+      comments: [{ id: 'c1', issue: 'x', nextAction: 'wait' }],
+      flow: 'Nothing new yet.',
+      lastSummarizedAt: '2026-08-20T00:00:00.000Z',
+    });
+    const mdPath = join(caseDir('08000015'), 'summary.md');
+    writeFileSync(mdPath, 'ORIGINAL MD CONTENT');
+    const jsonPath = join(caseDir('08000015'), 'summary.json');
+    const jsonBefore = readFileSync(jsonPath, 'utf8');
+
+    const { prepare } = await importOrchestrator();
+    await prepare('08000015');
+
+    assert.equal(readFileSync(jsonPath, 'utf8'), jsonBefore);
+    assert.equal(readFileSync(mdPath, 'utf8'), 'ORIGINAL MD CONTENT');
   });
 
   it('update run: delta is only the new comment ids, prior summaries untouched in the input', async (t) => {
