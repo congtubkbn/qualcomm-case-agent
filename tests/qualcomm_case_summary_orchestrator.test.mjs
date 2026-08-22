@@ -184,6 +184,7 @@ describe('prepare()', () => {
       const result = await prepare('08000099');
       assert.equal(result.status, status);
       assert.equal(result.capture.reason, `synthetic ${status}`);
+      assert.equal(result.deltaComments, undefined);
     });
   }
 });
