@@ -251,5 +251,59 @@ describe('tools/migrate_case.mjs - Integration tests (Slice 2)', () => {
     assert.equal(migrated.comments[0].role, 'Qualcomm');
     assert.equal(migrated.comments[0].summary, 'Test comment');
   });
+
+  it('migrates legacy case with description into Comment #1 in case.json and case.md', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'qc-mig-desc-'));
+    const caseDir = join(dir, '08777777');
+    mkdirSync(caseDir, { recursive: true });
+
+    const legacyCase = {
+      caseNumber: '08777777',
+      title: 'Legacy VoNR Drop Issue',
+      customer: 'Alpha Mobile',
+      created: 'August 1, 2026 at 10:00 AM',
+      description: 'Call drops consistently on band n78 after handover.',
+      comments: [
+        {
+          id: 'c1',
+          author: 'Qualcomm Engineer',
+          role: 'Qualcomm',
+          timestamp: 'August 2, 2026 at 2:00 PM',
+          body: 'Dear customer,\nPlease provide modem QXDM logs.',
+        },
+      ],
+    };
+
+    const jsonPath = join(caseDir, 'case.json');
+    writeFileSync(jsonPath, JSON.stringify(legacyCase, null, 2), 'utf8');
+
+    const res = migrateCaseJson(jsonPath);
+    assert.equal(res.ok, true);
+    assert.equal(res.commentCount, 2);
+
+    const updated = JSON.parse(readFileSync(jsonPath, 'utf8'));
+    assert.equal(updated.comments.length, 2);
+    // Comment 0 should be the injected description comment
+    assert.equal(updated.comments[0].author, 'Alpha Mobile');
+    assert.equal(updated.comments[0].timestamp, 'August 1, 2026 at 10:00 AM');
+    assert.equal(updated.comments[0].body, 'Call drops consistently on band n78 after handover.');
+    assert.equal(updated.comments[0].summary, 'Call drops consistently on band n78 after handover.');
+    assert.equal(updated.comments[0].role, 'Customer');
+    assert.deepEqual(updated.comments[0].attachments, []);
+
+    // Comment 1 should be the Qualcomm response
+    assert.equal(updated.comments[1].author, 'Qualcomm Engineer');
+
+    // case.md should be rendered with Comment #1 and without standalone ## Description
+    const md = readFileSync(join(caseDir, 'case.md'), 'utf8');
+    assert.doesNotMatch(md, /^## Description$/m);
+    assert.match(md, /### 1\. August 1, 2026 at 10:00 AM · Alpha Mobile/);
+    assert.match(md, /### 2\. August 2, 2026 at 2:00 PM · Qualcomm Engineer/);
+
+    // Idempotency: re-migrating should not add duplicates
+    const res2 = migrateCaseJson(jsonPath);
+    assert.equal(res2.commentCount, 2);
+    assert.equal(res2.hash, res.hash);
+  });
 });
 

@@ -23,9 +23,9 @@ Update `tools/migrate_case.mjs` and the test suite:
 
 ## Acceptance criteria
 
-- [ ] `migrateCase()` upgrades legacy `case.json` files correctly.
-- [ ] Unit and integration tests in `tests/description_first_comment.test.mjs` pass 100%.
-- [ ] All existing repository tests (`npm test`) remain green.
+- [x] `migrateCase()` upgrades legacy `case.json` files correctly.
+- [x] Unit and integration tests in `tests/description_first_comment.test.mjs` pass 100%.
+- [x] All existing repository tests (`npm test`) remain green.
 
 ## Blocked by
 

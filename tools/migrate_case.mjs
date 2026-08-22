@@ -16,13 +16,16 @@ import {
   classifyRole,
   isBlacklistedTs,
   extractSummary,
+  synthesizeDescriptionComment,
+  hasDescriptionComment,
+  assignIds,
 } from '../.claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const RENDER_SCRIPT = join(__dirname, '../.claude/skills/qualcomm-case-agent/scripts/render_case.mjs');
 const DATA_CASES_DIR = join(__dirname, '../data/cases');
 
-export { classifyRole, isBlacklistedTs, extractSummary };
+export { classifyRole, isBlacklistedTs, extractSummary, synthesizeDescriptionComment, hasDescriptionComment };
 
 export function sanitizeComment(comment) {
   if (!comment || typeof comment !== 'object') return comment;
@@ -50,7 +53,24 @@ export function sanitizeComment(comment) {
 export function migrateCaseData(caseData) {
   if (!caseData || typeof caseData !== 'object') return caseData;
 
-  let comments = Array.isArray(caseData.comments) ? caseData.comments : [];
+  let comments = Array.isArray(caseData.comments) ? [...caseData.comments] : [];
+
+  // Check and inject description comment if non-empty and missing from comments
+  const desc = typeof caseData.description === 'string' ? caseData.description.trim() : '';
+  if (desc && !hasDescriptionComment(comments, desc)) {
+    const descComment = synthesizeDescriptionComment({
+      description: caseData.description,
+      customer: caseData.customer,
+      created: caseData.created,
+    });
+    if (descComment) {
+      comments.push(descComment);
+    }
+  }
+
+  // Ensure content-derived IDs are assigned
+  const { comments: idComments } = assignIds(comments);
+  comments = idComments;
 
   // 1. Detect legacy corrupted head where empty-timestamp comments were dumped at index 0..k-1
   // while the rest of the array (k..n-1) is in increasing chronological order.
@@ -142,6 +162,8 @@ export function migrateCaseJson(jsonPath, options = {}) {
 
   return { ok: true, jsonPath, caseNumber: caseCode, commentCount: updatedCase.comments.length, hash: updatedCase.hash };
 }
+
+export const migrateCase = migrateCaseJson;
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const arg = process.argv[2];
