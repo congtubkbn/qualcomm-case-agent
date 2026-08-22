@@ -31,18 +31,19 @@ so it travels with the repo. One case per run.
 
 ```bash
 npm run case -- 08603854          # capture one case
+npm run cases:overview            # terminal summary table of all cases
+npm run cases:dashboard           # open interactive HTML dashboard in browser
 npm test                          # unit tests
 ```
 
 ## Agents (Claude Code + Cline / VS Code)
 
-The skill is **harness-agnostic** — it drives `node` and the `agent-browser` CLI through a
-terminal, so it runs under any agent that can run commands and edit files:
+The skills are **harness-agnostic** — they drive `node` through a terminal, so they run under any agent that can run commands and edit files:
 
-- **Claude Code** — discovers `.claude/skills/qualcomm-case-agent/` (project skill).
+- **Claude Code** — discovers `.claude/skills/` (`qualcomm-case-agent`, `qualcomm-case-summary`, `qualcomm-case-overview`).
 - **Cline (VS Code)** — reads `.clinerules/qualcomm-case-agent.md`; the capture is a single
   `execute_command`. Do not use Cline's built-in `browser_action`.
-- **Other agents** — point them at the same SKILL.md; every step is a plain terminal command.
+- **Other agents** — point them at the respective `SKILL.md`; every step is a plain terminal command.
 
 ## Login / MFA
 
@@ -61,7 +62,10 @@ terminal, so it runs under any agent that can run commands and edit files:
 data/chrome-profile/            # persistent Chrome --user-data-dir (real Chrome via CDP)
 data/cases/<CODE>/case.json     # complete per-case data (source of truth, machine-readable)
 data/cases/<CODE>/case.md       # full readable snapshot (every comment verbatim)
+data/cases/<CODE>/summary.json  # per-comment technical digest + flow narrative
 data/cases/_index.json          # <CODE> -> { syncedAt, commentCount, hash } for incremental sync
+data/cases/_overview.json       # fast aggregated multi-case overview cache
+data/cases/dashboard.html       # standalone, offline interactive HTML dashboard
 ```
 
 All of `data/` is git-ignored — case content is Qualcomm NDA material, kept local only.

@@ -1,3 +1,4 @@
+// Aggregation engine, CLI summary table, and offline HTML dashboard for Qualcomm cases.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -294,6 +295,10 @@ export function updateCaseOverview(caseNumber, casesDir = DEFAULT_CASES_DIR) {
   });
 
   overviewData.stats = computeStats(overviewData.cases);
+
+  if (!existsSync(casesDir)) {
+    mkdirSync(casesDir, { recursive: true });
+  }
 
   // Atomic write to _overview.json
   const tempPath = join(casesDir, `_overview.json.tmp.${process.pid}.${Date.now()}`);

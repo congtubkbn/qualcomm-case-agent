@@ -37,6 +37,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
+import { updateCaseOverview } from '../../../../tools/cases_overview.mjs';
 
 // ---- Exit codes (exported so tests can import) ----
 export const EXIT = {
@@ -721,6 +722,13 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
     hash: out.hash,
   };
   writeFileSync(INDEX_PATH, JSON.stringify(index, null, 2), 'utf8');
+
+  // Auto-sync cases overview and dashboard
+  try {
+    updateCaseOverview(caseCode, DATA_DIR);
+  } catch (e) {
+    process.stderr.write(`Warning: overview auto-sync failed (${e.message})\n`);
+  }
 
   // Verdict fields the agent branches on. Emitted whenever a cached case existed,
   // including a FULL re-capture of one — the agent sees exactly which comments

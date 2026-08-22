@@ -22,6 +22,7 @@ import { captureCase } from './deps.mjs';
 import { computeDelta } from './delta.mjs';
 import { mergeSummary } from './merge.mjs';
 import { renderSummaryMd } from './render_summary.mjs';
+import { updateCaseOverview } from '../../../../tools/cases_overview.mjs';
 
 const CAPTURE_OK = new Set(['created', 'updated', 'no-update']);
 
@@ -76,6 +77,11 @@ export function finalize(code, { comments: newComments, flow, executive }) {
   });
   writeFileSync(summaryPath, JSON.stringify(merged, null, 2));
   writeFileSync(mdPath, renderSummaryMd(merged));
+  try {
+    updateCaseOverview(code, DATA_DIR);
+  } catch (e) {
+    process.stderr.write(`Warning: overview auto-sync failed (${e.message})\n`);
+  }
   return { status: 'summarized', summaryPath, mdPath, newCount: newComments.length };
 }
 
