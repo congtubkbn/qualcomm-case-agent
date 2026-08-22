@@ -59,7 +59,19 @@ only have `kind` and `nextAction`, or none of the six. `summary` replaces the ol
 `priorFlow` as context, write an updated one-paragraph (or short multi-paragraph) `flow` narrative —
 update it, don't regenerate it from scratch.
 
-Write both into a JSON file (e.g. a scratch/temp path) shaped `{ "comments": [...], "flow": "..." }`.
+Optionally, also produce an `executive` object — a 3-4 line standup snapshot, useful once the case
+has enough history to answer these questions:
+```json
+{ "ballInCourt": "<one of: qualcomm | customer | closed | unassigned>",
+  "blockerOrNextMilestone": "<string — the immediate next blocker or milestone>",
+  "rootCause": "<optional string — once identified>",
+  "resolution": "<optional string — fix CRs, workaround, NV settings, once resolved>" }
+```
+Update it, don't regenerate from scratch, using the case's history as context — same spirit as
+`flow`. Omit it entirely on early-case runs where there's nothing yet to report.
+
+Write both into a JSON file (e.g. a scratch/temp path) shaped
+`{ "comments": [...], "flow": "...", "executive": {...} }` (`executive` optional).
 
 **Step 3 — finalize:**
 ```bash
@@ -74,6 +86,10 @@ Merges your batch into `summary.json` (preserving prior summaries untouched) and
 
 `data/cases/<CODE>/summary.json` (structured, owned exclusively by this skill) and
 `data/cases/<CODE>/summary.md` (human-readable, newest-first). Never written on a `no-delta` run.
+`finalize` carries `title`/`url`/`priority`/`product` through from `case.json` automatically (no
+agent action needed) into a header block at the top of `summary.md`; a blank scraped field falls
+back to the last known value instead of blanking it out. The optional `executive` block, when
+present, renders as its own `## Executive Summary` section above `## Case Flow`.
 
 ## Reporting
 

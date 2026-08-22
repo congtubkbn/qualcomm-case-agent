@@ -59,15 +59,20 @@ export async function prepare(code) {
   };
 }
 
-export function finalize(code, { comments: newComments, flow }) {
+export function finalize(code, { comments: newComments, flow, executive }) {
   const { casePath, summaryPath, mdPath } = paths(code);
   const caseJson = readJson(casePath);
   const prior = readJson(summaryPath);
   const merged = mergeSummary(prior, {
     caseNumber: caseJson.caseNumber,
+    title: caseJson.title,
+    url: caseJson.url,
+    priority: caseJson.priority,
+    product: caseJson.product,
     status: caseJson.status,
     newComments,
     flow,
+    executive,
   });
   writeFileSync(summaryPath, JSON.stringify(merged, null, 2));
   writeFileSync(mdPath, renderSummaryMd(merged));

@@ -42,7 +42,7 @@ flowchart TD
     WRITE_TEMP --> STEP3["Step 3 (CLI): run_summary.mjs finalize &lt;CODE&gt; --input &lt;temp.json&gt;"]
     
     subgraph S3_FINALIZER ["Step 3 Finalizer (Deterministic)"]
-        STEP3 --> MERGE["merge.mjs: mergeSummary()<br/>Preserve prior summaries + append new batch + update flow & status"]
+        STEP3 --> MERGE["merge.mjs: mergeSummary()<br/>Preserve prior summaries + append new batch + update flow, status, metadata & executive"]
         MERGE --> W_JSON["Write: data/cases/&lt;CODE&gt;/summary.json"]
         W_JSON --> RENDER["render_summary.mjs: renderSummaryMd()<br/>Format newest-first presentation"]
         RENDER --> W_MD["Write: data/cases/&lt;CODE&gt;/summary.md"]
@@ -72,12 +72,14 @@ flowchart TD
 - Run within the active agent session for the `deltaComments` batch in one pass:
   - Produces per-comment digest: `id`, `timestamp`, `author`, `issue` (optional), `status` (optional), `nextAction` (optional).
   - Updates the `flow` narrative incrementally using `priorFlow` as context.
-- Saves payload `{ comments: [...], flow: "..." }` into a temporary JSON file (e.g. `temp/summary_<CODE>.json`).
+  - Optionally produces an `executive` object (`ballInCourt`, `blockerOrNextMilestone`, `rootCause`, `resolution`) — a standup-ready snapshot, updated incrementally like `flow`.
+- Saves payload `{ comments: [...], flow: "...", executive: {...} }` into a temporary JSON file (e.g. `temp/summary_<CODE>.json`); `executive` is optional.
 
 ### Step 3: Finalize (`run_summary.mjs finalize <CODE> --input <temp.json>`)
 - Pure merge via `mergeSummary()`: Preserves previous comment summaries untouched, appends new ones in canonical order, updates `flow`, `status`, and `lastSummarizedAt`.
+- Also carries `title`/`url`/`priority`/`product` through from `case.json` (no agent involvement — read directly by the orchestrator) and updates `executive` when the Step 2 payload includes one; a field missing from either source falls back to the prior merged value.
 - Persists structured `summary.json`.
-- Renders human-readable `summary.md` in **Newest-First** order.
+- Renders human-readable `summary.md` in **Newest-First** order, with a case metadata header and optional `## Executive Summary` section above `## Case Flow`.
 
 ### Step 4: User Reporting
 - Outputs:
