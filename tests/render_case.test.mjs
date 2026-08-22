@@ -69,8 +69,6 @@ describe('render_case: case.md content structure', () => {
       comments: [
         comment('Alice', 'Initial case filing with issue description.', {
           id: 'c1',
-          role: 'Customer',
-          company: 'OEM-Alpha',
           timestamp: '2026-08-18T08:30:00.000Z',
           summary: 'Initial case filing with issue description.',
           attachments: [
@@ -79,8 +77,6 @@ describe('render_case: case.md content structure', () => {
         }),
         comment('Qualcomm Support', 'Dear customer,\nPlease provide QXDM log with 0xB0C0 message mask.', {
           id: 'c2',
-          role: 'Qualcomm',
-          company: 'Qualcomm Inc.',
           timestamp: '2026-08-19T10:15:00.000Z',
           summary: 'Please provide QXDM log with 0xB0C0 message mask.',
           attachments: [
@@ -114,11 +110,11 @@ describe('render_case: case.md content structure', () => {
 
     // 3. Chronological timeline of comments
     assert.match(md, /## Chronological Timeline of Comments/);
-    assert.match(md, /### 1\. 2026-08-18T08:30:00\.000Z · OEM-Alpha · Alice \(Customer\)/);
+    assert.match(md, /### 1\. 2026-08-18T08:30:00\.000Z · Alice/);
     assert.match(md, /Initial case filing with issue description\./);
     assert.match(md, /\*\*Attachments:\*\* \[modem_boot\.pcap\]\(https:\/\/support\.qualcomm\.com\/f\/pcap123\)/);
 
-    assert.match(md, /### 2\. 2026-08-19T10:15:00\.000Z · Qualcomm Inc\. · Qualcomm Support \(Qualcomm\)/);
+    assert.match(md, /### 2\. 2026-08-19T10:15:00\.000Z · Qualcomm Support/);
     assert.match(md, /> \*\*Summary:\*\* Please provide QXDM log with 0xB0C0 message mask\./);
     assert.match(md, /Please provide QXDM log with 0xB0C0 message mask\./);
     assert.match(md, /\*\*Attachments:\*\* \[mask_config\.cfg\]\(https:\/\/support\.qualcomm\.com\/f\/cfg123\), \[readme\.txt\]\(https:\/\/support\.qualcomm\.com\/f\/txt123\)/);

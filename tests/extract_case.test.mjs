@@ -132,6 +132,19 @@ function createMockElement(tag, attrs = {}, text = '') {
       child.parentElement = this;
       children.push(child);
       return child;
+    },
+    getBoundingClientRect() {
+      const rect = {
+        top: this._displayPosition || 0,
+        left: 0,
+        right: 100,
+        bottom: (this._displayPosition || 0) + 50,
+        width: 100,
+        height: 50,
+        x: 0,
+        y: this._displayPosition || 0,
+      };
+      return rect;
     }
   };
   return elem;
@@ -184,7 +197,7 @@ function runInMockContext(scriptText, { doc, locationHref = 'https://support.qua
 }
 
 test('extract_case.js DOM extraction engine', async (t) => {
-  await t.test('extracts metadata, clean comments with roles and attachments from mock Lightning DOM', () => {
+  await t.test('extracts metadata, clean comments with attachments from mock Lightning DOM', () => {
     const doc = createMockDocument();
     doc.title = 'Case: 08603854 - QXDM log analysis for NR SA';
 
@@ -260,22 +273,42 @@ test('extract_case.js DOM extraction engine', async (t) => {
     assert.equal(result.displayedCommentCount, 2);
     assert.equal(result.comments.length, 2);
 
-    // Assert Comment 1 (Customer, mojibake cleaned, attachment extracted)
+    // Assert Comment 1 (mojibake cleaned, attachment extracted)
     const c1 = result.comments[0];
     assert.equal(c1.author, 'Nguyen Van A');
-    assert.equal(c1.role, 'Customer');
     assert.equal(c1.body.includes('â”¬Ã¡'), false);
     assert.equal(c1.body.includes('Tôi gửi kèm file log'), true);
     assert.equal(c1.attachments.length, 1);
     assert.equal(c1.attachments[0].name, 'log_01.qxdm');
     assert.equal(c1.attachments[0].url, 'https://support.qualcomm.com/download/log_01.qxdm');
 
-    // Assert Comment 2 (Qualcomm engineer role categorized)
+    // Assert Comment 2
     const c2 = result.comments[1];
     assert.equal(c2.author, 'John Doe (Qualcomm)');
-    assert.equal(c2.role, 'Qualcomm');
     assert.equal(c2.attachments.length, 1);
     assert.equal(c2.attachments[0].name, 'patch_sdx75.diff');
+  });
+
+  await t.test('extracted comment object has exactly the trimmed field set (no role/company)', () => {
+    const doc = createMockDocument();
+    doc.title = 'Case: 08603854 - QXDM log analysis for NR SA';
+
+    const article1 = createMockElement('article', { id: 'c_post_1' });
+    const a1Author = createMockElement('a', {}, 'Nguyen Van A');
+    const a1Timestamp = createMockElement('a', {}, '2 days ago');
+    article1.appendChild(a1Author);
+    article1.appendChild(a1Timestamp);
+    const a1Body = createMockElement('div', { className: 'feedBodyInner' }, 'Body text here.');
+    article1.appendChild(a1Body);
+    doc.body.appendChild(article1);
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+
+    assert.equal(result.comments.length, 1);
+    assert.deepEqual(
+      Object.keys(result.comments[0]).sort(),
+      ['attachments', 'author', 'body', 'displayPosition', 'id', 'summary', 'timestamp'].sort()
+    );
   });
 
   await t.test('handles System bot author and fallbacks for missing fields', () => {
@@ -298,7 +331,6 @@ test('extract_case.js DOM extraction engine', async (t) => {
 
     assert.equal(result.caseNumber, '08603854');
     assert.equal(result.comments.length, 1);
-    assert.equal(result.comments[0].role, 'System');
     assert.equal(result.comments[0].body, 'Case severity escalated to Level 1.');
     assert.equal(result.title, '');
   });
@@ -330,9 +362,7 @@ test('extract_case.js DOM extraction engine', async (t) => {
 
     assert.equal(result.comments.length, 2);
     assert.equal(result.comments[0].timestamp, 'August 21, 2026 at 4:00 PM');
-    assert.equal(result.comments[0].role, 'Qualcomm');
     assert.equal(result.comments[1].timestamp, '3 hours ago');
-    assert.equal(result.comments[1].role, 'Customer');
   });
 
   await t.test('extracts timestamps from title attributes, uiOutputDateTime, and relative text patterns', () => {
@@ -372,56 +402,8 @@ test('extract_case.js DOM extraction engine', async (t) => {
 
     assert.equal(result.comments.length, 3);
     assert.equal(result.comments[0].timestamp, '2026-08-20T10:15:00Z');
-    assert.equal(result.comments[0].role, 'Qualcomm');
     assert.equal(result.comments[1].timestamp, 'Yesterday at 5:20 PM');
-    assert.equal(result.comments[1].role, 'Customer');
     assert.equal(result.comments[2].timestamp, '45 minutes ago');
-  });
-
-  await t.test('classifies roles accurately with company variations, email domains, badges, signatures, and greetings', () => {
-    const doc = createMockDocument();
-
-    // 1. Qualcomm engineer via company "Qualcomm Technologies, Inc."
-    const art1 = createMockElement('article', { id: 'role_comp' });
-    const a1 = createMockElement('a', {}, 'Sarah Jenkins');
-    const comp1 = createMockElement('span', { className: 'company' }, 'Qualcomm Technologies, Inc.');
-    const body1 = createMockElement('div', { className: 'feedBodyInner' }, 'The PHY layer configuration is updated.');
-    art1.appendChild(a1);
-    art1.appendChild(comp1);
-    art1.appendChild(body1);
-    doc.body.appendChild(art1);
-
-    // 2. Qualcomm engineer via badge or author bracket "[QCOM]"
-    const art2 = createMockElement('article', { id: 'role_badge' });
-    const a2 = createMockElement('a', {}, 'David Kim [QCOM]');
-    const body2 = createMockElement('div', { className: 'feedBodyInner' }, 'Fix will be in standard release.');
-    art2.appendChild(a2);
-    art2.appendChild(body2);
-    doc.body.appendChild(art2);
-
-    // 3. Qualcomm engineer via email signature in body
-    const art3 = createMockElement('article', { id: 'role_sig' });
-    const a3 = createMockElement('a', {}, 'Alex Turner');
-    const body3 = createMockElement('div', { className: 'feedBodyInner' }, 'We analyzed the case.\n\nBest regards,\nQualcomm Case Team');
-    art3.appendChild(a3);
-    art3.appendChild(body3);
-    doc.body.appendChild(art3);
-
-    // 4. Customer asking question to Qualcomm team
-    const art4 = createMockElement('article', { id: 'role_cust' });
-    const a4 = createMockElement('a', {}, 'OEM Engineer');
-    const body4 = createMockElement('div', { className: 'feedBodyInner' }, 'Dear QCOM team, any update on this issue?');
-    art4.appendChild(a4);
-    art4.appendChild(body4);
-    doc.body.appendChild(art4);
-
-    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
-
-    assert.equal(result.comments.length, 4);
-    assert.equal(result.comments[0].role, 'Qualcomm');
-    assert.equal(result.comments[1].role, 'Qualcomm');
-    assert.equal(result.comments[2].role, 'Qualcomm');
-    assert.equal(result.comments[3].role, 'Customer');
   });
 
   await t.test('filters out garbage timestamp text (tooltips/aria) and removes analysisLog field', () => {
@@ -488,6 +470,47 @@ test('extract_case.js DOM extraction engine', async (t) => {
     assert.equal(result.comments[1].summary, 'Device cannot attach to 5G SA network. Please analyze attached QXDM trace.');
     assert.equal(result.comments[2].summary, 'Root cause identified as RRC reject on n78.');
   });
+
+  // Issue #42: two comments whose parsed timestamps tie (e.g. both "15 days
+  // ago") need a secondary ordering signal, since NodeList/extraction order
+  // can diverge from true on-page visual order. displayPosition (this article's
+  // getBoundingClientRect().top) is that signal — captured per comment here,
+  // independent of extraction order, regardless of what the tied timestamp text is.
+  await t.test('captures displayPosition per comment for later tie-break use', () => {
+    const doc = createMockDocument();
+    doc.title = 'Case: 00000001 - Synthetic tie-break fixture';
+
+    const art1 = createMockElement('article', { id: 'reply_a' });
+    art1._displayPosition = 100; // higher on page
+    const a1 = createMockElement('a', {}, 'Engineer A');
+    const ts1 = createMockElement('span', { className: 'cuf-timestamp' }, '15 days ago');
+    const body1 = createMockElement('div', { className: 'feedBodyInner' }, 'First reply body text.');
+    art1.appendChild(a1);
+    art1.appendChild(ts1);
+    art1.appendChild(body1);
+    doc.body.appendChild(art1);
+
+    const art2 = createMockElement('article', { id: 'reply_b' });
+    art2._displayPosition = 250; // lower on page
+    const a2 = createMockElement('a', {}, 'Engineer B');
+    const ts2 = createMockElement('span', { className: 'cuf-timestamp' }, '15 days ago');
+    const body2 = createMockElement('div', { className: 'feedBodyInner' }, 'Second reply body text.');
+    art2.appendChild(a2);
+    art2.appendChild(ts2);
+    art2.appendChild(body2);
+    doc.body.appendChild(art2);
+
+    const result = runInMockContext(EXTRACT_SCRIPT, {
+      doc,
+      locationHref: 'https://support.qualcomm.com/s/case/000000000000000AAA/00000001',
+    });
+
+    assert.equal(result.comments.length, 2);
+    assert.equal(result.comments[0].timestamp, '15 days ago');
+    assert.equal(result.comments[1].timestamp, '15 days ago');
+    assert.equal(result.comments[0].displayPosition, 100);
+    assert.equal(result.comments[1].displayPosition, 250);
+  });
 });
 
 test('expand_step.js DOM expansion engine', async (t) => {
@@ -522,7 +545,7 @@ test('expand_step.js DOM expansion engine', async (t) => {
 
   await t.test('clicks pending Expand Post and More comments in standard execution', () => {
     const doc = createMockDocument();
-    
+
     const art = createMockElement('article', { id: 'art_1' });
     const authorA = createMockElement('a', {}, 'Engineer');
     const expandBtn = createMockElement('button', {}, 'Expand Post');
@@ -547,4 +570,5 @@ test('expand_step.js DOM expansion engine', async (t) => {
     assert.equal(expandClicked, true);
     assert.equal(moreCommentsClicked, true);
   });
+
 });

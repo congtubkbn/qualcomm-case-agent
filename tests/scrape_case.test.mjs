@@ -52,6 +52,38 @@ describe('computeHash', () => {
   });
 });
 
+describe('sortCommentsChronological', () => {
+  // Regression case: two comments both parse to the same relative timestamp
+  // ("15 days ago"). The portal's true visual order can diverge from raw
+  // extraction/NodeList order — displayPosition (a getBoundingClientRect().top
+  // -style page-order signal) must decide the tie, not originalIndex.
+  it('breaks a timestamp tie using displayPosition when originalIndex disagrees', () => {
+    const higher = { author: 'Engineer A', body: 'First reply body text.', timestamp: '15 days ago', displayPosition: 100 };
+    const lower = { author: 'Engineer B', body: 'Second reply body text.', timestamp: '15 days ago', displayPosition: 250 };
+    // originalIndex order is deliberately the OPPOSITE of true page order.
+    const result = m.sortCommentsChronological([lower, higher]);
+    assert.deepEqual(result.map(c => c.body), [higher.body, lower.body]);
+  });
+
+  it('falls back to originalIndex when displayPosition is unavailable', () => {
+    const a = { author: 'A', body: 'first', timestamp: '3 days ago' };
+    const b = { author: 'B', body: 'second', timestamp: '3 days ago' };
+    const result = m.sortCommentsChronological([a, b]);
+    assert.deepEqual(result.map(c => c.body), ['first', 'second']);
+  });
+
+  // Persisted (cached) comments never carry displayPosition (scrape_case.mjs's
+  // finalize strips it — it's meaningless across page loads); only a
+  // same-pass fresh extraction has it. A tie between one of each must not
+  // compare incommensurable positions — fall back to originalIndex.
+  it('falls back to originalIndex on a tie between a cached comment (no displayPosition) and a fresh one', () => {
+    const cached = { author: 'Cached', body: 'old', timestamp: '3 days ago' };
+    const fresh = { author: 'Fresh', body: 'new', timestamp: '3 days ago', displayPosition: 50 };
+    const result = m.sortCommentsChronological([cached, fresh]);
+    assert.deepEqual(result.map(c => c.body), ['old', 'new']);
+  });
+});
+
 describe('findCollapsed', () => {
   it('flags a NEW comment still carrying the "Expand Post" control label', () => {
     const fresh = m.assignIds([comment('Alice', 'long body...\n\nExpand Post')]).comments;
@@ -367,7 +399,7 @@ describe('finalize (child process)', () => {
     const cached = JSON.parse(readFileSync(casePath(root), 'utf8'));
     const alice = cached.comments.find(c => c.author === 'Alice');
     alice.analysisLog = ['QXDM debug trace 0xB0C0', 'Packet capture attached'];
-    alice.role = 'Customer';
+    alice.reviewedBy = 'triage-bot';
     writeFileSync(casePath(root), JSON.stringify(cached, null, 2), 'utf8');
 
     // 1. Run update (--merge) with a new comment
@@ -381,7 +413,7 @@ describe('finalize (child process)', () => {
     const saved1 = JSON.parse(readFileSync(casePath(root), 'utf8'));
     const aliceComment1 = saved1.comments.find(c => c.author === 'Alice');
     assert.deepEqual(aliceComment1.analysisLog, ['QXDM debug trace 0xB0C0', 'Packet capture attached']);
-    assert.equal(aliceComment1.role, 'Customer');
+    assert.equal(aliceComment1.reviewedBy, 'triage-bot');
 
     // 2. Run full re-capture (no --merge) with all comments
     const fullReCapture = {
@@ -394,7 +426,63 @@ describe('finalize (child process)', () => {
     const saved2 = JSON.parse(readFileSync(casePath(root), 'utf8'));
     const aliceComment2 = saved2.comments.find(c => c.author === 'Alice');
     assert.deepEqual(aliceComment2.analysisLog, ['QXDM debug trace 0xB0C0', 'Packet capture attached']);
-    assert.equal(aliceComment2.role, 'Customer');
+    assert.equal(aliceComment2.reviewedBy, 'triage-bot');
+  });
+
+  it('strips role/company from every comment, even when the cache still carries them', () => {
+    const root = fixture();
+    runFinalize(root, RAW);
+
+    const cached = JSON.parse(readFileSync(casePath(root), 'utf8'));
+    cached.comments = cached.comments.map(c => ({ ...c, role: 'Customer', company: 'Acme Corp' }));
+    writeFileSync(casePath(root), JSON.stringify(cached, null, 2), 'utf8');
+
+    // Full re-capture
+    const r1 = runFinalize(root, RAW);
+    assert.equal(r1.exit, m.EXIT.OK);
+    const saved1 = JSON.parse(readFileSync(casePath(root), 'utf8'));
+    for (const c of saved1.comments) {
+      assert.equal('role' in c, false);
+      assert.equal('company' in c, false);
+    }
+
+    // Re-poison the cache, then run --merge with a new comment
+    const poisoned = JSON.parse(readFileSync(casePath(root), 'utf8'));
+    poisoned.comments = poisoned.comments.map(c => ({ ...c, role: 'Customer', company: 'Acme Corp' }));
+    writeFileSync(casePath(root), JSON.stringify(poisoned, null, 2), 'utf8');
+
+    const partial = {
+      ...RAW, displayedCommentCount: 3,
+      comments: [comment('Carol', 'log attached', { timestamp: '1 hour ago' }), comment('Alice', 'RRC reject on n78', { timestamp: '2 days ago' })],
+    };
+    const r2 = runFinalize(root, partial, ['--merge']);
+    assert.equal(r2.exit, m.EXIT.OK);
+    const saved2 = JSON.parse(readFileSync(casePath(root), 'utf8'));
+    for (const c of saved2.comments) {
+      assert.equal('role' in c, false);
+      assert.equal('company' in c, false);
+    }
+  });
+
+  // Issue #42/#43: displayPosition is a within-run sort input (a
+  // getBoundingClientRect().top value from ONE extraction pass), not durable
+  // case content — it must never reach the persisted case.json, or a later
+  // run's tie-break would compare positions measured on different pages.
+  it('never persists displayPosition — it is a within-run sort input, not content', () => {
+    const root = fixture();
+    const raw = {
+      ...RAW,
+      comments: [
+        comment('Alice', 'RRC reject on n78', { timestamp: '2 days ago', displayPosition: 100 }),
+        comment('Bob', 'Initial report', { timestamp: '5 days ago', displayPosition: 250 }),
+      ],
+    };
+    const { exit } = runFinalize(root, raw);
+    assert.equal(exit, m.EXIT.OK);
+    const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
+    for (const c of saved.comments) {
+      assert.equal('displayPosition' in c, false);
+    }
   });
 
   it('reports no change when an update run re-saw the same feed', () => {

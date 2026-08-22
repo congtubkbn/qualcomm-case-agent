@@ -449,6 +449,15 @@ export function sortCommentsChronological(comments, referenceDate = new Date()) 
     if (a.effectiveTime !== b.effectiveTime) {
       return a.effectiveTime - b.effectiveTime;
     }
+    // Tied timestamp (e.g. both "15 days ago"): prefer displayPosition, the
+    // article's on-page vertical offset captured independently of extraction
+    // order (extract_case.js). originalIndex is only a fallback for comments
+    // that never got a displayPosition (e.g. legacy cached data).
+    const aPos = a.c.displayPosition;
+    const bPos = b.c.displayPosition;
+    if (typeof aPos === 'number' && typeof bPos === 'number' && aPos !== bPos) {
+      return aPos - bPos;
+    }
     return a.originalIndex - b.originalIndex;
   });
 
@@ -628,6 +637,16 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
   // Soft signal for the remaining header fields — sometimes legitimately empty
   // (old/closed/draft cases), so warn but do NOT block.
   const thinHeader = ['status', 'priority', 'customer'].filter(k => !String(out[k] || '').trim());
+
+  // Comments must never carry role/company — scrub them here so an --merge or
+  // full re-capture of a case cached before this field was dropped gets
+  // cleaned on its next capture, with no separate migration pass.
+  // displayPosition is also scrubbed: it's a getBoundingClientRect().top value
+  // from ONE extraction pass (sortCommentsChronological's tie-break signal,
+  // already consumed by mergeComments above), not durable content — persisting
+  // it would let a future run's tie-break compare positions measured on two
+  // different page loads, which is meaningless.
+  out.comments = out.comments.map(({ role, company, displayPosition, ...rest }) => rest);
 
   // Stamp identity + write canonical JSON.
   out.hash = computeHash(out);

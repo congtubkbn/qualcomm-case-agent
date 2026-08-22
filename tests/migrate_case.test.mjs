@@ -186,7 +186,7 @@ describe('tools/migrate_case.mjs - Integration tests (Slice 2)', () => {
     // case.md should be rendered
     assert.ok(existsSync(join(caseDir, 'case.md')));
     const md = readFileSync(join(caseDir, 'case.md'), 'utf8');
-    assert.match(md, /### 1\. August 7, 2026 at 9:52 PM · Kyungnam Ken Lee \(Qualcomm\)/);
+    assert.match(md, /### 1\. August 7, 2026 at 9:52 PM · Kyungnam Ken Lee/);
   });
 
   it('updates _index.json when migrating case and synchronizes hash and commentCount', () => {

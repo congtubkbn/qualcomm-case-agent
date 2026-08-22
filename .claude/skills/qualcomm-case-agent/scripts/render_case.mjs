@@ -54,10 +54,7 @@ function md() {
 
   L.push('## Chronological Timeline of Comments', '');
   comments.forEach((c, i) => {
-    const roleBadge = S(c.role) ? `(${S(c.role)})` : '';
-    const authorWithRole = [S(c.author), roleBadge].filter(Boolean).join(' ');
-    const head = [S(c.timestamp), S(c.company), authorWithRole]
-      .filter(x => x && x !== '()').join(' · ');
+    const head = [S(c.timestamp), S(c.author)].filter(Boolean).join(' · ');
     L.push(`### ${i + 1}. ${head || 'Comment'}`, '');
     if (S(c.summary) && S(c.summary) !== S(c.body)) {
       L.push(`> **Summary:** ${S(c.summary)}`, '');

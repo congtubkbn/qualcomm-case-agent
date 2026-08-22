@@ -68,49 +68,6 @@
     return "";
   };
 
-  // Role heuristics: distinguish Qualcomm engineers from Customer/OEM vs System
-  const classifyRole = (author, company, context, body = "") => {
-    const combined = ((author || "") + " " + (company || "") + " " + (context || "")).toLowerCase();
-    if (
-      combined.includes("qualcomm") ||
-      combined.includes("@qualcomm.com") ||
-      combined.includes("@qti.qualcomm.com") ||
-      combined.includes("qcom") ||
-      combined.includes("qti") ||
-      combined.includes("qualcomm technologies") ||
-      combined.includes("qualcomm support") ||
-      combined.includes("qualcomm employee") ||
-      combined.includes("qualcomm engineer")
-    ) {
-      return "Qualcomm";
-    }
-    if (combined.includes("system") || combined.includes("automated process")) {
-      return "System";
-    }
-    // Contextual greeting / signature heuristics
-    const bodyLower = (body || "").toLowerCase();
-    const firstLines = bodyLower.slice(0, 250);
-    const lastLines = bodyLower.slice(-250);
-    if (
-      /^(?:dear|hi|hello)\s+customer\b/i.test(firstLines.trim()) ||
-      /\bqualcomm\s+team\b/i.test(bodyLower) ||
-      /\bqualcomm\s+support\b/i.test(bodyLower) ||
-      /\bqualcomm\s+case\s+team\b/i.test(bodyLower) ||
-      /(?:regards|thanks|sincerely)[,\s]+.*qualcomm/i.test(lastLines)
-    ) {
-      return "Qualcomm";
-    }
-    if (/^(?:dear|hi|hello)\s+(?:qcom|qualcomm)\b/i.test(firstLines.trim())) {
-      return "Customer";
-    }
-    // Known Qualcomm engineer name patterns
-    const authorLower = (author || "").toLowerCase();
-    if (["aiden an", "seunghoon lee", "hoon lee", "cs lee", "kyungnam ken lee"].includes(authorLower)) {
-      return "Qualcomm";
-    }
-    return "Customer";
-  };
-
   const isBlacklistedTs = s => {
     if (!s) return true;
     const lower = s.toLowerCase();
@@ -209,21 +166,24 @@
     const body = cleanBody(bodyEl ? txt(bodyEl) : txt(a));
     const timestamp = extractTimestamp(a, named, author);
 
-    const compEl = a.querySelector(".company, .title, [class*='company'], [class*='userTitle']");
-    const company = compEl ? txt(compEl) : "";
-    const role = classifyRole(author, company, a.className || "", body);
     const summary = extractSummary(body);
     const attachments = extractAttachments(a);
+
+    // Secondary ordering signal for comments whose parsed timestamps tie (e.g.
+    // two posts both "15 days ago"): the article's on-page vertical position,
+    // read independently of NodeList traversal order via getBoundingClientRect.
+    // Used only as a tiebreaker in sortCommentsChronological — see scrape_case.mjs.
+    const rect = a.getBoundingClientRect && a.getBoundingClientRect();
+    const displayPosition = rect ? rect.top : null;
 
     return {
       id: a.id || ("c" + (i + 1)),
       timestamp,
-      company,
       author,
-      role,
       summary,
       body,
       attachments,
+      displayPosition,
     };
   }).filter(c => c.body.length > 0);
 
