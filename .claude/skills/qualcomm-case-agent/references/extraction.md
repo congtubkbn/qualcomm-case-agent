@@ -104,26 +104,189 @@ What the merge does (all in code, deterministic):
 Project). `extract_case.js` leaves those fields `""`; fill them by editing the raw JSON from what PHASE 1
 already captured, or click the "Detail" tab and re-read before finalizing.
 
-## Selector lock-in (confirmed from case 08550063 — 2026-06-22)
+## Selector lock-in & live DOM shapes (confirmed from cases 08550063 [2026-06-22] & 08642051 [2026-08-23])
 
-Confirmed from live accessibility-tree snapshots of the Qualcomm Support portal (Salesforce Lightning),
-DOM verified after login with a real Chrome session. These are the structures the `eval` extractor maps to.
+Confirmed from live DOM inspections and accessibility trees of the Qualcomm Support portal (Salesforce Lightning),
+verified after login with a real Chrome session. These are the structures the `eval` extractor maps to.
 
-| Field | Confirmed structure / pattern | Notes |
-|-------|------------------------------|-------|
-| Case URL pattern | `https://support.qualcomm.com/s/case/<SFID>/<slug>` | real URL captured via `agent-browser eval "location.href"` after clicking the search result |
-| Case number | `document.title` → `"Case: <CODE>"` | **most reliable.** Match `/Case:\s*(\d[\w-]*)/` — require the colon+digit so the Cases LIST view (title "Cases") can't false-match to junk like "s" |
-| Subject (title) | NOT on the Feed view — Detail tab + PHASE 1 search row | search results row exposes Subject; fill from there |
-| Status | NOT on case page — search-results table `cell` | from PHASE 1 row; or Detail tab |
-| Priority | same — search-results table `cell "1 - Critical"` | from PHASE 1 row |
-| Chipset / Problem Area / Customer Project / Account | Detail tab fields (not the Feed view) | click "Detail" tab to read, or leave blank |
-| Description | Detail tab (the original problem is also the oldest Feed post) | often `""` on Feed; oldest comment carries the same text |
-| Feed / comment container | `article` elements (top-level posts AND nested replies are both `<article>`) | `document.querySelectorAll("article")` catches all |
-| → author | first `<a>` inside the article | e.g. "Mai Ngoc" |
-| → timestamp | second named `<a>` (skip if it is "Expand Post") | e.g. "June 16, 2026 at 8:08 PM" / "13h ago" |
-| → body (clean) | **`.feedBodyInner`** (alias `.cuf-feedBodyText`) | gives JUST the post text — excludes the author/timestamp header and the Like/Comment/views footer. Far cleaner than whole-article `innerText` |
-| Feed item count | `status "N Chatter Feed Items"` (role=status) inside Feed region — **the count must PRECEDE the phrase** | use as `displayedCommentCount`. Chatter also renders a per-item `status "Chatter Feed Item <n>"` region; matching the first digit of the first matching region stored that item ordinal as a "total" (08503838 recorded 2 for 11 comments). Match `/(\d+)\s+Chatter\s+Feed\s+Items?/i` or store `null` — a wrong total is worse than none. Counts top-level items; nested replies are extra `article`s, so captured count can exceed it (assert is `>=`) |
-| Attachments | inline `image "successcase"`/`"failurecase"` as `clickable` inside article | screenshot images; no `a[href]` |
+| Field / Feature | Confirmed structure / pattern | Observation Date | Notes |
+|-----------------|------------------------------|------------------|-------|
+| Case URL pattern | `https://support.qualcomm.com/s/case/<SFID>/<slug>` | 2026-06-22 | real URL captured via `agent-browser eval "location.href"` after clicking search result |
+| Case number | `document.title` → `"Case: <CODE>"` | 2026-06-22 | **most reliable.** Match `/Case:\s*(\d[\w-]*)/` — require colon+digit so Cases list view title cannot false-match |
+| Subject (title) | Detail tab + PHASE 1 search row | 2026-06-22 | search results row exposes Subject; fill from there or Detail tab |
+| Status | Detail tab / search-results table `cell` | 2026-08-23 | Detail tab holds inline edit button `button.test-id__inline-edit-trigger` (`"Edit Status"`) inside `.slds-form-element__control` |
+| Priority | Detail tab / search-results table `cell` | 2026-06-22 | e.g. `"1 - Critical"` |
+| Chipset / Product / Customer Project / Account | Detail tab fields (`lightning-record-layout-item`) | 2026-08-23 | click "Detail" tab to read; field values wrapped in `lightning-formatted-text` / `lightning-formatted-lookup` |
+| Related CRs | Detail tab (`lightning-record-layout-item`) | 2026-08-23 | Label container carries `lightning-helptext` (`"Help Related CRs"`). If value is empty, assist text must not leak as value |
+| Description | Detail tab / synthesized first comment | 2026-08-23 | Original problem description from Detail tab; synthesized into chronological first comment |
+| Top-level Feed post | `article.cuf-feedItem:not(.cuf-comment)` | 2026-08-23 | Top-level post container. Direct child of feed list, NOT inside `ul.cuf-replies` |
+| Nested Chatter reply | `ul.cuf-replies article.cuf-comment` | 2026-08-23 | Distinctly marked with `.cuf-comment` and nested inside `.cuf-replies` |
+| → author | first `<a>` inside article (with `.cuf-actorName`) | 2026-08-23 | e.g. "Duc Hoang", "Sushmita Suresh Rao" |
+| → timestamp (top-level) | `span.cuf-timestamp[title]` / `a.cuf-timestamp` | 2026-08-23 | Top-level posts provide absolute date string (e.g. `"August 10, 2026 at 7:59 PM"`) in `title` attribute or link text |
+| → timestamp (nested reply) | `span.cuf-timestamp > a.cuf-timestamp` (no title attribute) | 2026-08-23 | Replies render relative text only (e.g. `"12 days ago"`), omitting absolute timestamp in `title`/`datetime` |
+| → body (clean) | **`.feedBodyInner`** (alias `.cuf-feedBodyText`) | 2026-08-23 | Just the post text — excludes author/timestamp header and action footer |
+| Feed item count | `status "N Chatter Feed Items"` (role=status) | 2026-08-23 | Counts **top-level** feed items only (excluding nested replies). Match `/(\d+)\s+Chatter\s+Feed\s+Items?/i` |
+| Attachments | `.cuf-feedItemAttachments .slds-file` | 2026-08-23 | Cards containing download link `a[href*='/sfc/servlet.shepherd/version/download/']` and title `span.slds-file__text-title` |
+
+---
+
+### Detailed Live DOM Recordings (Observed 2026-08-23)
+
+#### 1. Field-Value Inline-Edit Affordance Markup
+*Observed on Detail tab in Case 08642051 (Status field).*
+
+```html
+<div class="slds-form-element slds-hint-parent">
+  <span class="test-id__field-label slds-form-element__label">Status</span>
+  <div class="slds-form-element__control slds-grid itemBody">
+    <span class="test-id__field-value slds-form-element__static slds-grow word-break-ie11 is-read-only">
+      <span class="uiOutputText">Closed-Customer Requested</span>
+    </span>
+    <button class="slds-button slds-button_icon test-id__inline-edit-trigger inline-edit-trigger slds-button_icon-small slds-shrink-none" title="Edit Status" type="button">
+      <lightning-primitive-icon variant="bare">
+        <svg class="slds-button__icon slds-button__icon_hint" aria-hidden="true" focusable="false" viewBox="0 0 520 520">
+          <use xlink:href="/_slds/icons/utility-sprite/svg/symbols.svg#edit"></use>
+        </svg>
+      </lightning-primitive-icon>
+      <span class="slds-assistive-text">Edit Status</span>
+    </button>
+  </div>
+</div>
+```
+
+- **Defect Cause:** Reading `innerText` of `.slds-form-element` or `.slds-form-element__control` concatenates the value text with the button assistive text `<span class="slds-assistive-text">Edit Status</span>`, producing `"Closed-Customer Requested\nEdit Status"`.
+- **Target Seam:** Strip `button.test-id__inline-edit-trigger`, `.inline-edit-trigger`, `.slds-button_icon`, or remove trailing `\s*Edit\s+<Field>` / `.slds-assistive-text` nodes before extracting value.
+
+---
+
+#### 2. Field-Label Help/Tooltip Affordance Markup
+*Observed on Detail tab in Case 08642051 (Related CRs field).*
+
+```html
+<div class="slds-form-element slds-hint-parent">
+  <div class="slds-form-element__label-container slds-grow">
+    <label class="slds-form-element__label" for="input-related-crs">
+      <span>Related CRs</span>
+    </label>
+    <lightning-helptext class="slds-m-left_xx-small">
+      <button class="slds-button slds-button_icon slds-button_icon-small" aria-describedby="help-related-crs" type="button">
+        <lightning-primitive-icon variant="bare">
+          <svg class="slds-button__icon slds-button__icon_hint" aria-hidden="true">
+            <use xlink:href="/_slds/icons/utility-sprite/svg/symbols.svg#info"></use>
+          </svg>
+        </lightning-primitive-icon>
+        <span class="slds-assistive-text">Help Related CRs</span>
+      </button>
+      <div class="slds-popover slds-popover_tooltip slds-nubbin_bottom-left slds-fall-into-ground" id="help-related-crs" role="tooltip">
+        <div class="slds-popover__body">Change request tracking numbers associated with this case</div>
+      </div>
+    </lightning-helptext>
+  </div>
+  <div class="slds-form-element__control slds-grid itemBody">
+    <span class="test-id__field-value slds-form-element__static slds-grow is-read-only">
+      <!-- Empty when no CR is linked -->
+    </span>
+  </div>
+</div>
+```
+
+- **Defect Cause:** When the field value element is empty, `sectionValue` traverses the container looking for any non-label text element. It encounters the `<button>` or `<span class="slds-assistive-text">Help Related CRs</span>` inside `lightning-helptext`, extracting `"Help Related CRs"` as the value.
+- **Target Seam:** Exclude `lightning-helptext`, `button.slds-button_icon`, and `[class*='helptext']` from candidate value elements, or ignore text matching `/^Help\s+/i`.
+
+---
+
+#### 3. Nested-Reply Timestamps vs Top-Level Post Timestamps
+*Observed on Feed view in Case 08642051.*
+
+**Top-level post timestamp markup:**
+```html
+<article class="cuf-feedItem cuf-feedItemBody cuf-feedItemWrap slds-card" data-feed-item-id="0D5dK00000...">
+  <div class="feeditemuserandtimestamp slds-media__body">
+    <a class="cuf-actorName" href="/s/profile/005...">Duc Hoang</a>
+    <span class="cuf-timestamp uiOutputDateTime" title="August 10, 2026 at 7:59 PM">
+      <a class="cuf-timestamp" href="/s/feeditem/0D5...">August 10, 2026 at 7:59 PM</a>
+    </span>
+  </div>
+  <div class="feedBodyInner">Dear QC RRC team...</div>
+</article>
+```
+
+**Nested Chatter reply timestamp markup:**
+```html
+<ul class="cuf-replies slds-p-horizontal_small">
+  <li class="cuf-reply">
+    <article class="cuf-comment cuf-feedItem" data-comment-id="0D7dK00000...">
+      <div class="cuf-commentHeader slds-media__body">
+        <a class="cuf-actorName" href="/s/profile/005...">Duc Hoang</a>
+        <span class="cuf-timestamp uiOutputDateTime">
+          <a class="cuf-timestamp" href="javascript:void(0);">12 days ago</a>
+        </span>
+      </div>
+      <div class="feedBodyInner"># FAILlog_X716B_SEAU_5G_IMS_Ecall_VoNR_redial_TC1_RTD.zip...</div>
+    </article>
+  </li>
+</ul>
+```
+
+- **Fallback Hypothesis Confirmation:**
+  - **Verdict: CONFIRMED.**
+  - Top-level posts provide an absolute date string (e.g. `"August 10, 2026 at 7:59 PM"`) on `span.cuf-timestamp[title]` and in `a.cuf-timestamp` text.
+  - Nested replies in `.cuf-replies` render only the relative text link (`"12 days ago"`) and lack any `title` or `datetime` attribute containing an absolute timestamp.
+  - Consequently, nested replies always trigger the relative-text extraction path and require capture-time normalization to absolute ISO timestamps (as implemented in issue #87).
+
+---
+
+#### 4. Comment Attachments Markup
+*Observed on Chatter Feed comments carrying `.zip` log bundles in Case 08642051.*
+
+```html
+<div class="cuf-feedItemAttachments slds-post__content slds-m-top_x-small">
+  <div class="cuf-attachment slds-file slds-file_card slds-has-title">
+    <figure>
+      <a href="/s/sfc/servlet.shepherd/version/download/068dK0000012345?asPdf=false&amp;operationContext=CHATTER" class="slds-file__crop cuf-attachmentThumbnail" title="FAILlog_X716B_SEAU_5G_IMS_Ecall_VoNR_redial_TC1_RTD.zip" download="FAILlog_X716B_SEAU_5G_IMS_Ecall_VoNR_redial_TC1_RTD.zip">
+        <span class="slds-assistive-text">FAILlog_X716B_SEAU_5G_IMS_Ecall_VoNR_redial_TC1_RTD.zip</span>
+      </a>
+    </figure>
+    <div class="slds-file__title slds-file__title_card">
+      <div class="slds-media slds-media_small slds-media_center">
+        <div class="slds-media__body">
+          <a href="/s/contentdocument/069dK0000012345" class="slds-file__text" title="FAILlog_X716B_SEAU_5G_IMS_Ecall_VoNR_redial_TC1_RTD.zip">
+            <span class="slds-file__text-title slds-truncate" title="FAILlog_X716B_SEAU_5G_IMS_Ecall_VoNR_redial_TC1_RTD.zip">FAILlog_X716B_SEAU_5G_IMS_Ecall_VoNR_redial_TC1_RTD.zip</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+- **Display Name Location:**
+  - `span.slds-file__text-title[title]` or inner text: `"FAILlog_X716B_SEAU_5G_IMS_Ecall_VoNR_redial_TC1_RTD.zip"`
+  - `a.slds-file__text[title]`
+  - `a.cuf-attachmentThumbnail[download]` or `[title]`
+- **Resolvable Portal URL Location:**
+  - Direct Download URL: `a.slds-file__crop[href]` / `a[href*='/sfc/servlet.shepherd/version/download/']`
+  - Document Preview URL: `a.slds-file__text[href]` / `a[href*='/contentdocument/']`
+
+---
+
+#### 5. Distinguishability of Nested Replies vs Top-Level Posts
+*Observed on Chatter Feed hierarchy in Case 08642051.*
+
+- **Top-Level Posts:**
+  - Render as `<article class="cuf-feedItem ...">` directly under the main feed feed-item container.
+  - Do NOT have the `.cuf-comment` class.
+  - Are NOT enclosed within `ul.cuf-replies` or `li.cuf-reply`.
+- **Nested Replies:**
+  - Render as `<article class="cuf-comment cuf-feedItem" data-comment-id="...">`.
+  - ALWAYS have the class `.cuf-comment`.
+  - ALWAYS reside inside `ul.cuf-replies > li.cuf-reply` under their parent feed post.
+- **Count-Unit Resolution:**
+  - **Question:** The portal badge (`status "N Chatter Feed Items"`) counts top-level posts only (e.g. 3), whereas `document.querySelectorAll("article")` captures both top-level posts and nested replies (e.g. 4 total articles). Can the extractor distinguish them?
+  - **Answer: YES.** Top-level posts and nested replies are unequivocally distinguishable via `article.classList.contains('cuf-comment')` or `article.closest('ul.cuf-replies')`.
+  - **Impact on Gate Design:** The completeness gate can compare top-level posts directly against `displayedCommentCount`, and count nested replies separately, rather than treating any excess as an unassertable mismatch.
+
+---
 
 ## The extractor script
 

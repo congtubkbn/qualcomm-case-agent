@@ -137,6 +137,35 @@ export function migrateCaseData(caseData, options = {}) {
   return updatedCase;
 }
 
+/**
+ * Detects comment bodies that were flattened at capture time (no internal line breaks
+ * despite containing multi-sentence text or log sequences).
+ * Such bodies cannot be repaired by re-rendering and require delete + re-capture.
+ */
+export function detectFlattenedBodies(caseData) {
+  const comments = Array.isArray(caseData?.comments) ? caseData.comments : [];
+  const flattened = [];
+  for (let i = 0; i < comments.length; i++) {
+    const c = comments[i];
+    if (!c || typeof c.body !== 'string') continue;
+    const body = c.body.trim();
+    if (!body.includes('\n') && (
+      body.length > 200 ||
+      /\d{2}:\d{2}:\d{2}/.test(body) ||
+      /\b(?:steps|pre-config|1\.|2\.)\b/i.test(body) ||
+      /(?:dear|hi|hello)\b.*?(?:thanks|regards|sincerely)\b/is.test(body)
+    )) {
+      flattened.push({
+        index: i,
+        id: c.id,
+        author: c.author,
+        preview: body.slice(0, 80),
+      });
+    }
+  }
+  return flattened;
+}
+
 export function migrateCaseJson(jsonPath, options = {}) {
   if (!existsSync(jsonPath)) {
     throw new Error(`File not found: ${jsonPath}`);
@@ -181,6 +210,8 @@ export function migrateCaseJson(jsonPath, options = {}) {
     }
   }
 
+  const flattenedBodies = detectFlattenedBodies(updatedCase);
+
   return {
     ok: true,
     jsonPath,
@@ -189,6 +220,9 @@ export function migrateCaseJson(jsonPath, options = {}) {
     hash: updatedCase.hash,
     oldHash,
     rehashed,
+    flattenedBodies,
+    hasFlattenedBodies: flattenedBodies.length > 0,
+    remedy: flattenedBodies.length > 0 ? 'delete-and-re-Capture' : undefined,
   };
 }
 
@@ -221,6 +255,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       const res = migrateCaseJson(t);
       const rehashMsg = res.rehashed ? ` (re-hashed from ${res.oldHash})` : '';
       console.log(`Migrated ${res.caseNumber || res.jsonPath}: ${res.commentCount} comments, hash=${res.hash}${rehashMsg}`);
+      if (res.hasFlattenedBodies) {
+        console.log(`  [Notice] ${res.caseNumber}: Contains ${res.flattenedBodies.length} flattened comment body(ies). Remedy: delete-and-re-Capture.`);
+      }
     } catch (e) {
       console.error(`Error migrating ${t}: ${e.message}`);
       process.exit(1);

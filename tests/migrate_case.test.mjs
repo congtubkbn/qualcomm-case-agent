@@ -392,4 +392,86 @@ describe('tools/migrate_case.mjs - Integration tests (Slice 2)', () => {
   });
 });
 
+describe('migrate_case: Issue #97 layout propagation and un-repairable body reporting', () => {
+  it('re-renders document in new layout with byte-identical verbatim comment bodies', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'qc-mig-97-'));
+    const caseDir = join(dir, '08998877');
+    mkdirSync(caseDir, { recursive: true });
 
+    const complexBody = 'Steps:\n1. Power on UE.\n2. Collect modem log.\n\n04:39:48.820 | 1 | NR5G NAS SERVICE REQUEST | status: OK';
+    const initialCase = {
+      caseNumber: '08998877',
+      title: 'Attach drop after HO',
+      customer: 'Samsung Mobile',
+      created: '2026-08-10T08:00:00.000Z',
+      description: 'Problem description on n78.',
+      comments: [
+        {
+          id: 'c1',
+          author: 'Duc Hoang',
+          role: 'Customer',
+          timestamp: '2026-08-10T09:00:00.000Z',
+          body: complexBody,
+        },
+        {
+          id: 'c2',
+          author: 'Qualcomm Support',
+          role: 'Qualcomm',
+          timestamp: '2026-08-10T10:00:00.000Z',
+          body: 'Dear customer,\nLog received.',
+        },
+      ],
+    };
+
+    const jsonPath = join(caseDir, 'case.json');
+    writeFileSync(jsonPath, JSON.stringify(initialCase, null, 2), 'utf8');
+
+    const res = migrateCaseJson(jsonPath);
+    assert.equal(res.ok, true);
+
+    // 1. Stored comment bodies are byte-identical before and after
+    const saved = JSON.parse(readFileSync(jsonPath, 'utf8'));
+    const targetComment = saved.comments.find(c => c.author === 'Duc Hoang' && c.timestamp === '2026-08-10T09:00:00.000Z');
+    assert.equal(targetComment.body, complexBody);
+
+    // 2. case.md is re-rendered with new layout (Description section, roles, no summary line)
+    const md = readFileSync(join(caseDir, 'case.md'), 'utf8');
+    assert.match(md, /## Description\r?\n\r?\nProblem description on n78\./);
+    assert.match(md, /### 1\. 2026-08-10T09:00:00\.000Z · Duc Hoang \(Customer\)/);
+    assert.match(md, /### 2\. 2026-08-10T10:00:00\.000Z · Qualcomm Support \(Qualcomm\)/);
+    assert.doesNotMatch(md, /> \*\*Summary:\*\*/);
+  });
+
+  it('detects and reports flattened comment bodies with delete-and-re-Capture remedy', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'qc-mig-flat-'));
+    const caseDir = join(dir, '08642051');
+    mkdirSync(caseDir, { recursive: true });
+
+    const flattenedBody = 'Dear QC RRC team, Could you help check why modem does not trigger UlInformationTransfer to send SERVICE REQUEST? The equipment does not receive SERVICE REQUEST with type emergency serv fallback, therefore it does not turn on LTE cell, resulting e911 call fail. # FAILlog_X716B_SEAU_5G.zip 04:39:48.820000 | 1 | NR5G NAS SERVICE REQUEST | service_type_val :4 // Since there is no ULInformationTransfer message, the equipment does not receive a SERVICE REQUEST. # PASSlog_X716B.zip 01:26:27.935052 | 1 | NR5G NAS SERVICE REQUEST | service_type_val :4';
+    const caseWithFlat = {
+      caseNumber: '08642051',
+      title: 'Flattened comment case',
+      customer: 'Samsung Mobile',
+      created: '2026-08-10T08:00:00.000Z',
+      description: 'Ecall test',
+      comments: [
+        {
+          id: 'c_flat',
+          author: 'Duc Hoang',
+          role: 'Customer',
+          timestamp: '2026-08-10T09:00:00.000Z',
+          body: flattenedBody,
+        },
+      ],
+    };
+
+    const jsonPath = join(caseDir, 'case.json');
+    writeFileSync(jsonPath, JSON.stringify(caseWithFlat, null, 2), 'utf8');
+
+    const res = migrateCaseJson(jsonPath);
+    assert.equal(res.ok, true);
+    assert.equal(res.hasFlattenedBodies, true);
+    assert.equal(res.flattenedBodies.length, 1);
+    assert.equal(res.remedy, 'delete-and-re-Capture');
+  });
+});

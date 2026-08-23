@@ -1141,6 +1141,201 @@ test('extract_case.js deep Shadow DOM metadata and Description extraction', asyn
     const result = runInMockContext(EXTRACT_SCRIPT, { doc });
     assert.equal(result.priority, 'P1 - Critical');
   });
+
+  await t.test('DOM fixtures for live portal shapes (Issue #89)', async (st) => {
+    await st.test('fixture 1: inline-edit affordance on field value (Case 08642051)', () => {
+      const doc = createMockDocument();
+      doc.title = 'Case: 08642051 - [SIDIA Ecall Test]';
+
+      const formElement = createMockElement('div', { className: 'slds-form-element slds-hint-parent' });
+      const label = createMockElement('span', { className: 'test-id__field-label slds-form-element__label' }, 'Status');
+      const control = createMockElement('div', { className: 'slds-form-element__control slds-grid itemBody' });
+      
+      const valSpan = createMockElement('span', { className: 'test-id__field-value slds-form-element__static slds-grow is-read-only' });
+      const outputText = createMockElement('span', { className: 'uiOutputText' }, 'Closed-Customer Requested');
+      valSpan.appendChild(outputText);
+
+      const editBtn = createMockElement('button', {
+        className: 'slds-button slds-button_icon test-id__inline-edit-trigger inline-edit-trigger slds-button_icon-small',
+        title: 'Edit Status',
+        type: 'button',
+      });
+      const assistText = createMockElement('span', { className: 'slds-assistive-text' }, 'Edit Status');
+      editBtn.appendChild(assistText);
+
+      control.appendChild(valSpan);
+      control.appendChild(editBtn);
+      formElement.appendChild(label);
+      formElement.appendChild(control);
+      doc.body.appendChild(formElement);
+
+      // Verify DOM fixture structure
+      assert.ok(doc.querySelector('button.test-id__inline-edit-trigger'));
+      assert.equal(doc.querySelector('.slds-assistive-text').innerText, 'Edit Status');
+
+      const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+      // Documents current un-stripped extraction behavior until fix ticket
+      assert.ok(result.status.includes('Closed-Customer Requested'));
+    });
+
+    await st.test('fixture 2: help/tooltip affordance on field label (Case 08642051)', () => {
+      const doc = createMockDocument();
+      doc.title = 'Case: 08642051 - [SIDIA Ecall Test]';
+
+      const formElement = createMockElement('div', { className: 'slds-form-element slds-hint-parent' });
+      const labelContainer = createMockElement('div', { className: 'slds-form-element__label-container slds-grow' });
+      const label = createMockElement('label', { className: 'slds-form-element__label' });
+      const labelSpan = createMockElement('span', {}, 'Related CRs');
+      label.appendChild(labelSpan);
+
+      const helptext = createMockElement('lightning-helptext', { className: 'slds-m-left_xx-small' });
+      const helpBtn = createMockElement('button', { className: 'slds-button slds-button_icon slds-button_icon-small' });
+      const assistText = createMockElement('span', { className: 'slds-assistive-text' }, 'Help Related CRs');
+      helpBtn.appendChild(assistText);
+      helptext.appendChild(helpBtn);
+
+      labelContainer.appendChild(label);
+      labelContainer.appendChild(helptext);
+
+      const control = createMockElement('div', { className: 'slds-form-element__control slds-grid itemBody' });
+      const valSpan = createMockElement('span', { className: 'test-id__field-value slds-form-element__static slds-grow is-read-only' });
+      // Empty value when no CR linked
+      control.appendChild(valSpan);
+
+      formElement.appendChild(labelContainer);
+      formElement.appendChild(control);
+      doc.body.appendChild(formElement);
+
+      assert.ok(doc.querySelector('lightning-helptext'));
+      assert.equal(helptext.querySelector('.slds-assistive-text').innerText, 'Help Related CRs');
+
+      const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+      // Documents current fallback extraction behavior on empty field until fix ticket
+      assert.ok(result.relatedCRs === 'Help Related CRs' || result.relatedCRs === '');
+    });
+
+    await st.test('fixture 3: nested reply timestamp without title vs top-level post with title (Case 08642051)', () => {
+      const doc = createMockDocument();
+      doc.title = 'Case: 08642051 - [SIDIA Ecall Test]';
+
+      // Top-level post
+      const topArticle = createMockElement('article', { className: 'cuf-feedItem slds-card', id: 'post_01' });
+      const topAuthor = createMockElement('a', { className: 'cuf-actorName' }, 'Duc Hoang');
+      const topTsSpan = createMockElement('span', { className: 'cuf-timestamp uiOutputDateTime', title: 'August 10, 2026 at 7:59 PM' });
+      const topTsLink = createMockElement('a', { className: 'cuf-timestamp' }, 'August 10, 2026 at 7:59 PM');
+      topTsSpan.appendChild(topTsLink);
+      const topBody = createMockElement('div', { className: 'feedBodyInner' }, 'Top-level post content');
+      topArticle.appendChild(topAuthor);
+      topArticle.appendChild(topTsSpan);
+      topArticle.appendChild(topBody);
+
+      // Nested replies container
+      const repliesUl = createMockElement('ul', { className: 'cuf-replies slds-p-horizontal_small' });
+      const replyLi = createMockElement('li', { className: 'cuf-reply' });
+      const replyArticle = createMockElement('article', { className: 'cuf-comment cuf-feedItem', id: 'reply_01' });
+      const replyAuthor = createMockElement('a', { className: 'cuf-actorName' }, 'Duc Hoang');
+      // Notice: Nested reply timestamp has NO title attribute and contains relative text
+      const replyTsSpan = createMockElement('span', { className: 'cuf-timestamp uiOutputDateTime' });
+      const replyTsLink = createMockElement('a', { className: 'cuf-timestamp', href: 'javascript:void(0);' }, '12 days ago');
+      replyTsSpan.appendChild(replyTsLink);
+      const replyBody = createMockElement('div', { className: 'feedBodyInner' }, '# FAILlog_X716B.zip build version notes');
+      replyArticle.appendChild(replyAuthor);
+      replyArticle.appendChild(replyTsSpan);
+      replyArticle.appendChild(replyBody);
+      replyLi.appendChild(replyArticle);
+      repliesUl.appendChild(replyLi);
+      topArticle.appendChild(repliesUl);
+
+      doc.body.appendChild(topArticle);
+
+      const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+      assert.equal(result.comments.length, 2);
+      assert.equal(result.comments[0].timestamp, 'August 10, 2026 at 7:59 PM');
+      assert.equal(result.comments[1].timestamp, '12 days ago');
+    });
+
+    await st.test('fixture 4: comment attachment card with download URL and display name (Case 08642051)', () => {
+      const doc = createMockDocument();
+      doc.title = 'Case: 08642051 - [SIDIA Ecall Test]';
+
+      const article = createMockElement('article', { className: 'cuf-feedItem', id: 'post_attach' });
+      const author = createMockElement('a', { className: 'cuf-actorName' }, 'Duc Hoang');
+      const ts = createMockElement('a', {}, 'August 10, 2026 at 7:59 PM');
+      const body = createMockElement('div', { className: 'feedBodyInner' }, 'Log files attached for analysis.');
+      article.appendChild(author);
+      article.appendChild(ts);
+      article.appendChild(body);
+
+      const attachContainer = createMockElement('div', { className: 'cuf-feedItemAttachments slds-post__content' });
+      const fileCard = createMockElement('div', { className: 'cuf-attachment slds-file slds-file_card slds-has-title' });
+      
+      const figure = createMockElement('figure');
+      const downloadLink = createMockElement('a', {
+        className: 'slds-file__crop cuf-attachmentThumbnail cuf-attachment',
+        href: 'https://support.qualcomm.com/s/sfc/servlet.shepherd/version/download/068dK0000012345?asPdf=false&operationContext=CHATTER',
+        title: 'FAILlog_X716B_SEAU_5G_IMS_Ecall_VoNR_redial_TC1_RTD.zip',
+        download: 'FAILlog_X716B_SEAU_5G_IMS_Ecall_VoNR_redial_TC1_RTD.zip',
+      });
+      const assist = createMockElement('span', { className: 'slds-assistive-text' }, 'FAILlog_X716B_SEAU_5G_IMS_Ecall_VoNR_redial_TC1_RTD.zip');
+      downloadLink.appendChild(assist);
+      figure.appendChild(downloadLink);
+
+      const fileTitleDiv = createMockElement('div', { className: 'slds-file__title' });
+      const docPreviewLink = createMockElement('a', {
+        className: 'slds-file__text cuf-attachment',
+        href: 'https://support.qualcomm.com/s/contentdocument/069dK0000012345',
+        title: 'FAILlog_X716B_SEAU_5G_IMS_Ecall_VoNR_redial_TC1_RTD.zip',
+      });
+      const titleSpan = createMockElement('span', { className: 'slds-file__text-title slds-truncate' }, 'FAILlog_X716B_SEAU_5G_IMS_Ecall_VoNR_redial_TC1_RTD.zip');
+      docPreviewLink.appendChild(titleSpan);
+      fileTitleDiv.appendChild(docPreviewLink);
+
+      fileCard.appendChild(figure);
+      fileCard.appendChild(fileTitleDiv);
+      attachContainer.appendChild(fileCard);
+      article.appendChild(attachContainer);
+      doc.body.appendChild(article);
+
+      const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+      assert.equal(result.comments.length, 1);
+      assert.ok(result.comments[0].attachments.length >= 1);
+      const att = result.comments[0].attachments[0];
+      assert.equal(att.name, 'FAILlog_X716B_SEAU_5G_IMS_Ecall_VoNR_redial_TC1_RTD.zip');
+      assert.ok(att.url.includes('068dK0000012345'));
+    });
+
+    await st.test('fixture 5: top-level post vs nested reply distinguishability in DOM hierarchy', () => {
+      const doc = createMockDocument();
+      doc.title = 'Case: 08642051 - [SIDIA Ecall Test]';
+
+      const topArticle = createMockElement('article', { className: 'cuf-feedItem slds-card', id: 'top_post' });
+      const topBody = createMockElement('div', { className: 'feedBodyInner' }, 'Top post body');
+      topArticle.appendChild(topBody);
+
+      const repliesUl = createMockElement('ul', { className: 'cuf-replies' });
+      const replyLi = createMockElement('li', { className: 'cuf-reply' });
+      const replyArticle = createMockElement('article', { className: 'cuf-comment cuf-feedItem', id: 'nested_reply' });
+      const replyBody = createMockElement('div', { className: 'feedBodyInner' }, 'Nested reply body');
+      replyArticle.appendChild(replyBody);
+      replyLi.appendChild(replyArticle);
+      repliesUl.appendChild(replyLi);
+      topArticle.appendChild(repliesUl);
+
+      doc.body.appendChild(topArticle);
+
+      const articles = doc.querySelectorAll('article');
+      assert.equal(articles.length, 2);
+
+      const topPosts = articles.filter(a => !a.classList.contains('cuf-comment') && !a.closest('ul.cuf-replies'));
+      const nestedReplies = articles.filter(a => a.classList.contains('cuf-comment') || !!a.closest('ul.cuf-replies'));
+
+      assert.equal(topPosts.length, 1);
+      assert.equal(topPosts[0].id, 'top_post');
+      assert.equal(nestedReplies.length, 1);
+      assert.equal(nestedReplies[0].id, 'nested_reply');
+    });
+  });
 });
+
 
 
