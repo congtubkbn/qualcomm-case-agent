@@ -219,40 +219,6 @@
     return "";
   };
 
-  // Extract deterministic summary preview (first 1-2 meaningful sentences without salutations)
-  const extractSummary = body => {
-    if (!body) return "";
-    let text = cleanBody(body);
-    // Strip common salutation lines (Dear ..., Hi ..., Hello ..., etc.)
-    text = text.replace(/^(?:(?:dear|hi|hello|hey|good\s+(?:morning|afternoon|evening))\b[^\n,:]*[,\n:]*)+/i, "").trim();
-    if (!text) return "";
-
-    // Split into sentences. Numbered/bulleted list lines are kept whole
-    // instead of being run through the sentence-terminator regex: a naked
-    // "1." would otherwise match as its own bogus "sentence" (the digit is
-    // non-terminator, the following "." is), silently dropping the rest of
-    // that line and degenerating multi-step bodies into "1. 2." fragments.
-    const lines = text.split(/\n+/).map(l => l.trim()).filter(Boolean);
-    const sentences = [];
-    for (const line of lines) {
-      if (/^(?:\d+[.)]|[-*•])\s/.test(line)) {
-        sentences.push(line);
-      } else {
-        sentences.push(...(line.match(/[^.!?]+(?:[.!?]+|$)/g) || [line]));
-      }
-    }
-    const meaningful = sentences
-      .map(s => s.replace(/\s+/g, " ").trim())
-      .filter(s => s.length > 0 && !/^(?:thanks|thank you|regards|best regards|sincerely|cheers)[,.\s]*$/i.test(s));
-
-    if (!meaningful.length) return "";
-    let summary = meaningful.slice(0, 2).join(" ");
-    if (summary.length > 300) {
-      summary = summary.slice(0, 297) + "...";
-    }
-    return cleanBody(summary);
-  };
-
   // Attachments extraction helper
   const extractAttachments = art => {
     const attList = [];
@@ -289,7 +255,6 @@
     const body = cleanBody(rawBodyText);
     const timestamp = extractTimestamp(a, named, author);
 
-    const summary = extractSummary(body);
     const attachments = extractAttachments(a);
 
     // Secondary ordering signal for comments whose parsed timestamps tie (e.g.
@@ -303,7 +268,6 @@
       id: a.id || ("c" + (i + 1)),
       timestamp,
       author,
-      summary,
       body,
       attachments,
       displayPosition,

@@ -37,21 +37,25 @@ describe('tools/migrate_case.mjs - Unit tests (Slice 1)', () => {
     assert.equal(sanitized.summary, 'Thank you for opening the case. We will check and update.');
   });
 
-  it('sanitizeComment preserves valid timestamps and existing custom summaries', () => {
+  it('sanitizeComment preserves valid timestamps and repairs a stale/garbage cached summary', () => {
+    // Issue #86: a summary is always recomputed from body, never preserved
+    // as-is — that's what let garbage previews (e.g. "1. 2." from a numbered
+    // description) survive a migrate run indefinitely, since they were
+    // non-empty and different from the body and so looked "already fine".
     const rawComment = {
       id: 'c456',
       author: 'Customer User',
       role: 'Customer',
       timestamp: 'August 10, 2026 at 10:00 AM',
       body: 'Hello,\nHere is the log file.',
-      summary: 'Custom summary preview.',
+      summary: '1. 2.',
       attachments: [],
     };
 
     const sanitized = sanitizeComment(rawComment);
 
     assert.equal(sanitized.timestamp, 'August 10, 2026 at 10:00 AM');
-    assert.equal(sanitized.summary, 'Custom summary preview.');
+    assert.equal(sanitized.summary, 'Here is the log file.');
     assert.equal('analysisLog' in sanitized, false);
   });
 

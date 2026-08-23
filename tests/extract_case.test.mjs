@@ -398,7 +398,7 @@ test('extract_case.js DOM extraction engine', async (t) => {
     assert.equal(result.comments.length, 1);
     assert.deepEqual(
       Object.keys(result.comments[0]).sort(),
-      ['attachments', 'author', 'body', 'displayPosition', 'id', 'summary', 'timestamp'].sort()
+      ['attachments', 'author', 'body', 'displayPosition', 'id', 'timestamp'].sort()
     );
   });
 
@@ -527,10 +527,15 @@ test('extract_case.js DOM extraction engine', async (t) => {
     assert.equal('analysisLog' in c, false);
   });
 
-  await t.test('extracts clean deterministic summary preview by stripping salutations and taking first 1-2 sentences', () => {
+  // Issue #86: preview generation is owned solely by the finalize path
+  // (scrape_case.mjs) now — the page script can't share code with it (it
+  // crosses as a base64 IIFE, no imports), which is what let two independent
+  // implementations drift apart. So it stops computing one and returns the
+  // comment verbatim (author/timestamp/body/attachments) with no preview
+  // field at all, whatever the body looks like.
+  await t.test('does not emit a summary/preview field — that is the finalize path\'s job alone', () => {
     const doc = createMockDocument();
 
-    // 1. Comment with greeting "Dear customer,"
     const art1 = createMockElement('article', { id: 'sum_1' });
     const a1 = createMockElement('a', {}, 'Ken Lee');
     const body1 = createMockElement('div', { className: 'feedBodyInner' }, 'Dear customer,\n\nThank you for opening the case.\nWe will check and update.');
@@ -538,28 +543,10 @@ test('extract_case.js DOM extraction engine', async (t) => {
     art1.appendChild(body1);
     doc.body.appendChild(art1);
 
-    // 2. Comment with greeting "Dear QC team,"
-    const art2 = createMockElement('article', { id: 'sum_2' });
-    const a2 = createMockElement('a', {}, 'Customer Engineer');
-    const body2 = createMockElement('div', { className: 'feedBodyInner' }, 'Dear QC team,\nDevice cannot attach to 5G SA network. Please analyze attached QXDM trace.');
-    art2.appendChild(a2);
-    art2.appendChild(body2);
-    doc.body.appendChild(art2);
-
-    // 3. Short single sentence
-    const art3 = createMockElement('article', { id: 'sum_3' });
-    const a3 = createMockElement('a', {}, 'Alex Turner');
-    const body3 = createMockElement('div', { className: 'feedBodyInner' }, 'Root cause identified as RRC reject on n78.');
-    art3.appendChild(a3);
-    art3.appendChild(body3);
-    doc.body.appendChild(art3);
-
     const result = runInMockContext(EXTRACT_SCRIPT, { doc });
 
-    assert.equal(result.comments.length, 3);
-    assert.equal(result.comments[0].summary, 'Thank you for opening the case. We will check and update.');
-    assert.equal(result.comments[1].summary, 'Device cannot attach to 5G SA network. Please analyze attached QXDM trace.');
-    assert.equal(result.comments[2].summary, 'Root cause identified as RRC reject on n78.');
+    assert.equal(result.comments.length, 1);
+    assert.equal('summary' in result.comments[0], false);
   });
 
   // Issue #42: two comments whose parsed timestamps tie (e.g. both "15 days
@@ -724,31 +711,6 @@ test('extract_case.js DOM extraction engine', async (t) => {
     assert.equal(result.comments[0].author.includes('Preview'), false);
   });
 
-  // Issue #82: extractSummary()'s sentence-splitting regex reduces numbered/
-  // newline-separated list bodies to bare punctuation fragments like "1. 2."
-  // because it can't cross a "\n" to find the rest of a list line.
-  await t.test('keeps numbered-list content in summary instead of degenerating to "1. 2."', () => {
-    const doc = createMockDocument();
-    doc.title = 'Case: 08603854 - QXDM log analysis for NR SA';
-
-    const art = createMockElement('article', { id: 'c1' });
-    art.appendChild(createMockElement('a', {}, 'Support Engineer'));
-    const body = createMockElement(
-      'div',
-      { className: 'feedBodyInner' },
-      '1. Insert Optus (505-02) SIM\n2. Put device into Telstra network testing mode'
-    );
-    art.appendChild(body);
-    doc.body.appendChild(art);
-
-    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
-
-    assert.equal(result.comments.length, 1);
-    const summary = result.comments[0].summary;
-    assert.notEqual(summary, '1. 2.');
-    assert.equal(summary.includes('Insert Optus (505-02) SIM'), true);
-    assert.equal(summary.includes('Put device into Telstra'), true);
-  });
 });
 
 test('switch_tab.js tab switching engine', async (t) => {
@@ -945,8 +907,8 @@ test('check_collapsed.js DOM collapse detection engine', async (t) => {
   });
 });
 
-test('extract_case.js cleans trailing Expand Post and .cuf-more elements from comment body and summary', async (t) => {
-  await t.test('strips .cuf-more DOM element text and trailing Expand Post marker from comments and summaries', () => {
+test('extract_case.js cleans trailing Expand Post and .cuf-more elements from comment body', async (t) => {
+  await t.test('strips .cuf-more DOM element text and trailing Expand Post marker from comment bodies', () => {
     const doc = createMockDocument();
     doc.title = 'Case: 08316063 - QXDM crash on modem attach';
 
@@ -974,15 +936,11 @@ test('extract_case.js cleans trailing Expand Post and .cuf-more elements from co
 
     const c1 = result.comments[0];
     assert.equal(c1.body.includes('Expand Post'), false);
-    assert.equal(c1.summary.includes('Expand Post'), false);
     assert.equal(c1.body, 'Device failed to register to 5G Standalone network with cause code 111.\nPlease inspect modem log.');
-    assert.equal(c1.summary, 'Device failed to register to 5G Standalone network with cause code 111. Please inspect modem log.');
 
     const c2 = result.comments[1];
     assert.equal(c2.body.includes('Expand Post'), false);
-    assert.equal(c2.summary.includes('Expand Post'), false);
     assert.equal(c2.body, 'We are reviewing the trace.');
-    assert.equal(c2.summary, 'We are reviewing the trace.');
   });
 
   // Issue #83: extraction used to read innerText off a cloneNode(true) DETACHED

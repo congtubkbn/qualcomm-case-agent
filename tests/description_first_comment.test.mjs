@@ -73,7 +73,10 @@ describe('1. Extraction & Ingestion: synthesizeDescriptionComment & hasDescripti
     assert.equal(c.author, 'Samsung Mobile');
     assert.equal(c.timestamp, '2026-08-20T09:30:00.000Z');
     assert.equal(c.body, raw.description);
-    assert.equal(c.summary, 'Device crashes during 5G handover on n78 band. Reproduction logs attached.');
+    // extractSummary is the single owner of preview generation, applied by
+    // finalize() to every persisted comment — not by this synthesizer (see
+    // "injects description as Comment #1" below for the full-pipeline check).
+    assert.equal('summary' in c, false);
     assert.deepEqual(c.attachments, []);
   });
 

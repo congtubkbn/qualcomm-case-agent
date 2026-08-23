@@ -35,10 +35,12 @@ export function sanitizeComment(comment) {
   const timestamp = isBlacklistedTs(rawTs) ? '' : rawTs;
 
   const body = comment.body || '';
-  let summary = comment.summary;
-  if (!summary || summary.trim() === '' || summary.trim() === body.trim()) {
-    summary = extractSummary(body);
-  }
+  // Always recomputed from body, never preserved: extractSummary is the
+  // single owner of preview generation (see scrape_case.mjs), so a stale or
+  // garbage cached preview (from before a fix landed there) gets repaired
+  // on every migrate run rather than surviving because it happened to be
+  // non-empty.
+  const summary = extractSummary(body);
 
   const sanitized = {
     ...comment,

@@ -232,6 +232,34 @@ export function isBlacklistedTs(s) {
 }
 
 /**
+ * Splits a single line into sentences. '!' and '?' always end a sentence,
+ * but a '.' only ends one when followed by whitespace or end-of-string — a
+ * dot inside a token (".zip", ".log", a dotted build version) has no
+ * whitespace after it, so it stays part of the running sentence instead of
+ * forking a bogus split.
+ */
+function splitSentences(line) {
+  const sentences = [];
+  let cur = '';
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    cur += ch;
+    if (ch === '!' || ch === '?') {
+      sentences.push(cur);
+      cur = '';
+    } else if (ch === '.') {
+      const next = line[i + 1];
+      if (next === undefined || /\s/.test(next)) {
+        sentences.push(cur);
+        cur = '';
+      }
+    }
+  }
+  if (cur.trim()) sentences.push(cur);
+  return sentences;
+}
+
+/**
  * Extracts a concise 1-2 sentence preview summary from raw comment body,
  * stripping common email greetings/salutations.
  */
@@ -242,8 +270,20 @@ export function extractSummary(body) {
   text = text.replace(/^(?:(?:dear|hi|hello|hey|good\s+(?:morning|afternoon|evening))\b[^\n,:]*[,\n:]*)+/i, '').trim();
   if (!text) return '';
 
-  // Split into sentences or lines
-  const sentences = text.match(/[^.!?\n]+(?:[.!?]+|$)/g) || [text];
+  // Split into sentences. Numbered/bulleted list lines are kept whole
+  // instead of being run through the sentence splitter: a naked "1." would
+  // otherwise match as its own bogus "sentence" (the digit is a non-
+  // terminator, the following "." is), silently dropping the rest of that
+  // line and degenerating multi-step bodies into "1. 2." fragments.
+  const lines = text.split(/\n+/).map(l => l.trim()).filter(Boolean);
+  const sentences = [];
+  for (const line of lines) {
+    if (/^(?:\d+[.)]|[-*•])\s/.test(line)) {
+      sentences.push(line);
+    } else {
+      sentences.push(...splitSentences(line));
+    }
+  }
   const meaningful = sentences
     .map(s => s.replace(/\s+/g, ' ').trim())
     .filter(s => s.length > 0 && !/^(?:thanks|thank you|regards|best regards|sincerely|cheers)[,.\s]*$/i.test(s));
@@ -276,7 +316,6 @@ export function synthesizeDescriptionComment(raw) {
   return {
     author,
     timestamp,
-    summary: extractSummary(raw.description),
     body: raw.description,
     attachments: [],
   };
@@ -720,7 +759,13 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
   // already consumed by mergeComments above), not durable content — persisting
   // it would let a future run's tie-break compare positions measured on two
   // different page loads, which is meaningless.
-  out.comments = out.comments.map(({ role, company, displayPosition, ...rest }) => rest);
+  // Preview is generated HERE, for every persisted comment — fresh, cached,
+  // and the synthesized description comment alike — so this is the single
+  // place a comment's preview is ever derived (see extractSummary above).
+  out.comments = out.comments.map(({ role, company, displayPosition, ...rest }) => ({
+    ...rest,
+    summary: extractSummary(rest.body),
+  }));
 
   // Stamp identity + write canonical JSON.
   out.hash = computeHash(out);

@@ -206,6 +206,44 @@ describe('migrateIds', () => {
   });
 });
 
+describe('extractSummary', () => {
+  // Issue #86: this used to be duplicated (a copy in extract_case.js, a
+  // separately-drifting copy here) — a fix landed in one and not the other,
+  // so the finalize path kept generating "1. 2." previews for numbered
+  // descriptions. It is now the single owner: no cross-file duplicate.
+
+  it('keeps numbered-list content instead of degenerating to "1. 2."', () => {
+    const body = '1. Insert Optus (505-02) SIM\n2. Put device into Telstra network testing mode';
+    const summary = m.extractSummary(body);
+    assert.notEqual(summary, '1. 2.');
+    assert.equal(summary.includes('Insert Optus (505-02) SIM'), true);
+    assert.equal(summary.includes('Put device into Telstra'), true);
+  });
+
+  it('does not end a sentence on a dot inside a token (.zip, dotted build version)', () => {
+    const body = 'See attached FAILlog_TC1_RTD.zipMPSS.DE.3.1-01301.11-KAILUA_GEN_PACK-1.31422.641 for details.';
+    const summary = m.extractSummary(body);
+    assert.equal(summary.includes('.zipMPSS.DE.3.1-01301.11-KAILUA_GEN_PACK-1.31422.641'), true);
+  });
+
+  it('strips salutations and takes the first 1-2 sentences', () => {
+    const summary = m.extractSummary('Dear customer,\n\nThank you for opening the case.\nWe will check and update.');
+    assert.equal(summary, 'Thank you for opening the case. We will check and update.');
+  });
+
+  it('strips a trailing Expand Post marker from both body and derived summary', () => {
+    const summary = m.extractSummary('We are reviewing the trace.\n\nExpand Post');
+    assert.equal(summary.includes('Expand Post'), false);
+    assert.equal(summary, 'We are reviewing the trace.');
+  });
+
+  it('returns empty string for empty or non-string input', () => {
+    assert.equal(m.extractSummary(''), '');
+    assert.equal(m.extractSummary(null), '');
+    assert.equal(m.extractSummary(undefined), '');
+  });
+});
+
 describe('synthesizeDescriptionComment', () => {
   it('synthesizes a structured initial comment when description is non-empty', () => {
     const raw = {
@@ -218,7 +256,10 @@ describe('synthesizeDescriptionComment', () => {
     assert.equal(c.author, 'Test OEM');
     assert.equal(c.timestamp, '2026-08-20T10:00:00Z');
     assert.equal(c.body, raw.description);
-    assert.equal(c.summary, 'Device encounters modem crash during VoNR call setup. Reproduction logs are attached.');
+    // No summary here: extractSummary is the single owner of preview
+    // generation, applied uniformly by finalize() to every persisted
+    // comment (see the 'case description injection' tests below).
+    assert.equal('summary' in c, false);
     assert.deepEqual(c.attachments, []);
   });
 
