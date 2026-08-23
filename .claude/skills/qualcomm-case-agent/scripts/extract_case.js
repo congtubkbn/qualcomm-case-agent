@@ -34,7 +34,15 @@
   // is clicked — same underlying separator, two renderings. Stripped narrowly by
   // exact string match only (NOT a general Latin-1 reinterpretation pass, which
   // would also mangle legitimate accented text e.g. Vietnamese names/comments).
-  const cleanBody = s => s.replace(/â”¬Ã¡/g, "").replace(/Â(?=[\s\n]|$)/g, "");
+  // Trailing "Expand Post" button text or markers are also stripped.
+  const cleanBody = s => {
+    if (!s) return "";
+    return s
+      .replace(/â”¬Ã¡/g, "")
+      .replace(/Â(?=[\s\n]|$)/g, "")
+      .replace(/\s*Expand Post\s*$/i, "")
+      .trim();
+  };
 
   // Case number: document.title is reliably "Case: <CODE>" on the case page.
   // Require the colon form + a leading digit so the Cases LIST view (title
@@ -147,7 +155,7 @@
   // Extract deterministic summary preview (first 1-2 meaningful sentences without salutations)
   const extractSummary = body => {
     if (!body) return "";
-    let text = body.trim();
+    let text = cleanBody(body);
     // Strip common salutation lines (Dear ..., Hi ..., Hello ..., etc.)
     text = text.replace(/^(?:(?:dear|hi|hello|hey|good\s+(?:morning|afternoon|evening))\b[^\n,:]*[,\n:]*)+/i, "").trim();
     if (!text) return "";
@@ -163,7 +171,7 @@
     if (summary.length > 300) {
       summary = summary.slice(0, 297) + "...";
     }
-    return summary;
+    return cleanBody(summary);
   };
 
   // Attachments extraction helper
@@ -192,7 +200,28 @@
     const named = Array.from(a.querySelectorAll("a")).map(txt).filter(Boolean);
     const author = named[0] || "";
     const bodyEl = a.querySelector(".feedBodyInner, .cuf-feedBodyText, [class*='feedBody']");
-    const body = cleanBody(bodyEl ? txt(bodyEl) : txt(a));
+    let rawBodyText = "";
+    if (bodyEl) {
+      try {
+        if (bodyEl.cloneNode) {
+          const clone = bodyEl.cloneNode(true);
+          const moreEls = clone.querySelectorAll ? clone.querySelectorAll(".cuf-more, [class*='cuf-more']") : [];
+          for (let mi = 0; mi < moreEls.length; mi++) {
+            const m = moreEls[mi];
+            if (m.remove) m.remove();
+            else if (m.parentNode) m.parentNode.removeChild(m);
+          }
+          rawBodyText = txt(clone);
+        } else {
+          rawBodyText = txt(bodyEl);
+        }
+      } catch (e) {
+        rawBodyText = txt(bodyEl);
+      }
+    } else {
+      rawBodyText = txt(a);
+    }
+    const body = cleanBody(rawBodyText);
     const timestamp = extractTimestamp(a, named, author);
 
     const summary = extractSummary(body);

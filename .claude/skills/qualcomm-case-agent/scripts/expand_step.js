@@ -101,19 +101,57 @@
     ? { author: txt(articles[0].querySelector('a')), bodyStart: bodyOf(articles[0]).slice(0, 80) }
     : null;
 
-  // A post keeps its "Expand Post" anchor in the DOM after it expands (Chatter
-  // only hides it), and a hidden-but-laid-out anchor still matches byText — so
-  // matching on the control alone counted 11 "pending" controls on a feed with
-  // 3 collapsed posts, re-clicked all 11 every tick, and the tick loop could
-  // never reach an idle tick. Gate on the one signal that means the content is
-  // genuinely still hidden: the post body itself ends with the control's label.
-  var collapsedArticle = function (art) { return !!art && /Expand Post\s*$/i.test(bodyOf(art)); };
-  var expandControls = byText('a, button', /^Expand Post$/i)
-    .filter(function (e) { return collapsedArticle(e.closest('article')); });
+  var isVisible = function (el) {
+    if (!el) return false;
+    var cls = el.className || '';
+    if (typeof cls === 'string' && /\b(hidden|fadeOut)\b/i.test(cls)) return false;
+    if (el.classList) {
+      if (el.classList.contains('hidden') || el.classList.contains('fadeOut')) return false;
+    }
+    if (el.closest) {
+      var hiddenAncestor = el.closest('.hidden, .fadeOut, [style*="display: none"], [style*="display:none"]');
+      if (hiddenAncestor) return false;
+    }
+    if (el.style) {
+      if (el.style.display === 'none' || el.style.visibility === 'hidden' || el.style.opacity === '0') return false;
+    }
+    if (typeof window !== 'undefined' && window.getComputedStyle) {
+      try {
+        var style = window.getComputedStyle(el);
+        if (style && (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')) return false;
+      } catch (e) {}
+    }
+    if (el.offsetParent === null && (!el.style || el.style.position !== 'fixed')) {
+      return false;
+    }
+    return true;
+  };
+
+  // Filter expand controls to genuinely visible and active controls inside an article.
+  var expandControls = qsa('.cuf-more, [class*="cuf-more"], a, button')
+    .filter(function (e) {
+      var isExpandText = /^Expand Post$/i.test(txt(e));
+      var isCufMore = e.className && /\bcuf-more\b/.test(e.className);
+      if (!isExpandText && !isCufMore) return false;
+      if (!e.closest('article')) return false;
+      return isVisible(e);
+    })
+    .filter(function (e, idx, arr) {
+      return !arr.some(function (other) {
+        if (other === e) return false;
+        if (other.contains) return other.contains(e);
+        var p = e.parentElement || e.parent;
+        while (p) {
+          if (p === other) return true;
+          p = p.parentElement || p.parent;
+        }
+        return false;
+      });
+    });
   // Nested-reply pagination is NEVER anchor-skipped: a reply added to an OLD
   // post renders as an <article> BELOW the anchor, so skipping it there is how
   // a new reply stays invisible to every update run (case 08503838).
-  var moreCommentControls = deepByText('a, button', /^(view\s+)?\d*\s*more\s+comments?$/i);
+  var moreCommentControls = deepByText('a, button', /^(view\s+)?\d*\s*more\s+comments?$/i).filter(isVisible);
 
   // Baseline = the posts on screen BEFORE this run expanded anything, kept on
   // `window` across ticks (same tab, no reload mid-expansion). PROBE ticks keep

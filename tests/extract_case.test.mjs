@@ -25,6 +25,16 @@ try {
   // Will be populated when switch_tab.js is created
 }
 
+let CHECK_COLLAPSED_SCRIPT = '';
+try {
+  CHECK_COLLAPSED_SCRIPT = readFileSync(
+    fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/check_collapsed.js', import.meta.url)),
+    'utf8'
+  );
+} catch {
+  // Optional
+}
+
 /**
  * Creates a lightweight mock DOM node hierarchy for testing extraction and expansion scripts.
  */
@@ -32,12 +42,51 @@ function createMockElement(tag, attrs = {}, text = '') {
   const children = [];
   const classList = new Set((attrs.className || attrs.class || '').split(/\s+/).filter(Boolean));
   let parent = null;
+  const style = attrs.style ? { ...attrs.style } : {};
 
   const elem = {
     tagName: tag.toUpperCase(),
     attributes: { ...attrs, class: attrs.className || attrs.class || '' },
     id: attrs.id || '',
     className: attrs.className || attrs.class || '',
+    classList: {
+      contains(cls) { return classList.has(cls); },
+      add(cls) { classList.add(cls); elem.className = Array.from(classList).join(' '); },
+      remove(cls) { classList.delete(cls); elem.className = Array.from(classList).join(' '); },
+    },
+    style,
+    offsetParent: attrs.offsetParent !== undefined ? attrs.offsetParent : undefined,
+    contains(other) {
+      let cur = other;
+      while (cur) {
+        if (cur === this) return true;
+        cur = cur.parent || cur.parentElement;
+      }
+      return false;
+    },
+    cloneNode(deep = false) {
+      const cloned = createMockElement(this.tagName.toLowerCase(), { ...this.attributes, className: this.className, id: this.id, style: { ...this.style } }, text);
+      if (!deep) return cloned;
+      for (const child of children) {
+        cloned.appendChild(child.cloneNode(true));
+      }
+      return cloned;
+    },
+    remove() {
+      if (this.parent) {
+        const idx = this.parent.children.indexOf(this);
+        if (idx >= 0) this.parent.children.splice(idx, 1);
+        this.parent = null;
+        this.parentElement = null;
+      }
+    },
+    removeChild(child) {
+      const idx = children.indexOf(child);
+      if (idx >= 0) children.splice(idx, 1);
+      child.parent = null;
+      child.parentElement = null;
+      return child;
+    },
     get innerText() {
       if (text) return text;
       return children.map(c => c.innerText || c.textContent || '').join(' ').trim();
@@ -61,6 +110,12 @@ function createMockElement(tag, attrs = {}, text = '') {
     },
     scrollIntoView() {},
     getAttribute(name) {
+      if (name === 'style') {
+        if (typeof this.attributes.style === 'string') return this.attributes.style;
+        if (this.style && typeof this.style === 'object') {
+          return Object.entries(this.style).map(([k, v]) => `${k}: ${v}`).join('; ');
+        }
+      }
       return this.attributes[name] || null;
     },
     setAttribute(name, val) {
@@ -89,8 +144,9 @@ function createMockElement(tag, attrs = {}, text = '') {
             const attrMatch = part.slice(1, -1).match(/^([a-zA-Z0-9_-]+)(?:([*^$]?=)(["']?)(.*?)\3)?$/);
             if (attrMatch) {
               const [, attr, op, , val] = attrMatch;
-              const curVal = this.getAttribute(attr);
-              if (curVal === null) { matchAll = false; break; }
+              const rawVal = this.getAttribute(attr);
+              if (rawVal === null) { matchAll = false; break; }
+              const curVal = String(rawVal);
               if (op === '=' && curVal !== val) { matchAll = false; break; }
               if (op === '*=' && !curVal.includes(val)) { matchAll = false; break; }
               if (op === '^=' && !curVal.startsWith(val)) { matchAll = false; break; }
@@ -703,4 +759,126 @@ test('expand_step.js DOM expansion engine', async (t) => {
     assert.equal(moreCommentsClicked, true);
   });
 
+  await t.test('does not dispatch clicks to hidden expand controls (.cuf-more.hidden or display:none)', () => {
+    const doc = createMockDocument();
+
+    // Article with hidden .cuf-more / hidden Expand Post control
+    const art = createMockElement('article', { id: 'art_hidden' });
+    const authorA = createMockElement('a', {}, 'Engineer');
+    const expandBtn = createMockElement('a', { className: 'cuf-more hidden' }, 'Expand Post');
+    const bodyEl = createMockElement('div', { className: 'feedBodyInner' }, 'Fully expanded post content.');
+    art.appendChild(authorA);
+    art.appendChild(expandBtn);
+    art.appendChild(bodyEl);
+    doc.body.appendChild(art);
+
+    let clicked = false;
+    expandBtn.onclick = () => { clicked = true; };
+
+    const probeResult = runInMockContext(EXPAND_SCRIPT, { doc, probe: true });
+    assert.equal(probeResult.pendingExpand, 0);
+
+    const execResult = runInMockContext(EXPAND_SCRIPT, { doc, probe: false });
+    assert.equal(execResult.clickedExpand, 0);
+    assert.equal(clicked, false);
+  });
 });
+
+test('check_collapsed.js DOM collapse detection engine', async (t) => {
+  await t.test('returns stillCollapsed: 0 when all .cuf-more elements are hidden (.hidden / .fadeOut / display: none / offsetParent: null)', () => {
+    if (!CHECK_COLLAPSED_SCRIPT) return;
+    const doc = createMockDocument();
+
+    // 1. Article with .hidden class on .cuf-more
+    const art1 = createMockElement('article', { id: 'art1' });
+    const body1 = createMockElement('div', { className: 'feedBodyInner' }, 'Expanded text 1');
+    const more1 = createMockElement('a', { className: 'cuf-more hidden' }, 'Expand Post');
+    art1.appendChild(body1);
+    art1.appendChild(more1);
+    doc.body.appendChild(art1);
+
+    // 2. Article with display: none style
+    const art2 = createMockElement('article', { id: 'art2' });
+    const body2 = createMockElement('div', { className: 'feedBodyInner' }, 'Expanded text 2');
+    const more2 = createMockElement('a', { className: 'cuf-more', style: { display: 'none' } }, 'Expand Post');
+    art2.appendChild(body2);
+    art2.appendChild(more2);
+    doc.body.appendChild(art2);
+
+    // 3. Article with offsetParent === null
+    const art3 = createMockElement('article', { id: 'art3' });
+    const body3 = createMockElement('div', { className: 'feedBodyInner' }, 'Expanded text 3');
+    const more3 = createMockElement('a', { className: 'cuf-more', offsetParent: null }, 'Expand Post');
+    art3.appendChild(body3);
+    art3.appendChild(more3);
+    doc.body.appendChild(art3);
+
+    // 4. Article with .fadeOut class
+    const art4 = createMockElement('article', { id: 'art4' });
+    const body4 = createMockElement('div', { className: 'feedBodyInner' }, 'Expanded text 4');
+    const more4 = createMockElement('a', { className: 'cuf-more fadeOut' }, 'Expand Post');
+    art4.appendChild(body4);
+    art4.appendChild(more4);
+    doc.body.appendChild(art4);
+
+    const result = runInMockContext(CHECK_COLLAPSED_SCRIPT, { doc });
+    assert.equal(result.stillCollapsed, 0);
+  });
+
+  await t.test('returns stillCollapsed: 1 when an article contains a genuinely visible expand control', () => {
+    if (!CHECK_COLLAPSED_SCRIPT) return;
+    const doc = createMockDocument();
+
+    const art = createMockElement('article', { id: 'art_visible' });
+    const body = createMockElement('div', { className: 'feedBodyInner' }, 'Truncated teaser');
+    const more = createMockElement('a', { className: 'cuf-more' }, 'Expand Post');
+    art.appendChild(body);
+    art.appendChild(more);
+    doc.body.appendChild(art);
+
+    const result = runInMockContext(CHECK_COLLAPSED_SCRIPT, { doc });
+    assert.equal(result.stillCollapsed, 1);
+  });
+});
+
+test('extract_case.js cleans trailing Expand Post and .cuf-more elements from comment body and summary', async (t) => {
+  await t.test('strips .cuf-more DOM element text and trailing Expand Post marker from comments and summaries', () => {
+    const doc = createMockDocument();
+    doc.title = 'Case: 08316063 - QXDM crash on modem attach';
+
+    const art1 = createMockElement('article', { id: 'post_1' });
+    const author1 = createMockElement('a', {}, 'Test Engineer');
+    const bodyContainer1 = createMockElement('div', { className: 'feedBodyInner' });
+    const bodyText1 = createMockElement('span', {}, 'Device failed to register to 5G Standalone network with cause code 111.\nPlease inspect modem log.');
+    const cufMore1 = createMockElement('a', { className: 'cuf-more hidden' }, 'Expand Post');
+    bodyContainer1.appendChild(bodyText1);
+    bodyContainer1.appendChild(cufMore1);
+    art1.appendChild(author1);
+    art1.appendChild(bodyContainer1);
+    doc.body.appendChild(art1);
+
+    const art2 = createMockElement('article', { id: 'post_2' });
+    const author2 = createMockElement('a', {}, 'Qualcomm Support');
+    const bodyContainer2 = createMockElement('div', { className: 'feedBodyInner' }, 'We are reviewing the trace.\n\nExpand Post');
+    art2.appendChild(author2);
+    art2.appendChild(bodyContainer2);
+    doc.body.appendChild(art2);
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+
+    assert.equal(result.comments.length, 2);
+
+    const c1 = result.comments[0];
+    assert.equal(c1.body.includes('Expand Post'), false);
+    assert.equal(c1.summary.includes('Expand Post'), false);
+    assert.equal(c1.body, 'Device failed to register to 5G Standalone network with cause code 111.\nPlease inspect modem log.');
+    assert.equal(c1.summary, 'Device failed to register to 5G Standalone network with cause code 111. Please inspect modem log.');
+
+    const c2 = result.comments[1];
+    assert.equal(c2.body.includes('Expand Post'), false);
+    assert.equal(c2.summary.includes('Expand Post'), false);
+    assert.equal(c2.body, 'We are reviewing the trace.');
+    assert.equal(c2.summary, 'We are reviewing the trace.');
+  });
+});
+

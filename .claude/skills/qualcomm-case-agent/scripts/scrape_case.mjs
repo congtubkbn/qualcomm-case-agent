@@ -237,7 +237,7 @@ export function isBlacklistedTs(s) {
  */
 export function extractSummary(body) {
   if (!body || typeof body !== 'string') return '';
-  let text = body.trim();
+  let text = body.replace(/\s*Expand Post\s*$/i, '').trim();
   // Strip common salutation lines (Dear ..., Hi ..., Hello ..., etc.)
   text = text.replace(/^(?:(?:dear|hi|hello|hey|good\s+(?:morning|afternoon|evening))\b[^\n,:]*[,\n:]*)+/i, '').trim();
   if (!text) return '';
@@ -253,7 +253,7 @@ export function extractSummary(body) {
   if (summary.length > 300) {
     summary = summary.slice(0, 297) + '...';
   }
-  return summary;
+  return summary.replace(/\s*Expand Post\s*$/i, '').trim();
 }
 
 /**

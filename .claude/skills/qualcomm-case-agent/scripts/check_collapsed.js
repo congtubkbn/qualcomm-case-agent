@@ -51,9 +51,46 @@
     return !baseline || baseline.indexOf(prefixes[idx]) >= 0;
   };
 
+  var isVisible = function (el) {
+    if (!el) return false;
+    var cls = el.className || '';
+    if (typeof cls === 'string' && /\b(hidden|fadeOut)\b/i.test(cls)) return false;
+    if (el.classList) {
+      if (el.classList.contains('hidden') || el.classList.contains('fadeOut')) return false;
+    }
+    if (el.closest) {
+      var hiddenAncestor = el.closest('.hidden, .fadeOut, [style*="display: none"], [style*="display:none"]');
+      if (hiddenAncestor) return false;
+    }
+    if (el.style) {
+      if (el.style.display === 'none' || el.style.visibility === 'hidden' || el.style.opacity === '0') return false;
+    }
+    if (typeof window !== 'undefined' && window.getComputedStyle) {
+      try {
+        var style = window.getComputedStyle(el);
+        if (style && (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')) return false;
+      } catch (e) {}
+    }
+    if (el.offsetParent === null && (!el.style || el.style.position !== 'fixed')) {
+      return false;
+    }
+    return true;
+  };
+
+  var isArticleCollapsed = function (art) {
+    if (!art) return false;
+    var controls = qsa('.cuf-more, [class*="cuf-more"], a, button', art).filter(function (el) {
+      return (el.className && /\bcuf-more\b/.test(el.className)) || /^Expand Post$/i.test(txt(el));
+    });
+    for (var i = 0; i < controls.length; i++) {
+      if (isVisible(controls[i])) return true;
+    }
+    return false;
+  };
+
   var stillCollapsed = articles.reduce(function (n, art, idx) {
     if (skipAsCached(idx)) return n;
-    return /Expand Post\s*$/i.test(bodyOf(art)) ? n + 1 : n;
+    return isArticleCollapsed(art) ? n + 1 : n;
   }, 0);
 
   // Same class of issue as "Expand Post": fire()'s synthetic events can no-op
@@ -76,7 +113,7 @@
       var all = root.querySelectorAll('*');
       for (var i = 0; i < all.length; i++) {
         var el = all[i];
-        if (el.matches && el.matches(sel) && re.test(txt(el))) out.push(el);
+        if (el.matches && el.matches(sel) && re.test(txt(el)) && isVisible(el)) out.push(el);
         if (el.shadowRoot) scan(el.shadowRoot);
       }
     })(document);
