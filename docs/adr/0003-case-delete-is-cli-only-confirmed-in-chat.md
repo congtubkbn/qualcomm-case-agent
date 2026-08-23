@@ -11,11 +11,12 @@ was built around.
 
 Deletion instead lives as a new script owned by `qualcomm-case-agent` (the data owner; `case.json`
 is an "individual case file" the read-only `qualcomm-case-overview` explicitly may not touch). The
-dashboard's "Delete" affordance copies a natural-language instruction (e.g. "xóa case 08603854
-khỏi cache local") to the clipboard for the user to paste into the Claude Code chat, rather than
-copying the literal CLI invocation. This is deliberate: it forces every delete through the agent,
-which asks for confirmation before running the script with `--yes`. A copied CLI command
-containing `--yes` could be pasted straight into a terminal and skip confirmation entirely.
+dashboard's "Delete" affordance (a separate, follow-up ticket) is to copy a natural-language
+instruction (e.g. "xóa case 08603854 khỏi cache local") to the clipboard for the user to paste into
+the Claude Code chat, rather than copying the literal CLI invocation. This is deliberate: it forces
+every delete through the agent, which asks for confirmation before running the script with `--yes`.
+A copied CLI command containing `--yes` could be pasted straight into a terminal and skip
+confirmation entirely.
 
 ## Considered Options
 

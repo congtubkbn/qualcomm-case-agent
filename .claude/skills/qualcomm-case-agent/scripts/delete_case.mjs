@@ -19,6 +19,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
+import { normalizeCaseCode } from './intake.mjs';
 import { acquireLock, releaseLock } from './lock.mjs';
 import { updateCaseOverview } from '../../qualcomm-case-overview/scripts/cases_overview.mjs';
 
@@ -34,9 +35,11 @@ export const STATUS_EXIT = {
  * @returns {{status: 'deleted'|'not-found'|'error', code?: string, reason?: string}}
  */
 export function deleteCase(rawCode, dataDir = DATA_DIR) {
-  const code = String(rawCode ?? '').trim().replace(/^CASE-/i, '');
-  if (!/^\d{8}$/.test(code)) {
-    return { status: 'error', reason: `case code must be 8 digits (got: ${rawCode})` };
+  let code;
+  try {
+    code = normalizeCaseCode(rawCode);
+  } catch (e) {
+    return { status: 'error', reason: e.message };
   }
 
   const caseDir = join(dataDir, code);
@@ -75,11 +78,20 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(STATUS_EXIT.error);
   }
 
-  const lock = acquireLock(undefined, Date.now(), rawCode);
+  let code;
+  try {
+    code = normalizeCaseCode(rawCode);
+  } catch (e) {
+    const verdict = { status: 'error', code: rawCode, reason: e.message };
+    process.stdout.write(JSON.stringify(verdict) + '\n');
+    process.exit(STATUS_EXIT.error);
+  }
+
+  const lock = acquireLock(undefined, Date.now(), code);
   if (!lock.ok) {
     const verdict = {
       status: 'busy',
-      code: rawCode,
+      code,
       reason: `another capture is running (pid ${lock.holder.pid} since ${lock.holder.at})`,
     };
     process.stdout.write(JSON.stringify(verdict) + '\n');
@@ -88,9 +100,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
   let verdict;
   try {
-    verdict = deleteCase(rawCode);
+    verdict = deleteCase(code);
   } catch (e) {
-    verdict = { status: 'error', code: rawCode, reason: e.message };
+    verdict = { status: 'error', code, reason: e.message };
   } finally {
     releaseLock();
   }
