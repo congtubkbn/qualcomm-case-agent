@@ -1,6 +1,6 @@
 // Tests for delete_case.mjs — permanent, agent-confirmed case cache removal.
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -96,5 +96,55 @@ describe('deleteCase', () => {
     const dashboardHtml = readFileSync(join(dataDir, 'dashboard.html'), 'utf8');
     assert.equal(dashboardHtml.includes('08603854'), false);
     assert.equal(dashboardHtml.includes('08611111'), true);
+  });
+
+  it('cleans up a case still listed in _index.json/_overview.json/dashboard.html after its directory vanished out-of-band', () => {
+    const dataDir = createTempCasesDir();
+    seedCase(dataDir, '08603854');
+    seedCase(dataDir, '08611111');
+    writeFileSync(join(dataDir, '_index.json'), JSON.stringify({
+      '08603854': { syncedAt: '2026-01-01T00:00:00.000Z', commentCount: 2, hash: 'abc' },
+      '08611111': { syncedAt: '2026-01-02T00:00:00.000Z', commentCount: 1, hash: 'def' },
+    }, null, 2), 'utf8');
+
+    // Simulate the directory disappearing WITHOUT going through deleteCase
+    // (manual rm, another tool, a crash mid-op) while stale entries remain.
+    rmSync(join(dataDir, '08603854'), { recursive: true, force: true });
+    // Re-seed it into _overview.json/dashboard.html the way a prior successful
+    // sync would have left them (mirrors production: overview was built while
+    // the dir still existed, then the dir vanished afterward).
+    writeFileSync(join(dataDir, '_overview.json'), JSON.stringify({
+      cases: [
+        { caseNumber: '08603854', title: 'Case 08603854', status: 'Open' },
+        { caseNumber: '08611111', title: 'Case 08611111', status: 'Open' },
+      ],
+      stats: { total: 2, byStatus: { Open: 2 }, lastUpdated: '2026-01-01T00:00:00.000Z' },
+    }, null, 2), 'utf8');
+    writeFileSync(join(dataDir, 'dashboard.html'), '<html>08603854 08611111</html>', 'utf8');
+
+    const result = deleteCase('08603854', dataDir);
+
+    assert.equal(result.status, 'deleted');
+
+    const index = JSON.parse(readFileSync(join(dataDir, '_index.json'), 'utf8'));
+    assert.equal('08603854' in index, false);
+
+    const overview = JSON.parse(readFileSync(join(dataDir, '_overview.json'), 'utf8'));
+    assert.equal(overview.cases.some(c => c.caseNumber === '08603854'), false);
+    assert.equal(overview.cases.some(c => c.caseNumber === '08611111'), true);
+
+    const dashboardHtml = readFileSync(join(dataDir, 'dashboard.html'), 'utf8');
+    assert.equal(dashboardHtml.includes('08603854'), false);
+  });
+
+  it('still returns "not-found" without writing any file when the code has no trace anywhere', () => {
+    const dataDir = createTempCasesDir();
+    seedCase(dataDir, '08603854');
+
+    const result = deleteCase('08699999', dataDir);
+
+    assert.equal(result.status, 'not-found');
+    assert.equal(existsSync(join(dataDir, '_index.json')), false);
+    assert.equal(existsSync(join(dataDir, '_overview.json')), false);
   });
 });

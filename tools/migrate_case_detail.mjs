@@ -201,12 +201,12 @@ export function migrateCaseDetailJson(jsonPath, overrides = {}, options = {}) {
     spawnSync(process.execPath, [RENDER_SCRIPT, jsonPath], { encoding: 'utf8' });
   }
 
-  // Update _index.json if present
+  // Update _index.json if present alongside jsonPath — never fall back to the
+  // real DATA_CASES_DIR when migrating an out-of-tree (e.g. test fixture)
+  // case.json, or that fallback silently writes fixture data into production.
   const caseCode = updatedCase.caseNumber || basename(dirname(jsonPath));
   const candidateIndex = options.indexPath || join(dirname(dirname(jsonPath)), '_index.json');
-  const indexPath = existsSync(candidateIndex)
-    ? candidateIndex
-    : (existsSync(join(DATA_CASES_DIR, '_index.json')) ? join(DATA_CASES_DIR, '_index.json') : null);
+  const indexPath = existsSync(candidateIndex) ? candidateIndex : null;
 
   if (indexPath && existsSync(indexPath)) {
     try {
@@ -246,7 +246,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const flags = parseDetailFlags(args);
 
   const targets = [];
+  // Only a bare code / "all" resolves into the real DATA_CASES_DIR; an
+  // explicit path (a test fixture, a one-off file elsewhere) must not
+  // trigger the real-overview refresh below.
+  let usingRealDataDir = false;
   if (!targetArg || targetArg === 'all') {
+    usingRealDataDir = true;
     if (existsSync(DATA_CASES_DIR)) {
       for (const entry of readdirSync(DATA_CASES_DIR)) {
         const full = join(DATA_CASES_DIR, entry, 'case.json');
@@ -254,6 +259,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       }
     }
   } else if (/^\d{8}$/.test(targetArg)) {
+    usingRealDataDir = true;
     targets.push(join(DATA_CASES_DIR, targetArg, 'case.json'));
   } else {
     targets.push(resolve(targetArg));
@@ -276,8 +282,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
   }
 
-  // Refresh overview if present
-  if (existsSync(OVERVIEW_SCRIPT)) {
+  // Refresh overview if present — only when we actually operated on the real
+  // DATA_CASES_DIR (bare code / "all"); an explicit out-of-tree path must not
+  // touch the real _overview.json/dashboard.html.
+  if (usingRealDataDir && existsSync(OVERVIEW_SCRIPT)) {
     try {
       spawnSync(process.execPath, [OVERVIEW_SCRIPT], { encoding: 'utf8' });
       console.log('Refreshed case overview and dashboard.');

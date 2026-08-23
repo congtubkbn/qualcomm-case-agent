@@ -207,4 +207,27 @@ describe('tools/migrate_case_detail.mjs - Unit & Migration tests (Slice 3)', () 
     assert.equal(saved1.contactName, 'Mai Ngoc');
     assert.equal(saved1.customerProject, 'A236E');
   });
+
+  it('never falls back to the real repo data/cases/_index.json when the fixture tree has no local index', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'qc-detail-noindex-'));
+    const caseDir = join(tmp, '08600321');
+    mkdirSync(caseDir, { recursive: true });
+    writeFileSync(join(caseDir, 'case.json'), JSON.stringify({
+      caseNumber: '08600321',
+      title: 'Fixture with no sibling _index.json',
+      comments: [{ id: 'c1', author: 'Tester', timestamp: '2026-01-01', body: 'x' }],
+    }), 'utf8');
+
+    const realIndexPath = fileURLToPath(new URL('../data/cases/_index.json', import.meta.url));
+    const realIndexBefore = existsSync(realIndexPath) ? readFileSync(realIndexPath, 'utf8') : null;
+
+    const result = migrateCaseDetailJson(join(caseDir, 'case.json'), {});
+
+    assert.equal(result.ok, true);
+    // No index anywhere in the fixture tree — migration must not invent one.
+    assert.equal(existsSync(join(tmp, '_index.json')), false);
+    // The real repo's index must be byte-for-byte unchanged.
+    const realIndexAfter = existsSync(realIndexPath) ? readFileSync(realIndexPath, 'utf8') : null;
+    assert.equal(realIndexAfter, realIndexBefore);
+  });
 });

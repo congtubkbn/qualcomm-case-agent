@@ -305,5 +305,27 @@ describe('tools/migrate_case.mjs - Integration tests (Slice 2)', () => {
     assert.equal(res2.commentCount, 2);
     assert.equal(res2.hash, res.hash);
   });
+
+  it('never falls back to the real repo data/cases/_index.json when the fixture tree has no local index', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'qc-mig-noindex-'));
+    const caseDir = join(dir, '08600321');
+    mkdirSync(caseDir, { recursive: true });
+    const jsonPath = join(caseDir, 'case.json');
+    writeFileSync(jsonPath, JSON.stringify({
+      caseNumber: '08600321',
+      title: 'Fixture with no sibling _index.json',
+      comments: [{ id: 'c1', author: 'Tester', timestamp: '2026-01-01', body: 'x' }],
+    }, null, 2), 'utf8');
+
+    const realIndexPath = fileURLToPath(new URL('../data/cases/_index.json', import.meta.url));
+    const realIndexBefore = existsSync(realIndexPath) ? readFileSync(realIndexPath, 'utf8') : null;
+
+    const res = migrateCaseJson(jsonPath);
+
+    assert.equal(res.ok, true);
+    assert.equal(existsSync(join(dir, '_index.json')), false);
+    const realIndexAfter = existsSync(realIndexPath) ? readFileSync(realIndexPath, 'utf8') : null;
+    assert.equal(realIndexAfter, realIndexBefore);
+  });
 });
 

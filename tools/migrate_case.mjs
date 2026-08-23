@@ -133,12 +133,12 @@ export function migrateCaseJson(jsonPath, options = {}) {
   // Re-render case.md
   spawnSync(process.execPath, [RENDER_SCRIPT, jsonPath], { encoding: 'utf8' });
 
-  // Update _index.json if present
+  // Update _index.json if present alongside jsonPath — never fall back to the
+  // real DATA_CASES_DIR when migrating an out-of-tree (e.g. test fixture)
+  // case.json, or that fallback silently writes fixture data into production.
   const caseCode = updatedCase.caseNumber || basename(dirname(jsonPath));
   const candidateIndex = options.indexPath || join(dirname(dirname(jsonPath)), '_index.json');
-  const indexPath = existsSync(candidateIndex)
-    ? candidateIndex
-    : (existsSync(join(DATA_CASES_DIR, '_index.json')) ? join(DATA_CASES_DIR, '_index.json') : null);
+  const indexPath = existsSync(candidateIndex) ? candidateIndex : null;
 
   if (indexPath && existsSync(indexPath)) {
     try {

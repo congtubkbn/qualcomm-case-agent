@@ -32,6 +32,12 @@ export const STATUS_EXIT = {
  * then resync the qualcomm-case-overview aggregation/dashboard. Pure fs
  * operations against an injectable dataDir — no browser, no lock, no CLI
  * parsing (that's the thin wrapper below).
+ *
+ * The directory may already be gone (deleted out-of-band, outside this
+ * script) while `_index.json`/`_overview.json`/`dashboard.html` still list
+ * it — in that case this still cleans up those stale entries and reports
+ * "deleted", since the end state the caller wants (case gone everywhere,
+ * including the dashboard) is reached either way.
  * @returns {{status: 'deleted'|'not-found'|'error', code?: string, reason?: string}}
  */
 export function deleteCase(rawCode, dataDir = DATA_DIR) {
@@ -43,17 +49,18 @@ export function deleteCase(rawCode, dataDir = DATA_DIR) {
   }
 
   const caseDir = join(dataDir, code);
-  if (!existsSync(caseDir)) {
-    return { status: 'not-found', code, reason: `no local cache for case ${code}` };
+  const dirExisted = existsSync(caseDir);
+  if (dirExisted) {
+    rmSync(caseDir, { recursive: true, force: true });
   }
 
-  rmSync(caseDir, { recursive: true, force: true });
-
   const indexPath = join(dataDir, '_index.json');
+  let hadIndexEntry = false;
   if (existsSync(indexPath)) {
     try {
       const index = JSON.parse(readFileSync(indexPath, 'utf8'));
-      if (Object.prototype.hasOwnProperty.call(index, code)) {
+      hadIndexEntry = Object.prototype.hasOwnProperty.call(index, code);
+      if (hadIndexEntry) {
         delete index[code];
         writeFileSync(indexPath, JSON.stringify(index, null, 2), 'utf8');
       }
@@ -61,6 +68,21 @@ export function deleteCase(rawCode, dataDir = DATA_DIR) {
       // Corrupt _index.json is not this function's problem to fix; the
       // directory delete (the primary effect) already succeeded.
     }
+  }
+
+  const overviewPath = join(dataDir, '_overview.json');
+  let hadOverviewEntry = false;
+  if (existsSync(overviewPath)) {
+    try {
+      const overview = JSON.parse(readFileSync(overviewPath, 'utf8'));
+      hadOverviewEntry = Array.isArray(overview.cases) && overview.cases.some((c) => c.caseNumber === code);
+    } catch {
+      // Corrupt _overview.json: updateCaseOverview below rebuilds it anyway.
+    }
+  }
+
+  if (!dirExisted && !hadIndexEntry && !hadOverviewEntry) {
+    return { status: 'not-found', code, reason: `no local cache for case ${code}` };
   }
 
   updateCaseOverview(code, dataDir);
