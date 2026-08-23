@@ -112,6 +112,27 @@ export async function createMockCdpServer(options = {}) {
       return;
     }
 
+    if (url.pathname === '/json/new' || url.pathname.startsWith('/json/new')) {
+      const port = server.address().port;
+      const targetUrl = url.search ? decodeURIComponent(url.search.slice(1)) : 'about:blank';
+      const targetId = `page-mock-new-${Date.now()}`;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        id: targetId,
+        type: 'page',
+        title: 'Qualcomm Support',
+        url: targetUrl,
+        webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/${targetId}`,
+      }));
+      return;
+    }
+
+    if (url.pathname.startsWith('/json/activate/')) {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('Target activated');
+      return;
+    }
+
     res.writeHead(404);
     res.end();
   });

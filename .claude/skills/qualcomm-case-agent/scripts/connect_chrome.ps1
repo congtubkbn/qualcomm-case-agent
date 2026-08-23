@@ -27,7 +27,8 @@
 param(
   [int]$Port = 9222,
   [string]$Profile = "",   # default resolved below via _paths.ps1 (project-root, NOT CWD)
-  [string]$ChromePath = ""
+  [string]$ChromePath = "",
+  [string]$Url = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -122,6 +123,9 @@ $chromeArgs = @(
   "--restore-last-session",
   "--user-data-dir=`"$Profile`""
 )
+if ($Url) {
+  $chromeArgs += "`"$Url`""
+}
 Start-Process -FilePath $chrome -ArgumentList $chromeArgs
 
 # Poll until the CDP port is up (Chrome can take a couple seconds cold).
