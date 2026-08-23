@@ -284,6 +284,59 @@ describe('cases_overview_render: renderCliTable', () => {
     const output = renderCliTable(data);
     assert.ok(output.includes('Raised by: John Creator'), 'Should contain Raised by: John Creator');
   });
+
+  it('renders Customer Project and opened timestamp in CLI summary table', () => {
+    const data = {
+      cases: [
+        {
+          caseNumber: '08550063',
+          title: '5G SA Attach issue',
+          status: 'Open',
+          product: 'SM7635',
+          customerProject: 'Titan-5G',
+          raisedBy: 'Mai Ngoc',
+          openedAt: '2026-08-18 10:00',
+          commentCount: 3,
+        },
+      ],
+      stats: { total: 1, byStatus: { Open: 1 } },
+    };
+    const output = renderCliTable(data);
+    assert.ok(output.includes('Project: Titan-5G'), 'CLI output should include Project: Titan-5G');
+    assert.ok(output.includes('Raised by: Mai Ngoc'), 'CLI output should include Raised by: Mai Ngoc');
+    assert.ok(output.includes('Opened: 2026-08-18 10:00'), 'CLI output should include Opened: 2026-08-18 10:00');
+  });
+});
+
+describe('cases_overview_render: dashboard HTML Detail fields rendering', () => {
+  it('renders Customer Project badge, opened timestamp, and search tokens in dashboard HTML', () => {
+    const data = {
+      cases: [
+        {
+          caseNumber: '08550063',
+          title: '5G SA Attach issue',
+          status: 'Open',
+          priority: '2 - High',
+          product: 'SM7635',
+          customerProject: 'Titan-5G',
+          contactName: 'Mai Ngoc',
+          raisedBy: 'Mai Ngoc',
+          openedAt: '2026-08-18 10:00',
+          syncedAt: '2026-08-22T23:18:35.894Z',
+          commentCount: 3,
+          latestComments: [],
+        },
+      ],
+      stats: { total: 1, byStatus: { Open: 1 }, lastUpdated: '2026-08-23T06:00:00.000Z' },
+    };
+    const html = renderDashboardHtml(data);
+    assert.ok(html.includes('badge-project'), 'Must render badge-project CSS class');
+    assert.ok(html.includes('Titan-5G'), 'Must render Titan-5G project name');
+    assert.ok(html.includes('Raised by: Mai Ngoc'), 'Must render Raised by: Mai Ngoc in meta-row');
+    assert.ok(html.includes('Project: Titan-5G'), 'Must render Project: Titan-5G in meta-row');
+    assert.ok(html.includes('Opened: 2026-08-18 10:00'), 'Must render Opened: 2026-08-18 10:00 in meta-row');
+    assert.ok(html.includes('data-search="08550063 5G SA Attach issue SM7635 Titan-5G Mai Ngoc Mai Ngoc Open 2 - High 2026-08-18 10:00"'), 'Search index must include project, contact, and openedAt');
+  });
 });
 
 describe('cases_overview_render: CLI integration for HTML & dashboard', () => {

@@ -128,6 +128,40 @@ describe('render_case: case.md content structure', () => {
     assert.match(md, /\*\*Attachments:\*\* \[mask_config\.cfg\]\(https:\/\/support\.qualcomm\.com\/f\/cfg123\), \[readme\.txt\]\(https:\/\/support\.qualcomm\.com\/f\/txt123\)/);
   });
 
+  it('renders Salesforce Detail tab metadata (Contact Name, Customer Project, Date Opened, Date Closed, Related CRs, Case Record Type)', () => {
+    const detailCase = {
+      caseNumber: '08550063',
+      title: '5G NR throughput drop on SA network',
+      status: 'Open',
+      priority: 'P2',
+      product: 'SM7635',
+      contactName: 'Mai Ngoc',
+      customerProject: 'Titan-5G',
+      accountName: 'OEM-Alpha',
+      customer: 'OEM-Alpha',
+      caseRecordType: 'External Case',
+      relatedCRs: 'CR3798678, CR3801234',
+      openedAt: '2026-08-18 10:00',
+      closedAt: '2026-08-20 15:30',
+      created: '2026-08-18 10:00',
+      updated: '2026-08-20 15:30',
+      comments: [
+        comment('Mai Ngoc', 'Initial issue description with logs.'),
+      ],
+    };
+
+    const r = renderFixture(detailCase);
+    assert.equal(r.exit, 0);
+    const md = r.md();
+
+    assert.match(md, /- \*\*Contact Name:\*\* Mai Ngoc/);
+    assert.match(md, /- \*\*Customer Project:\*\* Titan-5G/);
+    assert.match(md, /- \*\*Date Opened:\*\* 2026-08-18 10:00/);
+    assert.match(md, /- \*\*Date Closed:\*\* 2026-08-20 15:30/);
+    assert.match(md, /- \*\*Case Record Type:\*\* External Case/);
+    assert.match(md, /- \*\*Related CRs:\*\* CR3798678, CR3801234/);
+  });
+
   it('does not render obsolete enrichment / LLM sections', () => {
     const caseWithEnrich = {
       ...MINIMAL,

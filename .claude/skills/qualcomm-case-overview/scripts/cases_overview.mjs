@@ -135,6 +135,21 @@ export function extractCaseOverview(caseDir, caseNumber = '') {
     const status = caseJson.status || 'Unknown';
     const priority = caseJson.priority || '';
     const product = caseJson.product || extractProductFromTitle(title) || '';
+    const customerProject = (typeof caseJson.customerProject === 'string' && caseJson.customerProject.trim())
+      ? caseJson.customerProject.trim()
+      : '';
+    const openedAt = (typeof caseJson.openedAt === 'string' && caseJson.openedAt.trim())
+      ? caseJson.openedAt.trim()
+      : (typeof caseJson.created === 'string' ? caseJson.created.trim() : '');
+    const closedAt = (typeof caseJson.closedAt === 'string' && caseJson.closedAt.trim())
+      ? caseJson.closedAt.trim()
+      : '';
+    const contactName = (typeof caseJson.contactName === 'string' && caseJson.contactName.trim())
+      ? caseJson.contactName.trim()
+      : '';
+    const accountName = (typeof caseJson.accountName === 'string' && caseJson.accountName.trim())
+      ? caseJson.accountName.trim()
+      : (typeof caseJson.customer === 'string' ? caseJson.customer.trim() : '');
     const url = caseJson.url || '';
     const syncedAt = caseJson.extractedAt || caseJson.syncedAt || '';
 
@@ -164,12 +179,12 @@ export function extractCaseOverview(caseDir, caseNumber = '') {
       }
     }
 
-    // Opener / creator extraction
+    // Opener / creator extraction: strictly prioritize contactName / raisedBy from Detail tab
     const raisedBy =
-      caseJson.raisedBy ||
-      caseJson.creator ||
-      caseJson.contactName ||
-      caseJson.openedBy ||
+      contactName ||
+      (typeof caseJson.raisedBy === 'string' && caseJson.raisedBy.trim()) ||
+      (typeof caseJson.creator === 'string' && caseJson.creator.trim()) ||
+      (typeof caseJson.openedBy === 'string' && caseJson.openedBy.trim()) ||
       (rawComments.length > 0 && rawComments[0].author ? rawComments[0].author : '');
 
     // Summary extraction
@@ -195,6 +210,11 @@ export function extractCaseOverview(caseDir, caseNumber = '') {
       status,
       priority,
       product,
+      customerProject,
+      openedAt,
+      closedAt,
+      contactName,
+      accountName,
       raisedBy,
       url,
       syncedAt,
@@ -377,9 +397,12 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       c.caseNumber,
       c.title,
       c.product,
+      c.customerProject,
       c.raisedBy,
+      c.contactName,
       c.status,
       c.priority,
+      c.openedAt,
       c.aiSummary,
       ...(c.latestComments || []).map((cm) => `${cm.author} ${cm.snippet}`),
     ]
@@ -395,6 +418,12 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     let productBadge = '';
     if (escapedProduct) {
       productBadge = `<span class="badge badge-product">${escapedProduct}</span>`;
+    }
+
+    let projectBadge = '';
+    const escapedCustomerProject = escapeHtml(c.customerProject || '');
+    if (escapedCustomerProject) {
+      projectBadge = `<span class="badge badge-project">${escapedCustomerProject}</span>`;
     }
 
     let summaryBlock = '';
@@ -451,6 +480,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
             <span class="badge ${badgeClass}">${escapedStatus}</span>
             ${priorityBadge}
             ${productBadge}
+            ${projectBadge}
             <span class="badge badge-count">${commentCount} comments</span>
           </div>
         </div>
@@ -460,6 +490,8 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
 
         <div class="meta-row">
           ${escapedRaisedBy ? `<span>Raised by: ${escapedRaisedBy}</span>` : ''}
+          ${escapedCustomerProject ? `<span>Project: ${escapedCustomerProject}</span>` : ''}
+          ${c.openedAt ? `<span>Opened: ${escapeHtml(c.openedAt)}</span>` : ''}
           ${escapedSyncedAt ? `<span>Synced: ${escapedSyncedAt.slice(0, 10)}</span>` : ''}
           ${c.lastCommentAuthor ? `<span>Latest by: ${escapeHtml(c.lastCommentAuthor)}</span>` : ''}
         </div>
@@ -836,6 +868,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     .badge-action_required { background: var(--badge-action-bg); color: var(--badge-action-text); }
     .badge-other { background: var(--badge-open-bg); color: var(--badge-open-text); }
     .badge-product { background: var(--border-subtle); color: var(--text-secondary); border: 1px solid var(--border); }
+    .badge-project { background: var(--border-subtle); color: var(--text-secondary); border: 1px solid var(--border); }
     .badge-priority { background: var(--border-subtle); color: var(--text-secondary); border: 1px solid var(--border); }
     .badge-count { background: var(--border-subtle); color: var(--text-muted); }
     .case-title {
@@ -1334,7 +1367,9 @@ export function renderCliTable(overviewData, options = {}) {
     metaParts.push(`Status: ${c.status || 'Unknown'}`);
     if (c.priority) metaParts.push(`Priority: ${c.priority}`);
     if (c.product) metaParts.push(`Product: ${c.product}`);
+    if (c.customerProject) metaParts.push(`Project: ${c.customerProject}`);
     if (c.raisedBy) metaParts.push(`Raised by: ${c.raisedBy}`);
+    if (c.openedAt) metaParts.push(`Opened: ${c.openedAt}`);
     metaParts.push(`Comments: ${c.commentCount || 0}`);
 
     lines.push(`[${c.caseNumber}] ${c.title || 'Untitled case'}`);

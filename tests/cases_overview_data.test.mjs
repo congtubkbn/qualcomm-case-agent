@@ -219,13 +219,35 @@ describe('cases_overview: extractCaseOverview', () => {
   it('extracts raisedBy from raisedBy, creator, contactName, openedBy or falls back to comments[0].author', () => {
     const casesDir = createTempCasesDir();
 
-    // 1. Explicit raisedBy
+    // 1. Prioritize contactName over creator and first comment author
     const case1Dir = join(casesDir, '08000001');
     mkdirSync(case1Dir, { recursive: true });
     writeFileSync(
       join(case1Dir, 'case.json'),
       JSON.stringify({
         caseNumber: '08000001',
+        title: 'ContactName priority',
+        contactName: 'Mai Ngoc',
+        creator: 'Bob Jones',
+        raisedBy: 'OEM-Alpha',
+        customerProject: 'Titan-5G',
+        openedAt: '2026-08-18 10:00',
+        comments: [{ author: 'Charlie Brown' }],
+      }),
+      'utf8'
+    );
+    const case1 = extractCaseOverview(case1Dir, '08000001');
+    assert.equal(case1?.raisedBy, 'Mai Ngoc');
+    assert.equal(case1?.customerProject, 'Titan-5G');
+    assert.equal(case1?.openedAt, '2026-08-18 10:00');
+
+    // 2. Explicit raisedBy when contactName is missing
+    const case2Dir = join(casesDir, '08000002');
+    mkdirSync(case2Dir, { recursive: true });
+    writeFileSync(
+      join(case2Dir, 'case.json'),
+      JSON.stringify({
+        caseNumber: '08000002',
         title: 'Explicit raisedBy',
         raisedBy: 'Alice Smith',
         creator: 'Bob Jones',
@@ -233,33 +255,17 @@ describe('cases_overview: extractCaseOverview', () => {
       }),
       'utf8'
     );
-    assert.equal(extractCaseOverview(case1Dir, '08000001')?.raisedBy, 'Alice Smith');
+    assert.equal(extractCaseOverview(case2Dir, '08000002')?.raisedBy, 'Alice Smith');
 
-    // 2. Creator fallback
-    const case2Dir = join(casesDir, '08000002');
-    mkdirSync(case2Dir, { recursive: true });
-    writeFileSync(
-      join(case2Dir, 'case.json'),
-      JSON.stringify({
-        caseNumber: '08000002',
-        title: 'Creator fallback',
-        creator: 'Bob Jones',
-        contactName: 'David Clark',
-        comments: [{ author: 'Charlie Brown' }],
-      }),
-      'utf8'
-    );
-    assert.equal(extractCaseOverview(case2Dir, '08000002')?.raisedBy, 'Bob Jones');
-
-    // 3. ContactName fallback
+    // 3. Creator fallback
     const case3Dir = join(casesDir, '08000003');
     mkdirSync(case3Dir, { recursive: true });
     writeFileSync(
       join(case3Dir, 'case.json'),
       JSON.stringify({
         caseNumber: '08000003',
-        title: 'ContactName fallback',
-        contactName: 'David Clark',
+        title: 'Creator fallback',
+        creator: 'David Clark',
         openedBy: 'Eve Adams',
         comments: [{ author: 'Charlie Brown' }],
       }),
@@ -309,6 +315,21 @@ describe('cases_overview: extractCaseOverview', () => {
       'utf8'
     );
     assert.equal(extractCaseOverview(case6Dir, '08000006')?.raisedBy, '');
+
+    // 7. openedAt fallback to created
+    const case7Dir = join(casesDir, '08000007');
+    mkdirSync(case7Dir, { recursive: true });
+    writeFileSync(
+      join(case7Dir, 'case.json'),
+      JSON.stringify({
+        caseNumber: '08000007',
+        title: 'openedAt created fallback',
+        created: '2026-08-19T08:00:00.000Z',
+        comments: [],
+      }),
+      'utf8'
+    );
+    assert.equal(extractCaseOverview(case7Dir, '08000007')?.openedAt, '2026-08-19T08:00:00.000Z');
 
     rmSync(casesDir, { recursive: true, force: true });
   });
