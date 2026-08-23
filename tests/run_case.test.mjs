@@ -4,7 +4,7 @@
 //     node --experimental-test-module-mocks --test tests/run_case.test.mjs
 
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -48,7 +48,14 @@ function mockBrowser(t, handlerOrQueue, cdpOverride = null) {
         const file = path.split(/[\\/]/).pop();
         evalFileCalls.push({ path: file, vars });
         if (typeof handlerOrQueue === 'function') {
-          return handlerOrQueue(file, vars);
+          try {
+            const res = handlerOrQueue(file, vars);
+            if (res !== undefined) return res;
+          } catch (e) {
+            if (file === 'switch_tab.js') return { ok: true, clicked: true };
+            throw e;
+          }
+          if (file === 'switch_tab.js') return { ok: true, clicked: true };
         }
         const next = handlerOrQueue.shift();
         if (next === undefined) throw new Error(`mockBrowser: evalFile queue exhausted on ${file}`);
@@ -420,5 +427,86 @@ describe('run() fast landing & verdict integration', () => {
     const formatted = formatVerdict('08000004', v, Date.now() - 100);
     assert.equal(formatted.status, 'blocked');
     assert.equal(formatted.screenshot, 'feed_missing.png');
+  });
+
+  it('coordinates switching to Detail tab to extract metadata and merging with Feed comments', async (t) => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
+    const mockCdp = {
+      isConnected: () => true,
+      navigate: async () => {},
+      eval: async () => ({
+        state: 'ON_CASE',
+        href: targetUrl,
+        fields: { title: 'VoNR Handover Issue' },
+      }),
+      click: async () => true,
+      close: async () => {},
+    };
+
+    let extractCallCount = 0;
+    mockBrowser(t, (file, vars) => {
+      if (file === 'switch_tab.js') {
+        return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
+      }
+      if (file === 'expand_step.js') {
+        if (vars?.__PROBE) return { articles: 2, displayed: 2, anchorIdx: -1, top: { author: 'Mai Ngoc', bodyStart: 'Initial' } };
+        return { clickedExpand: 0, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
+      }
+      if (file === 'check_collapsed.js') {
+        return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      }
+      if (file === 'extract_case.js') {
+        extractCallCount++;
+        if (extractCallCount === 1) {
+          // First call: Detail tab metadata extraction
+          return {
+            caseNumber: '08603854',
+            title: 'VoNR Handover Issue',
+            contactName: 'Mai Ngoc',
+            customerProject: 'VinFast VF9 MY26',
+            openedAt: 'August 10, 2026 at 09:30 AM',
+            closedAt: 'August 20, 2026 at 04:15 PM',
+            accountName: 'VinFast Auto LLC',
+            customer: 'VinFast Auto LLC',
+            relatedCRs: 'CR3798678',
+            caseRecordType: 'Customer Support',
+            description: 'VoNR call drops during 5G SA.',
+            status: 'Closed',
+            priority: '1 - Critical',
+            url: targetUrl,
+            comments: [],
+          };
+        }
+        // Second call: Feed tab comments extraction
+        return {
+          caseNumber: '08603854',
+          title: 'VoNR Handover Issue',
+          url: targetUrl,
+          comments: [
+            { author: 'Mai Ngoc', body: 'Initial problem details', timestamp: 'August 10, 2026' },
+            { author: 'Qualcomm Support', body: 'Investigating issue', timestamp: 'August 11, 2026' },
+          ],
+        };
+      }
+      throw new Error(`Unexpected evalFile: ${file}`);
+    }, mockCdp);
+
+    mkdirSync(join(process.env.QUALCOMM_ROOT, 'data', 'cases', '08603854'), { recursive: true });
+    const { run } = await importRunCase();
+    const v = await run('08603854', { mode: 'auto', cdp: mockCdp });
+
+    assert.equal(v.status, 'created');
+    assert.equal(v.verified, true);
+
+    const caseData = JSON.parse(readFileSync(v.casePath, 'utf8'));
+    assert.equal(caseData.contactName, 'Mai Ngoc');
+    assert.equal(caseData.raisedBy, 'Mai Ngoc');
+    assert.equal(caseData.customerProject, 'VinFast VF9 MY26');
+    assert.equal(caseData.openedAt, 'August 10, 2026 at 09:30 AM');
+    assert.equal(caseData.closedAt, 'August 20, 2026 at 04:15 PM');
+    assert.equal(caseData.accountName, 'VinFast Auto LLC');
+    assert.equal(caseData.relatedCRs, 'CR3798678');
+    assert.equal(caseData.caseRecordType, 'Customer Support');
+    assert.equal(caseData.description, 'VoNR call drops during 5G SA.');
   });
 });

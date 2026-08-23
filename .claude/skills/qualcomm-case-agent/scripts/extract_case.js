@@ -48,23 +48,52 @@
 
   // Optional section helper for collapsible "Subject"/"Description" panels and
   // Salesforce Lightning record layout items.
-  const sectionValue = label => {
-    const lowerLabel = (label || "").toLowerCase();
-    const btn = qsa("button").find(b => txt(b).toLowerCase() === lowerLabel);
+  const sectionValue = labelOrLabels => {
+    const labelsList = Array.isArray(labelOrLabels) ? labelOrLabels : [labelOrLabels];
+    const lowerLabels = labelsList.map(l => (l || "").toLowerCase().trim()).filter(Boolean);
+    if (!lowerLabels.length) return "";
+
+    // 1. Button with label (e.g. collapsible section button)
+    const btn = qsa("button").find(b => {
+      const bt = txt(b).toLowerCase();
+      return lowerLabels.includes(bt) || lowerLabels.some(l => bt === l || bt.startsWith(l + ":"));
+    });
     if (btn) {
-      const host = btn.closest("li, div") || btn.parentElement;
-      const p = host && host.querySelector("p");
-      if (p) return txt(p);
-    }
-    const labels = qsa(".slds-form-element__label, label, [class*='label'], dt");
-    const matchedLabel = labels.find(l => txt(l).toLowerCase() === lowerLabel);
-    if (matchedLabel) {
-      const parent = matchedLabel.closest(".slds-form-element, [class*='record-layout-item'], dl") || matchedLabel.parentElement;
-      if (parent) {
-        const valEl = parent.querySelector(".slds-form-element__control, dd, lightning-formatted-text, p, span:not([class*='label'])");
-        if (valEl && valEl !== matchedLabel) return txt(valEl);
+      const host = btn.closest("li, div, lightning-record-layout-item") || btn.parentElement;
+      const p = host && host.querySelector("p, lightning-formatted-text, lightning-formatted-name, span:not([class*='label'])");
+      if (p) {
+        const val = txt(p);
+        if (val) return val;
       }
     }
+
+    // 2. Standard Salesforce Lightning label selectors
+    const labels = qsa(".slds-form-element__label, label, [class*='label'], dt, .test-id__field-label, [data-label]");
+    const matchedLabel = labels.find(l => {
+      const t = txt(l).toLowerCase();
+      return lowerLabels.includes(t) || lowerLabels.some(lbl => t === lbl || t.startsWith(lbl + ":") || t.startsWith(lbl + " *") || t === lbl + "*");
+    });
+
+    if (matchedLabel) {
+      const parent = matchedLabel.closest(".slds-form-element, [class*='record-layout-item'], lightning-record-layout-item, dl, .slds-grid") || matchedLabel.parentElement;
+      if (parent) {
+        const valEl = parent.querySelector(".slds-form-element__control, dd, lightning-formatted-text, lightning-formatted-name, lightning-formatted-date-time, lightning-formatted-lookup, p, a, span:not([class*='label'])");
+        if (valEl && valEl !== matchedLabel) {
+          const val = txt(valEl);
+          if (val) return val;
+        }
+      }
+    }
+
+    // 3. Direct data attributes
+    for (const lbl of lowerLabels) {
+      const el = qsa(`[data-field="${lbl}"], [data-field-name="${lbl}"], [data-name="${lbl}"]`)[0];
+      if (el) {
+        const val = txt(el);
+        if (val) return val;
+      }
+    }
+
     return "";
   };
 
@@ -201,23 +230,45 @@
     if (m) { displayedCommentCount = Number(m[1]); break; }
   }
 
-  // title / status / priority / customer live on the case Detail tab and the
-  // search-results row, NOT the Feed view this extractor runs on. The agent fills
-  // them from the PHASE 1 search snapshot (it already saw Subject/Status/Priority/
-  // Customer Project in the results table) by editing the raw JSON before finalize,
-  // or by clicking the "Detail" tab and re-reading. Left "" here so the Feed pass
-  // never blocks on header fields that aren't present.
+  // Standard and Detail tab fields:
+  // Feed pass or Detail tab pass extracts whatever is available in the DOM.
+  const title = sectionValue(["Subject", "Case Subject"]);
+  const status = sectionValue(["Status", "Case Status"]);
+  const priority = sectionValue(["Priority", "Case Priority"]);
+  const severity = sectionValue(["Severity", "Case Severity"]);
+  const product = sectionValue(["Chipset", "Product", "Product Name"]);
+  const accountName = sectionValue(["Account Name", "Account", "Customer", "Customer Name"]);
+  const customer = accountName || sectionValue(["Customer", "Account Name", "Account"]);
+  const contactName = sectionValue(["Contact Name", "Contact", "Case Contact", "Contact:"]);
+  const customerProject = sectionValue(["Customer Project", "Customer Project Name", "Project", "Project Name"]);
+  const relatedCRs = sectionValue(["Related CRs", "Related CR", "Related Change Requests", "Change Requests", "CRs"]);
+  const caseRecordType = sectionValue(["Case Record Type Name", "Case Record Type", "Record Type", "Record Type Name"]);
+  const openedAt = sectionValue(["Date/Time Opened", "Date Opened", "Created Date", "Created At", "Opened Date", "Opened"]);
+  const closedAt = sectionValue(["Date/Time Closed", "Date Closed", "Closed Date", "Closed At", "Closed"]);
+  const created = sectionValue(["Created Date", "Date/Time Opened", "Date Opened", "Created"]) || openedAt;
+  const updated = sectionValue(["Last Modified Date", "Modified Date", "Last Modified"]);
+  const description = sectionValue(["Description", "Description Information", "Case Description", "Problem Description", "Subject Description"]);
+  const raisedBy = contactName || customer || "";
+
   return {
     caseNumber,
-    title: sectionValue("Subject"),       // usually "" on Feed view — agent fills from PHASE 1
-    status: sectionValue("Status"),       // present if Detail fields are on page or search row
-    priority: sectionValue("Priority"),   // present if Detail fields are on page
-    severity: sectionValue("Severity"),
-    product: sectionValue("Chipset") || sectionValue("Product"),      // present if Detail fields are on the page
-    customer: sectionValue("Account Name") || sectionValue("Customer"),
-    created: sectionValue("Created Date"),
-    updated: sectionValue("Last Modified Date"),
-    description: sectionValue("Description"),
+    title,
+    status,
+    priority,
+    severity,
+    product,
+    customer,
+    accountName,
+    contactName,
+    customerProject,
+    relatedCRs,
+    caseRecordType,
+    openedAt,
+    closedAt,
+    created,
+    updated,
+    description,
+    raisedBy,
     url: location.href,
     displayedCommentCount,
     comments,

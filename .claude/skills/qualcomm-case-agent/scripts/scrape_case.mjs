@@ -105,6 +105,18 @@ export function countAssert(capturedCount, displayedCount) {
 // agent never re-Reads case.raw.json just to add a title (O(1) tokens, not O(case size)).
 export const HEADER_KEYS = ['title', 'status', 'priority', 'severity', 'customer'];
 
+// Salesforce Lightning Detail tab metadata fields persisted to canonical case.json.
+export const DETAIL_KEYS = [
+  'contactName',
+  'openedAt',
+  'closedAt',
+  'customerProject',
+  'accountName',
+  'relatedCRs',
+  'caseRecordType',
+  'raisedBy',
+];
+
 // Parse `--title "..."` style flags into an overrides object. Only HEADER_KEYS honored.
 export function parseHeaderFlags(argv) {
   const out = {};
@@ -253,9 +265,17 @@ export function synthesizeDescriptionComment(raw) {
   const desc = typeof raw.description === 'string' ? raw.description.trim() : '';
   if (!desc) return null;
 
+  const author = (typeof raw.contactName === 'string' && raw.contactName.trim())
+    ? raw.contactName.trim()
+    : (typeof raw.customer === 'string' && raw.customer.trim()) ? raw.customer.trim() : 'Reporter';
+
+  const timestamp = (typeof raw.openedAt === 'string' && raw.openedAt.trim())
+    ? raw.openedAt.trim()
+    : (typeof raw.created === 'string' && raw.created.trim()) ? raw.created.trim() : '';
+
   return {
-    author: (typeof raw.customer === 'string' && raw.customer.trim()) ? raw.customer.trim() : 'Reporter',
-    timestamp: (typeof raw.created === 'string' && raw.created.trim()) ? raw.created.trim() : '',
+    author,
+    timestamp,
     summary: extractSummary(raw.description),
     body: raw.description,
     attachments: [],
@@ -577,7 +597,9 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
   // Inject description as initial comment if non-empty and not already present.
   const descRaw = {
     description: String(raw.description || (cached && cached.description) || '').trim(),
+    contactName: String(raw.contactName || (cached && cached.contactName) || '').trim(),
     customer: String(header.customer || raw.customer || (cached && cached.customer) || '').trim(),
+    openedAt: String(raw.openedAt || (cached && cached.openedAt) || '').trim(),
     created: String(raw.created || (cached && cached.created) || '').trim(),
   };
   const descComment = synthesizeDescriptionComment(descRaw);
@@ -608,7 +630,7 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
     if (String(raw.url || '').trim()) out.url = raw.url;
     // Everything else from the partial capture only FILLS BLANKS — a collapsed
     // Description/Detail panel must never clobber a good cached value.
-    for (const k of ['description', 'product', 'created', 'updated', ...HEADER_KEYS]) {
+    for (const k of ['description', 'product', 'created', 'updated', ...DETAIL_KEYS, ...HEADER_KEYS]) {
       if (!String(out[k] || '').trim() && String(raw[k] || '').trim()) out[k] = raw[k];
     }
     mergeInfo = { newIds, oldHash: cached.hash, cached };
@@ -626,9 +648,20 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
     possibleEdits = merge0.possibleEdits;
     out = { ...raw, comments: merge0.merged };
     if (cached) {
+      for (const k of ['description', 'product', 'created', 'updated', ...DETAIL_KEYS]) {
+        if (!String(out[k] || '').trim() && String(cached[k] || '').trim()) out[k] = cached[k];
+      }
       mergeInfo = { newIds, oldHash: cached.hash, cached };
     }
   }
+
+  // Cross-field normalizations
+  if (out.contactName && !out.raisedBy) out.raisedBy = out.contactName;
+  if (!out.raisedBy) out.raisedBy = out.customer || '';
+  if (out.accountName && !out.customer) out.customer = out.accountName;
+  if (out.customer && !out.accountName) out.accountName = out.customer;
+  if (out.openedAt && !out.created) out.created = out.openedAt;
+  if (out.created && !out.openedAt) out.openedAt = out.created;
 
   // Hard gate: a genuinely NEW comment that still carries the "Expand Post"
   // control label is a half-captured post, whatever the cause. Reject rather

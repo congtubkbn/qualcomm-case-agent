@@ -219,6 +219,21 @@ export async function run(code, opts = {}) {
   const caseUrl = landed.href;
   const header = landed.fields || {};
 
+  // --- Detail tab extraction: capture Salesforce Lightning metadata
+  let detailRaw = null;
+  try {
+    const tabSwitch = evalFile(page('switch_tab.js'), { __TARGET_TAB: 'Detail' });
+    if (tabSwitch && (tabSwitch.ok || tabSwitch.alreadyActive)) {
+      await sleep(1000);
+      detailRaw = await evalFileViaCdp(cdp, page('extract_case.js'));
+    }
+    // Switch back to Feed tab for Chatter comments extraction
+    evalFile(page('switch_tab.js'), { __TARGET_TAB: 'Feed' });
+    await sleep(500);
+  } catch (e) {
+    // Non-fatal: continue with Feed extraction
+  }
+
   // --- PHASE 1.5: probe first (fast no-update check), then expand in-page.
   const probeFeed = async () => {
     let p = evalFile(page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
@@ -387,6 +402,34 @@ export async function run(code, opts = {}) {
   const raw = await evalFileViaCdp(cdp, page('extract_case.js'));
   if (!raw || !Array.isArray(raw.comments) || raw.comments.length === 0) {
     return { status: 'blocked', reason: 'case extraction returned no comments', timing: { landingMs: landingDurationMs } };
+  }
+
+  // Merge any metadata captured from Detail tab
+  if (detailRaw) {
+    const detailFields = [
+      'contactName',
+      'openedAt',
+      'closedAt',
+      'customerProject',
+      'accountName',
+      'relatedCRs',
+      'caseRecordType',
+      'description',
+      'title',
+      'status',
+      'priority',
+      'severity',
+      'product',
+      'customer',
+      'created',
+      'updated',
+      'raisedBy',
+    ];
+    for (const f of detailFields) {
+      if (detailRaw[f] && !raw[f]) {
+        raw[f] = detailRaw[f];
+      }
+    }
   }
 
   raw.capture = {

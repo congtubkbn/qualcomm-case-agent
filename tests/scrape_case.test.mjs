@@ -233,6 +233,21 @@ describe('synthesizeDescriptionComment', () => {
     assert.equal(c.body, 'Simple issue report text.');
   });
 
+  it('prioritizes contactName and openedAt over generic customer and created fields', () => {
+    const raw = {
+      contactName: 'Mai Ngoc',
+      customer: 'VinFast Auto LLC',
+      openedAt: 'August 20, 2026 at 10:00 AM',
+      created: 'August 19, 2026',
+      description: 'VoNR registration failure on n78.',
+    };
+    const c = m.synthesizeDescriptionComment(raw);
+    assert.ok(c);
+    assert.equal(c.author, 'Mai Ngoc');
+    assert.equal(c.timestamp, 'August 20, 2026 at 10:00 AM');
+    assert.equal(c.body, raw.description);
+  });
+
   it('returns null for empty or whitespace-only description', () => {
     assert.equal(m.synthesizeDescriptionComment(null), null);
     assert.equal(m.synthesizeDescriptionComment({}), null);
@@ -704,5 +719,83 @@ describe('finalize (child process)', () => {
       assert.equal(descOccurrences.length, 1, 'description comment must not be duplicated');
     });
   });
+
+  describe('Salesforce Detail metadata persistence', () => {
+    it('persists all extracted Detail fields into canonical case.json on full capture', () => {
+      const root = fixture();
+      const rawWithDetail = {
+        ...RAW,
+        contactName: 'Mai Ngoc',
+        customerProject: 'VinFast VF9 MY26',
+        openedAt: 'August 10, 2026 at 09:30 AM',
+        closedAt: 'August 20, 2026 at 04:15 PM',
+        accountName: 'VinFast Auto LLC',
+        customer: 'VinFast Auto LLC',
+        relatedCRs: 'CR3798678, CR3801234',
+        caseRecordType: 'Customer Support',
+        description: 'VoNR call drops during 5G SA to EPS Fallback transition.',
+      };
+      const { exit } = runFinalize(root, rawWithDetail);
+      assert.equal(exit, m.EXIT.OK);
+
+      const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
+      assert.equal(saved.contactName, 'Mai Ngoc');
+      assert.equal(saved.raisedBy, 'Mai Ngoc');
+      assert.equal(saved.customerProject, 'VinFast VF9 MY26');
+      assert.equal(saved.openedAt, 'August 10, 2026 at 09:30 AM');
+      assert.equal(saved.closedAt, 'August 20, 2026 at 04:15 PM');
+      assert.equal(saved.accountName, 'VinFast Auto LLC');
+      assert.equal(saved.customer, 'VinFast Auto LLC');
+      assert.equal(saved.relatedCRs, 'CR3798678, CR3801234');
+      assert.equal(saved.caseRecordType, 'Customer Support');
+      assert.equal(saved.description, 'VoNR call drops during 5G SA to EPS Fallback transition.');
+
+      // Description comment author should be Contact Name
+      assert.equal(saved.comments[0].author, 'Mai Ngoc');
+      assert.equal(saved.comments[0].timestamp, 'August 10, 2026 at 09:30 AM');
+    });
+
+    it('preserves cached Detail metadata during partial update (--merge) runs', () => {
+      const root = fixture();
+      const initialDetail = {
+        ...RAW,
+        contactName: 'Mai Ngoc',
+        customerProject: 'VinFast VF9 MY26',
+        openedAt: 'August 10, 2026 at 09:30 AM',
+        closedAt: 'August 20, 2026 at 04:15 PM',
+        accountName: 'VinFast Auto LLC',
+        relatedCRs: 'CR3798678',
+        caseRecordType: 'Customer Support',
+        description: 'VoNR call drops during 5G SA.',
+      };
+      const r1 = runFinalize(root, initialDetail);
+      assert.equal(r1.exit, m.EXIT.OK);
+
+      // Thinner update capture (e.g. feed only without Detail tab re-extraction)
+      const updateRaw = {
+        caseNumber: RAW.caseNumber,
+        title: RAW.title,
+        displayedCommentCount: 3,
+        comments: [
+          comment('Engineer', 'New update comment', { timestamp: '1 hour ago' }),
+          ...RAW.comments,
+        ],
+      };
+      const r2 = runFinalize(root, updateRaw, ['--merge']);
+      assert.equal(r2.exit, m.EXIT.OK);
+
+      const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
+      assert.equal(saved.contactName, 'Mai Ngoc');
+      assert.equal(saved.raisedBy, 'Mai Ngoc');
+      assert.equal(saved.customerProject, 'VinFast VF9 MY26');
+      assert.equal(saved.openedAt, 'August 10, 2026 at 09:30 AM');
+      assert.equal(saved.closedAt, 'August 20, 2026 at 04:15 PM');
+      assert.equal(saved.accountName, 'VinFast Auto LLC');
+      assert.equal(saved.relatedCRs, 'CR3798678');
+      assert.equal(saved.caseRecordType, 'Customer Support');
+      assert.equal(saved.description, 'VoNR call drops during 5G SA.');
+    });
+  });
 });
+
 

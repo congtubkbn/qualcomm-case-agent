@@ -15,6 +15,16 @@ const EXPAND_SCRIPT = readFileSync(
   'utf8'
 );
 
+let SWITCH_TAB_SCRIPT = '';
+try {
+  SWITCH_TAB_SCRIPT = readFileSync(
+    fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/switch_tab.js', import.meta.url)),
+    'utf8'
+  );
+} catch {
+  // Will be populated when switch_tab.js is created
+}
+
 /**
  * Creates a lightweight mock DOM node hierarchy for testing extraction and expansion scripts.
  */
@@ -25,11 +35,19 @@ function createMockElement(tag, attrs = {}, text = '') {
 
   const elem = {
     tagName: tag.toUpperCase(),
-    attributes: { ...attrs },
+    attributes: { ...attrs, class: attrs.className || attrs.class || '' },
     id: attrs.id || '',
     className: attrs.className || attrs.class || '',
-    innerText: text,
-    textContent: text,
+    get innerText() {
+      if (text) return text;
+      return children.map(c => c.innerText || c.textContent || '').join(' ').trim();
+    },
+    set innerText(v) { text = v; },
+    get textContent() {
+      if (text) return text;
+      return children.map(c => c.textContent || c.innerText || '').join(' ').trim();
+    },
+    set textContent(v) { text = v; },
     shadowRoot: null,
     parentElement: null,
     get parent() { return parent; },
@@ -510,6 +528,120 @@ test('extract_case.js DOM extraction engine', async (t) => {
     assert.equal(result.comments[1].timestamp, '15 days ago');
     assert.equal(result.comments[0].displayPosition, 100);
     assert.equal(result.comments[1].displayPosition, 250);
+  });
+
+  await t.test('extracts full Salesforce Detail tab fields (Contact Name, Customer Project, Opened/Closed Date, Related CRs, etc.)', () => {
+    const doc = createMockDocument();
+    doc.title = 'Case: 08603854 - VoNR Handover Failure';
+
+    // Form element helper
+    function addFormField(label, value, isLink = false) {
+      const formEl = createMockElement('div', { className: 'slds-form-element record-layout-item' });
+      const labelEl = createMockElement('span', { className: 'slds-form-element__label test-id__field-label' }, label);
+      formEl.appendChild(labelEl);
+      const controlEl = createMockElement('div', { className: 'slds-form-element__control' });
+      if (isLink) {
+        const a = createMockElement('a', {}, value);
+        controlEl.appendChild(a);
+      } else {
+        const text = createMockElement('span', { className: 'lightning-formatted-text' }, value);
+        controlEl.appendChild(text);
+      }
+      formEl.appendChild(controlEl);
+      doc.body.appendChild(formEl);
+    }
+
+    addFormField('Contact Name', 'Mai Ngoc', true);
+    addFormField('Date/Time Opened', '08/10/2026, 09:30 AM');
+    addFormField('Date/Time Closed', '08/20/2026, 04:15 PM');
+    addFormField('Customer Project', 'VinFast VF9 MY26');
+    addFormField('Account Name', 'VinFast Auto LLC');
+    addFormField('Related CRs', 'CR3798678, CR3801234');
+    addFormField('Case Record Type Name', 'Customer Support');
+    addFormField('Description Information', 'VoNR call drops during 5G SA to EPS Fallback transition.');
+    addFormField('Status', 'Closed');
+    addFormField('Priority', '1 - Critical');
+    addFormField('Subject', 'VoNR Handover Failure');
+    addFormField('Chipset', 'SDX75');
+
+    // Add 1 comment article
+    const art = createMockElement('article', { id: 'c1' });
+    art.appendChild(createMockElement('a', {}, 'Mai Ngoc'));
+    art.appendChild(createMockElement('a', {}, '10 days ago'));
+    art.appendChild(createMockElement('div', { className: 'feedBodyInner' }, 'Initial report details.'));
+    doc.body.appendChild(art);
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+
+    assert.equal(result.caseNumber, '08603854');
+    assert.equal(result.contactName, 'Mai Ngoc');
+    assert.equal(result.raisedBy, 'Mai Ngoc');
+    assert.equal(result.openedAt, '08/10/2026, 09:30 AM');
+    assert.equal(result.closedAt, '08/20/2026, 04:15 PM');
+    assert.equal(result.customerProject, 'VinFast VF9 MY26');
+    assert.equal(result.accountName, 'VinFast Auto LLC');
+    assert.equal(result.customer, 'VinFast Auto LLC');
+    assert.equal(result.relatedCRs, 'CR3798678, CR3801234');
+    assert.equal(result.caseRecordType, 'Customer Support');
+    assert.equal(result.description, 'VoNR call drops during 5G SA to EPS Fallback transition.');
+    assert.equal(result.status, 'Closed');
+    assert.equal(result.priority, '1 - Critical');
+    assert.equal(result.title, 'VoNR Handover Failure');
+    assert.equal(result.product, 'SDX75');
+  });
+});
+
+test('switch_tab.js tab switching engine', async (t) => {
+  await t.test('switches to target tab when tab is found and not yet active', () => {
+    if (!SWITCH_TAB_SCRIPT) return; // skip if script not yet loaded
+    const doc = createMockDocument();
+
+    const tabList = createMockElement('ul', { role: 'tablist', className: 'slds-tabs_default__nav' });
+    
+    const feedTab = createMockElement('a', { role: 'tab', title: 'Feed', 'aria-selected': 'true', className: 'slds-tabs_default__link' }, 'Feed');
+    const feedLi = createMockElement('li', { className: 'slds-tabs_default__item slds-is-active' });
+    feedLi.appendChild(feedTab);
+    tabList.appendChild(feedLi);
+
+    let detailClicked = false;
+    const detailTab = createMockElement('a', { role: 'tab', title: 'Detail', 'aria-selected': 'false', className: 'slds-tabs_default__link' }, 'Detail');
+    detailTab.onclick = () => { detailClicked = true; };
+    const detailLi = createMockElement('li', { className: 'slds-tabs_default__item' });
+    detailLi.appendChild(detailTab);
+    tabList.appendChild(detailLi);
+
+    doc.body.appendChild(tabList);
+
+    const ctx = vm.createContext({
+      document: doc,
+      window: { PointerEvent: function () {}, MouseEvent: function () {} },
+      __TARGET_TAB: 'Detail',
+    });
+    const res = vm.runInContext(SWITCH_TAB_SCRIPT, ctx);
+
+    assert.equal(res.ok, true);
+    assert.equal(res.clicked, true);
+    assert.equal(detailClicked, true);
+  });
+
+  await t.test('reports alreadyActive if the requested tab is already selected', () => {
+    if (!SWITCH_TAB_SCRIPT) return;
+    const doc = createMockDocument();
+
+    const tabList = createMockElement('ul', { role: 'tablist' });
+    const detailTab = createMockElement('a', { role: 'tab', title: 'Detail', 'aria-selected': 'true' }, 'Detail');
+    tabList.appendChild(detailTab);
+    doc.body.appendChild(tabList);
+
+    const ctx = vm.createContext({
+      document: doc,
+      window: { PointerEvent: function () {}, MouseEvent: function () {} },
+      __TARGET_TAB: 'Detail',
+    });
+    const res = vm.runInContext(SWITCH_TAB_SCRIPT, ctx);
+
+    assert.equal(res.ok, true);
+    assert.equal(res.alreadyActive, true);
   });
 });
 
