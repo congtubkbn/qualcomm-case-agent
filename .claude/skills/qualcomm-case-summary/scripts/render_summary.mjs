@@ -17,11 +17,17 @@ function renderComment(c) {
 
 function renderHeader(summary) {
   const { caseNumber, title, status, priority, product, url } = summary;
+  const caseNum = caseNumber ? String(caseNumber).trim() : '';
+  const webUrl = url ? String(url).trim() : (caseNum ? `https://support.qualcomm.com/s/global-search/${encodeURIComponent(caseNum)}` : '');
+  const portalLine = caseNum && webUrl
+    ? `- **Portal**: [Open in Qualcomm Profile (qc://)](qc://case/${caseNum}) · [Web Link](${webUrl})`
+    : (webUrl ? `- **Portal**: [Web Link](${webUrl})` : '');
+
   if (!title) return `# Case ${caseNumber} — ${status}`;
   const lines = [`# [${caseNumber}] ${title}`, `- **Status**: ${status}`];
   if (priority) lines.push(`- **Priority**: ${priority}`);
   if (product) lines.push(`- **Product**: ${product}`);
-  if (url) lines.push(`- **URL**: ${url}`);
+  if (portalLine) lines.push(portalLine);
   return lines.join('\n');
 }
 

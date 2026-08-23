@@ -29,7 +29,7 @@ describe('renderSummaryMd — case metadata header + executive summary', () => {
     assert.match(md, /^- \*\*Status\*\*: Closed-Customer Requested$/m);
     assert.match(md, /^- \*\*Priority\*\*: 1 - Critical$/m);
     assert.match(md, /^- \*\*Product\*\*: SDX75$/m);
-    assert.match(md, /^- \*\*URL\*\*: https:\/\/support\.qualcomm\.com\/s\/case\/500dK00000OU6BqQAL\/p26080302707$/m);
+    assert.match(md, /^- \*\*Portal\*\*: \[Open in Qualcomm Profile \(qc:\/\/\)\]\(qc:\/\/case\/08642051\) · \[Web Link\]\(https:\/\/support\.qualcomm\.com\/s\/case\/500dK00000OU6BqQAL\/p26080302707\)$/m);
 
     assert.match(md, /^## Executive Summary$/m);
     assert.match(md, /^- \*\*Ball in Court\*\*: Closed$/m);
@@ -39,6 +39,18 @@ describe('renderSummaryMd — case metadata header + executive summary', () => {
 
     // Executive Summary must render above Case Flow
     assert.ok(md.indexOf('## Executive Summary') < md.indexOf('## Case Flow'));
+  });
+
+  it('renders dual link with search fallback when title is present but url is omitted in summary', () => {
+    const md = renderSummaryMd({
+      caseNumber: '08550063',
+      title: '5G NR throughput drop',
+      status: 'Open',
+      comments: [{ id: 'c1', timestamp: 't1', author: 'A', issue: 'x' }],
+      flow: 'flow text',
+    });
+
+    assert.match(md, /^- \*\*Portal\*\*: \[Open in Qualcomm Profile \(qc:\/\/\)\]\(qc:\/\/case\/08550063\) · \[Web Link\]\(https:\/\/support\.qualcomm\.com\/s\/global-search\/08550063\)$/m);
   });
 
   it('minimal summary (missing title/priority/executive) renders gracefully matching legacy output format', () => {
@@ -53,6 +65,7 @@ describe('renderSummaryMd — case metadata header + executive summary', () => {
     assert.doesNotMatch(md, /\*\*Priority\*\*/);
     assert.doesNotMatch(md, /\*\*Product\*\*/);
     assert.doesNotMatch(md, /\*\*URL\*\*/);
+    assert.doesNotMatch(md, /\*\*Portal\*\*/);
     assert.doesNotMatch(md, /## Executive Summary/);
     assert.doesNotMatch(md, /\n\n\n/, 'no stray blank-line runs from omitted sections');
   });

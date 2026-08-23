@@ -110,7 +110,7 @@ describe('render_case: case.md content structure', () => {
     assert.match(md, /\| Updated \| 2026-08-20T14:30:00\.000Z \|/);
     assert.match(md, /\| Comments \| 2 \|/);
     assert.match(md, /\| Synced \| 2026-08-22T00:00:00\.000Z \|/);
-    assert.match(md, /- \*\*URL:\*\* https:\/\/support\.qualcomm\.com\/case\/08460319/);
+    assert.match(md, /- \*\*Portal:\*\* \[Open in Qualcomm Profile \(qc:\/\/\)\]\(qc:\/\/case\/08460319\) · \[Web Link\]\(https:\/\/support\.qualcomm\.com\/case\/08460319\)/);
 
     // 2. Description section is rendered before timeline
     assert.match(md, /## Description\r?\n\r?\nUE fails registration on n78 standalone cell during initial attach\./);
@@ -609,3 +609,58 @@ describe('render_case: issue #95 portal structure, Description section, role lab
     });
   });
 });
+
+describe('render_case: issue #102 smart dual links', () => {
+  it('renders dual links (qc:// and Web Link) when url is explicitly provided in case.json', () => {
+    const caseData = {
+      caseNumber: '08603854',
+      title: 'Modem Crash on Handover',
+      url: 'https://support.qualcomm.com/s/case/500dK00000OU6BqQAL/p26080302707',
+      comments: [comment('Tester', 'Initial report')],
+    };
+
+    const r = renderFixture(caseData);
+    assert.equal(r.exit, 0);
+    const md = r.md();
+
+    assert.match(
+      md,
+      /- \*\*Portal:\*\* \[Open in Qualcomm Profile \(qc:\/\/\)\]\(qc:\/\/case\/08603854\) · \[Web Link\]\(https:\/\/support\.qualcomm\.com\/s\/case\/500dK00000OU6BqQAL\/p26080302707\)/
+    );
+  });
+
+  it('renders dual links falling back to Qualcomm global search URL when url is absent in case.json', () => {
+    const caseData = {
+      caseNumber: '08550063',
+      title: '5G NR throughput drop on SA network',
+      comments: [comment('Mai Ngoc', 'Initial issue description with logs.')],
+    };
+
+    const r = renderFixture(caseData);
+    assert.equal(r.exit, 0);
+    const md = r.md();
+
+    assert.match(
+      md,
+      /- \*\*Portal:\*\* \[Open in Qualcomm Profile \(qc:\/\/\)\]\(qc:\/\/case\/08550063\) · \[Web Link\]\(https:\/\/support\.qualcomm\.com\/s\/global-search\/08550063\)/
+    );
+  });
+
+  it('handles missing caseNumber gracefully while preserving web link', () => {
+    const caseData = {
+      title: 'Case without number',
+      url: 'https://support.qualcomm.com/s/case/500dK00000OU6BqQAL',
+      comments: [comment('Alice', 'Test note')],
+    };
+
+    const r = renderFixture(caseData);
+    assert.equal(r.exit, 0);
+    const md = r.md();
+
+    assert.match(
+      md,
+      /- \*\*Portal:\*\* \[Web Link\]\(https:\/\/support\.qualcomm\.com\/s\/case\/500dK00000OU6BqQAL\)/
+    );
+  });
+});
+
