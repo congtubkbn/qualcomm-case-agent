@@ -157,8 +157,8 @@ describe('tools/migrate_case_detail.mjs - Unit & Migration tests (Slice 3)', () 
     const mdPath = join(caseDir, 'case.md');
     assert.ok(existsSync(mdPath), 'case.md must be generated');
     const mdContent = readFileSync(mdPath, 'utf8');
-    assert.ok(mdContent.includes('- **Contact Name:** Mai Ngoc'), 'Markdown must render Contact Name');
-    assert.ok(mdContent.includes('- **Customer Project:** A236E'), 'Markdown must render Customer Project');
+    assert.ok(mdContent.includes('| Contact Name | Mai Ngoc |'), 'Markdown must render Contact Name');
+    assert.ok(mdContent.includes('| Customer Project | A236E |'), 'Markdown must render Customer Project');
 
     // Verify overview extraction returns Mai Ngoc as opener
     const overview = extractCaseOverview(caseDir, '08316063');

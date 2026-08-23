@@ -44,6 +44,14 @@
       .trim();
   };
 
+  // Salesforce Lightning appends a hidden hover-preview affordance ("Preview")
+  // as a nested element inside Lookup-type field values (Contact Name,
+  // Customer Project, Customer) and inside a Chatter comment author's <a>.
+  // innerText swallows it as a trailing token. Stripped by exact trailing
+  // token match only (not a substring replace), so real content that happens
+  // to end in the word "Preview" is left alone.
+  const stripPreviewAffordance = s => (s ? s.replace(/\s+Preview\s*$/, "").trim() : s);
+
   const deepQsa = (sel, root) => {
     const results = [];
     const seen = new Set();
@@ -127,7 +135,7 @@
         const valEls = deepQsa(".slds-accordion__content, [class*='accordion__content'], lightning-formatted-text, lightning-formatted-name, p, span:not([class*='label'])", host);
         const valEl = valEls.find(el => el !== btn && !btn.contains(el) && !lowerLabels.includes(txt(el).toLowerCase()) && txt(el).length > 0);
         if (valEl) {
-          const val = txt(valEl);
+          const val = stripPreviewAffordance(txt(valEl));
           if (val) return val;
         }
       }
@@ -146,7 +154,7 @@
         const valEls = deepQsa(".slds-form-element__control, dd, lightning-formatted-text, lightning-formatted-name, lightning-formatted-date-time, lightning-formatted-lookup, p, a, span:not([class*='label']), .test-id__field-value", parent);
         const valEl = valEls.find(el => el !== matchedLabel && !matchedLabel.contains(el) && !lowerLabels.includes(txt(el).toLowerCase()) && txt(el).length > 0);
         if (valEl) {
-          const val = txt(valEl);
+          const val = stripPreviewAffordance(txt(valEl));
           if (val) return val;
         }
       }
@@ -156,7 +164,7 @@
     for (const lbl of lowerLabels) {
       const els = deepQsa(`[data-field="${lbl}"], [data-field-name="${lbl}"], [data-name="${lbl}"], [data-target-selection-name*="${lbl}"]`);
       if (els && els.length > 0) {
-        const val = txt(els[0]);
+        const val = stripPreviewAffordance(txt(els[0]));
         if (val) return val;
       }
     }
@@ -219,8 +227,20 @@
     text = text.replace(/^(?:(?:dear|hi|hello|hey|good\s+(?:morning|afternoon|evening))\b[^\n,:]*[,\n:]*)+/i, "").trim();
     if (!text) return "";
 
-    // Split into sentences or lines
-    const sentences = text.match(/[^.!?\n]+(?:[.!?]+|$)/g) || [text];
+    // Split into sentences. Numbered/bulleted list lines are kept whole
+    // instead of being run through the sentence-terminator regex: a naked
+    // "1." would otherwise match as its own bogus "sentence" (the digit is
+    // non-terminator, the following "." is), silently dropping the rest of
+    // that line and degenerating multi-step bodies into "1. 2." fragments.
+    const lines = text.split(/\n+/).map(l => l.trim()).filter(Boolean);
+    const sentences = [];
+    for (const line of lines) {
+      if (/^(?:\d+[.)]|[-*•])\s/.test(line)) {
+        sentences.push(line);
+      } else {
+        sentences.push(...(line.match(/[^.!?]+(?:[.!?]+|$)/g) || [line]));
+      }
+    }
     const meaningful = sentences
       .map(s => s.replace(/\s+/g, " ").trim())
       .filter(s => s.length > 0 && !/^(?:thanks|thank you|regards|best regards|sincerely|cheers)[,.\s]*$/i.test(s));
@@ -256,7 +276,7 @@
   // author/timestamp header and the Like/Comment/views footer, so we don't have
   // to string-surgery them off the whole-article innerText.
   const comments = qsa("article").map((a, i) => {
-    const named = Array.from(a.querySelectorAll("a")).map(txt).filter(Boolean);
+    const named = Array.from(a.querySelectorAll("a")).map(txt).map(stripPreviewAffordance).filter(Boolean);
     const author = named[0] || "";
     const bodyEl = a.querySelector(".feedBodyInner, .cuf-feedBodyText, [class*='feedBody']");
     let rawBodyText = "";

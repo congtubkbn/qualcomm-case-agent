@@ -51,7 +51,11 @@ function md() {
     ['Comments', comments.length],
     ['Synced', data.extractedAt],
   ].filter(([, v]) => S(v) !== '');
-  for (const [k, v] of meta) L.push(`- **${k}:** ${S(v)}`);
+  const mdCell = v => S(v).replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
+  if (meta.length) {
+    L.push('| Field | Value |', '| --- | --- |');
+    for (const [k, v] of meta) L.push(`| ${k} | ${mdCell(v)} |`);
+  }
   if (S(data.url)) L.push(`- **URL:** ${S(data.url)}`);
   L.push('');
   L.push('## Chronological Timeline of Comments', '');

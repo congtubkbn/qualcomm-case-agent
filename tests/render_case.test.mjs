@@ -96,18 +96,20 @@ describe('render_case: case.md content structure', () => {
     assert.equal(r.exit, 0);
     const md = r.md();
 
-    // 1. Metadata assertions
+    // 1. Metadata assertions — table-formatted
     assert.match(md, /# 08460319 — NR SA attach failure on band n78/);
-    assert.match(md, /- \*\*Status:\*\* In Progress/);
-    assert.match(md, /- \*\*Priority:\*\* P1/);
-    assert.match(md, /- \*\*Severity:\*\* S1/);
-    assert.match(md, /- \*\*Product:\*\* Snapdragon X75/);
-    assert.match(md, /- \*\*Component:\*\* Modem RF/);
-    assert.match(md, /- \*\*Customer:\*\* OEM-Alpha/);
-    assert.match(md, /- \*\*Created:\*\* 2026-08-18T08:00:00\.000Z/);
-    assert.match(md, /- \*\*Updated:\*\* 2026-08-20T14:30:00\.000Z/);
-    assert.match(md, /- \*\*Comments:\*\* 3/);
-    assert.match(md, /- \*\*Synced:\*\* 2026-08-22T00:00:00\.000Z/);
+    assert.match(md, /\| Field \| Value \|/);
+    assert.match(md, /\| --- \| --- \|/);
+    assert.match(md, /\| Status \| In Progress \|/);
+    assert.match(md, /\| Priority \| P1 \|/);
+    assert.match(md, /\| Severity \| S1 \|/);
+    assert.match(md, /\| Product \| Snapdragon X75 \|/);
+    assert.match(md, /\| Component \| Modem RF \|/);
+    assert.match(md, /\| Customer \| OEM-Alpha \|/);
+    assert.match(md, /\| Created \| 2026-08-18T08:00:00\.000Z \|/);
+    assert.match(md, /\| Updated \| 2026-08-20T14:30:00\.000Z \|/);
+    assert.match(md, /\| Comments \| 3 \|/);
+    assert.match(md, /\| Synced \| 2026-08-22T00:00:00\.000Z \|/);
     assert.match(md, /- \*\*URL:\*\* https:\/\/support\.qualcomm\.com\/case\/08460319/);
 
     // 2. Standalone Description section is NOT rendered
@@ -154,12 +156,12 @@ describe('render_case: case.md content structure', () => {
     assert.equal(r.exit, 0);
     const md = r.md();
 
-    assert.match(md, /- \*\*Contact Name:\*\* Mai Ngoc/);
-    assert.match(md, /- \*\*Customer Project:\*\* Titan-5G/);
-    assert.match(md, /- \*\*Date Opened:\*\* 2026-08-18 10:00/);
-    assert.match(md, /- \*\*Date Closed:\*\* 2026-08-20 15:30/);
-    assert.match(md, /- \*\*Case Record Type:\*\* External Case/);
-    assert.match(md, /- \*\*Related CRs:\*\* CR3798678, CR3801234/);
+    assert.match(md, /\| Contact Name \| Mai Ngoc \|/);
+    assert.match(md, /\| Customer Project \| Titan-5G \|/);
+    assert.match(md, /\| Date Opened \| 2026-08-18 10:00 \|/);
+    assert.match(md, /\| Date Closed \| 2026-08-20 15:30 \|/);
+    assert.match(md, /\| Case Record Type \| External Case \|/);
+    assert.match(md, /\| Related CRs \| CR3798678, CR3801234 \|/);
   });
 
   it('does not render obsolete enrichment / LLM sections', () => {
@@ -228,8 +230,8 @@ describe('render_case: malformed / missing data tolerance', () => {
   it('tolerates missing optional header fields', () => {
     const r = renderFixture({ caseNumber: '08460319', title: 'x', comments: [comment('A', 'b')] });
     assert.equal(r.exit, 0);
-    assert.ok(!r.md().includes('**Status:**'));
-    assert.ok(!r.md().includes('**Product:**'));
+    assert.ok(!r.md().includes('| Status |'));
+    assert.ok(!r.md().includes('| Product |'));
   });
 
   it('falls back to "Untitled case" when title is missing', () => {

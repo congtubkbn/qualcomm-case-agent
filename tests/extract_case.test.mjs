@@ -658,6 +658,93 @@ test('extract_case.js DOM extraction engine', async (t) => {
     assert.equal(result.title, 'VoNR Handover Failure');
     assert.equal(result.product, 'SDX75');
   });
+
+  // Issue #82: Salesforce Lightning renders a hidden hover-preview affordance
+  // ("Preview") nested inside a Lookup-type field's <a>. innerText swallows it,
+  // producing "Luyen Kieu BaPreview" style noise in Contact Name / Customer
+  // Project / Customer field values.
+  await t.test('strips the Lightning Lookup "Preview" affordance from field values', () => {
+    const doc = createMockDocument();
+    doc.title = 'Case: 08603854 - QXDM log analysis for NR SA';
+
+    function addLookupField(label, value) {
+      const formEl = createMockElement('div', { className: 'slds-form-element record-layout-item' });
+      const labelEl = createMockElement('span', { className: 'slds-form-element__label test-id__field-label' }, label);
+      formEl.appendChild(labelEl);
+      const controlEl = createMockElement('div', { className: 'slds-form-element__control' });
+      const a = createMockElement('a');
+      const nameSpan = createMockElement('span', {}, value);
+      const previewSpan = createMockElement('span', { className: 'slds-assistive-text' }, 'Preview');
+      a.appendChild(nameSpan);
+      a.appendChild(previewSpan);
+      controlEl.appendChild(a);
+      formEl.appendChild(controlEl);
+      doc.body.appendChild(formEl);
+    }
+
+    addLookupField('Contact Name', 'Luyen Kieu Ba');
+    addLookupField('Customer Project', 'SS_SM7635_XCover7_Pro_EU');
+    addLookupField('Account Name', 'Samsung Electronics');
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+
+    assert.equal(result.contactName, 'Luyen Kieu Ba');
+    assert.equal(result.customerProject, 'SS_SM7635_XCover7_Pro_EU');
+    assert.equal(result.accountName, 'Samsung Electronics');
+    assert.equal(result.contactName.includes('Preview'), false);
+    assert.equal(result.customerProject.includes('Preview'), false);
+    assert.equal(result.accountName.includes('Preview'), false);
+  });
+
+  // Issue #82: the same "Preview" affordance leaks into the FIRST <a> of a
+  // Chatter article, which extract_case.js uses as the comment author.
+  await t.test('strips the "Preview" affordance from comment author extraction', () => {
+    const doc = createMockDocument();
+    doc.title = 'Case: 08603854 - QXDM log analysis for NR SA';
+
+    const art = createMockElement('article', { id: 'c1' });
+    const authorA = createMockElement('a');
+    const nameSpan = createMockElement('span', {}, 'Luyen Kieu Ba');
+    const previewSpan = createMockElement('span', { className: 'slds-assistive-text' }, 'Preview');
+    authorA.appendChild(nameSpan);
+    authorA.appendChild(previewSpan);
+    art.appendChild(authorA);
+    art.appendChild(createMockElement('a', {}, '2 days ago'));
+    art.appendChild(createMockElement('div', { className: 'feedBodyInner' }, 'Body text here.'));
+    doc.body.appendChild(art);
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+
+    assert.equal(result.comments.length, 1);
+    assert.equal(result.comments[0].author, 'Luyen Kieu Ba');
+    assert.equal(result.comments[0].author.includes('Preview'), false);
+  });
+
+  // Issue #82: extractSummary()'s sentence-splitting regex reduces numbered/
+  // newline-separated list bodies to bare punctuation fragments like "1. 2."
+  // because it can't cross a "\n" to find the rest of a list line.
+  await t.test('keeps numbered-list content in summary instead of degenerating to "1. 2."', () => {
+    const doc = createMockDocument();
+    doc.title = 'Case: 08603854 - QXDM log analysis for NR SA';
+
+    const art = createMockElement('article', { id: 'c1' });
+    art.appendChild(createMockElement('a', {}, 'Support Engineer'));
+    const body = createMockElement(
+      'div',
+      { className: 'feedBodyInner' },
+      '1. Insert Optus (505-02) SIM\n2. Put device into Telstra network testing mode'
+    );
+    art.appendChild(body);
+    doc.body.appendChild(art);
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+
+    assert.equal(result.comments.length, 1);
+    const summary = result.comments[0].summary;
+    assert.notEqual(summary, '1. 2.');
+    assert.equal(summary.includes('Insert Optus (505-02) SIM'), true);
+    assert.equal(summary.includes('Put device into Telstra'), true);
+  });
 });
 
 test('switch_tab.js tab switching engine', async (t) => {
