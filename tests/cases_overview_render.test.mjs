@@ -157,6 +157,43 @@ describe('cases_overview_render: renderDashboardHtml', () => {
     assert.ok(html.includes('rel="noopener noreferrer"'));
   });
 
+  it('renders a Delete button per case card that copies a safe chat instruction, never a raw CLI command', () => {
+    const data = createSampleOverviewData();
+    const html = renderDashboardHtml(data);
+
+    // One Delete button per card, each carrying that card's own case code.
+    assert.ok(html.includes('🗑️ Delete'));
+    const deleteButtonCount = (html.match(/class="[^"]*delete-btn[^"]*"/g) || []).length;
+    assert.equal(deleteButtonCount, data.cases.length);
+    for (const c of data.cases) {
+      assert.ok(
+        html.includes(`class="action-btn delete-btn" data-case-id="${c.caseNumber}"`),
+        `expected a delete-btn wired to case ${c.caseNumber}`,
+      );
+    }
+
+    // Isolate the delete-btn click handler to check its body specifically —
+    // global regexes over the whole document would pass even if this
+    // handler leaked a CLI command, since other unrelated script/markup
+    // could legitimately contain none of these patterns anyway.
+    const handlerMatch = html.match(
+      /document\.querySelectorAll\('\.delete-btn'\)[\s\S]*?\n {6}\}\);/,
+    );
+    assert.ok(handlerMatch, 'expected to find the delete-btn click handler block');
+    const handlerBody = handlerMatch[0];
+
+    // Copied text is a natural-language chat instruction containing the case
+    // code — never a literal CLI invocation, and never a --yes flag (ADR
+    // 0003: a copied --yes command could be pasted straight into a terminal,
+    // skipping the agent-mediated confirmation this feature exists for).
+    assert.ok(handlerBody.includes('xóa case ${caseId} khỏi cache local'));
+    assert.doesNotMatch(handlerBody, /delete_case\.mjs/);
+    assert.doesNotMatch(handlerBody, /--yes/);
+
+    // No fetch/navigation/filesystem access from the click handler.
+    assert.doesNotMatch(handlerBody, /fetch\(|window\.open|location\s*[.=]/);
+  });
+
   it('renders Hidden Cases tab in filter navigation bar', () => {
     const data = createSampleOverviewData();
     const html = renderDashboardHtml(data);

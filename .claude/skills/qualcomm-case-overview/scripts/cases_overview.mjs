@@ -475,6 +475,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
             <button class="action-btn copy-btn" data-case-id="${escapedCaseNum}" title="Copy Case ID" type="button">Copy ID</button>
             <button class="action-btn hide-btn" data-case-id="${escapedCaseNum}" title="Hide Case from active views" type="button">🚫 Hide</button>
             <button class="action-btn unhide-btn" data-case-id="${escapedCaseNum}" title="Unhide Case to active views" type="button">👁️ Unhide</button>
+            <button class="action-btn delete-btn" data-case-id="${escapedCaseNum}" title="Copy a delete instruction for chat" type="button">🗑️ Delete</button>
           </div>
           <div class="card-badges">
             <span class="badge ${badgeClass}">${escapedStatus}</span>
@@ -1194,34 +1195,50 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         });
       });
 
+      // Shared clipboard-copy path (Copy ID, Delete instruction).
+      async function copyTextToClipboard(text) {
+        try {
+          await navigator.clipboard.writeText(text);
+        } catch {
+          const textArea = document.createElement('textarea');
+          textArea.value = text;
+          document.body.appendChild(textArea);
+          textArea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textArea);
+        }
+      }
+
+      function flashCopied(btn, restingText) {
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.textContent = restingText;
+          btn.classList.remove('copied');
+        }, 1500);
+      }
+
       // Copy ID buttons
       document.querySelectorAll('.copy-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
           const caseId = btn.getAttribute('data-case-id');
           if (caseId) {
-            try {
-              await navigator.clipboard.writeText(caseId);
-              const originalText = btn.textContent;
-              btn.textContent = 'Copied!';
-              btn.classList.add('copied');
-              setTimeout(() => {
-                btn.textContent = originalText;
-                btn.classList.remove('copied');
-              }, 1500);
-            } catch {
-              const textArea = document.createElement('textarea');
-              textArea.value = caseId;
-              document.body.appendChild(textArea);
-              textArea.select();
-              document.execCommand('copy');
-              document.body.removeChild(textArea);
-              btn.textContent = 'Copied!';
-              btn.classList.add('copied');
-              setTimeout(() => {
-                btn.textContent = 'Copy ID';
-                btn.classList.remove('copied');
-              }, 1500);
-            }
+            await copyTextToClipboard(caseId);
+            flashCopied(btn, 'Copy ID');
+          }
+        });
+      });
+
+      // Delete buttons — copy a natural-language chat instruction only.
+      // Never a CLI command: per ADR 0003 the dashboard must not produce
+      // anything pasteable straight into a terminal to bypass the
+      // agent-confirmed delete flow.
+      document.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const caseId = btn.getAttribute('data-case-id');
+          if (caseId) {
+            await copyTextToClipboard(\`xóa case \${caseId} khỏi cache local\`);
+            flashCopied(btn, '🗑️ Delete');
           }
         });
       });
