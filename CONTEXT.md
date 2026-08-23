@@ -37,3 +37,16 @@ concept, not its revival)
 **Delta (comments)**:
 The set of a case's comments not yet present in a prior `qualcomm-case-summary` run, computed by
 comment-id difference, never by array position or count. Drives summarizing only what's new.
+
+**Hide (case)**:
+A per-browser, client-side-only flag on the `qualcomm-case-overview` dashboard that removes a case
+from active tab views. Stored in `localStorage`; touches no file on disk; fully reversible via
+"Unhide". Does not affect `_overview.json`, `_index.json`, or the case's cache directory.
+_Avoid_: delete, archive, remove
+
+**Delete (case)**:
+Permanently removes a case's entire local cache directory (`data/cases/<code>/` —
+`case.json`, `summary.json`, comments) and its `_index.json` entry. Irreversible. Owned by
+`qualcomm-case-agent` (the data owner), never by `qualcomm-case-overview` (read-only consumer).
+Always gated by an agent-mediated confirmation in chat before the underlying script runs.
+_Avoid_: hide, remove (ambiguous with hiding)
