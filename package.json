@@ -9,7 +9,9 @@
     "docs:check": "node tools/gen_design.mjs --check",
     "docs:hook": "git config core.hooksPath tools/hooks",
     "cases:overview": "node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs",
-    "cases:dashboard": "node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --open"
+    "cases:dashboard": "node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --open",
+    "setup:protocol": "powershell -ExecutionPolicy Bypass -File scripts/register_protocol.ps1",
+    "uninstall:protocol": "powershell -ExecutionPolicy Bypass -File scripts/unregister_protocol.ps1"
   },
   "engines": { "node": ">=22.3.0" }
 }
