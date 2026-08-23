@@ -226,6 +226,15 @@ describe('extractSummary', () => {
     assert.equal(summary.includes('.zipMPSS.DE.3.1-01301.11-KAILUA_GEN_PACK-1.31422.641'), true);
   });
 
+  // A run of consecutive terminators ("?!") must end together as ONE
+  // boundary — splitting them individually leaves a bare "!" fragment that
+  // survives the meaningful-sentence filter and silently evicts real content
+  // from the slice(0, 2) preview.
+  it('treats a run of consecutive terminators ("?!") as one sentence boundary', () => {
+    const summary = m.extractSummary('What?! Really. Third.');
+    assert.equal(summary, 'What?! Really.');
+  });
+
   it('strips salutations and takes the first 1-2 sentences', () => {
     const summary = m.extractSummary('Dear customer,\n\nThank you for opening the case.\nWe will check and update.');
     assert.equal(summary, 'Thank you for opening the case. We will check and update.');

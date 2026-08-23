@@ -232,28 +232,38 @@ export function isBlacklistedTs(s) {
 }
 
 /**
- * Splits a single line into sentences. '!' and '?' always end a sentence,
- * but a '.' only ends one when followed by whitespace or end-of-string — a
- * dot inside a token (".zip", ".log", a dotted build version) has no
- * whitespace after it, so it stays part of the running sentence instead of
- * forking a bogus split.
+ * Splits a single line into sentences. A run of consecutive terminator
+ * chars ("?!", "...") ends together as one boundary — a bare fragment like
+ * "!" must never survive as its own "sentence" (it would consume a
+ * meaningful-sentence slot and silently drop what follows). The one
+ * exception: a LONE '.' only ends a sentence when followed by whitespace or
+ * end-of-string, since a dot inside a token (".zip", ".log", a dotted build
+ * version) has no whitespace after it and must stay part of the running
+ * sentence instead of forking a bogus split.
  */
 function splitSentences(line) {
   const sentences = [];
   let cur = '';
-  for (let i = 0; i < line.length; i++) {
+  let i = 0;
+  while (i < line.length) {
     const ch = line[i];
     cur += ch;
-    if (ch === '!' || ch === '?') {
-      sentences.push(cur);
-      cur = '';
-    } else if (ch === '.') {
-      const next = line[i + 1];
-      if (next === undefined || /\s/.test(next)) {
+    if (ch === '.' || ch === '!' || ch === '?') {
+      let j = i + 1;
+      while (j < line.length && (line[j] === '.' || line[j] === '!' || line[j] === '?')) {
+        cur += line[j];
+        j++;
+      }
+      const isLoneDot = ch === '.' && j - i === 1;
+      const next = line[j];
+      if (!isLoneDot || next === undefined || /\s/.test(next)) {
         sentences.push(cur);
         cur = '';
       }
+      i = j;
+      continue;
     }
+    i++;
   }
   if (cur.trim()) sentences.push(cur);
   return sentences;
