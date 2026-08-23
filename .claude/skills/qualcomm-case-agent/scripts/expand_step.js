@@ -217,7 +217,7 @@
 
   // Description panel is a full-run concern — on an update run it is cached.
   if (!ANCHOR) {
-    var desc = byText('button', /^Description$/i).filter(function (b) {
+    var desc = deepByText('button', /^Description$/i).filter(function (b) {
       return b.getAttribute('aria-expanded') === 'false';
     })[0];
     if (desc) { fire(desc); result.clickedDescription = 1; }

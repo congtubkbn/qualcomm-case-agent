@@ -98,6 +98,19 @@ function createMockElement(tag, attrs = {}, text = '') {
     },
     set textContent(v) { text = v; },
     shadowRoot: null,
+    attachShadow(options = { mode: 'open' }) {
+      const root = createMockElement('#shadow-root');
+      root.host = elem;
+      elem.shadowRoot = root;
+      return root;
+    },
+    getRootNode() {
+      let cur = this;
+      while (cur.parent || cur.parentElement) {
+        cur = cur.parent || cur.parentElement;
+      }
+      return cur;
+    },
     parentElement: null,
     get parent() { return parent; },
     set parent(p) { parent = p; this.parentElement = p; },
@@ -881,4 +894,179 @@ test('extract_case.js cleans trailing Expand Post and .cuf-more elements from co
     assert.equal(c2.summary, 'We are reviewing the trace.');
   });
 });
+
+test('expand_step.js deep Shadow DOM Description button expansion', async (t) => {
+  await t.test('finds and clicks Description button inside <lightning-accordion-section> Shadow DOM when aria-expanded is false', () => {
+    const doc = createMockDocument();
+    const accordionSection = createMockElement('lightning-accordion-section');
+    const shadow = accordionSection.attachShadow();
+
+    let clicked = false;
+    const btn = createMockElement('button', {
+      className: 'slds-accordion__summary-action',
+      'aria-expanded': 'false',
+    });
+    btn.onclick = () => { clicked = true; };
+    const labelSpan = createMockElement('span', { className: 'slds-accordion__summary-content' }, 'Description');
+    btn.appendChild(labelSpan);
+    shadow.appendChild(btn);
+
+    doc.body.appendChild(accordionSection);
+
+    const result = runInMockContext(EXPAND_SCRIPT, { doc, anchor: null });
+    assert.equal(result.clickedDescription, 1);
+    assert.equal(clicked, true);
+  });
+
+  await t.test('does not click Description button inside Shadow DOM when aria-expanded is true', () => {
+    const doc = createMockDocument();
+    const accordionSection = createMockElement('lightning-accordion-section');
+    const shadow = accordionSection.attachShadow();
+
+    let clicked = false;
+    const btn = createMockElement('button', {
+      className: 'slds-accordion__summary-action',
+      'aria-expanded': 'true',
+    });
+    btn.onclick = () => { clicked = true; };
+    const labelSpan = createMockElement('span', { className: 'slds-accordion__summary-content' }, 'Description');
+    btn.appendChild(labelSpan);
+    shadow.appendChild(btn);
+
+    doc.body.appendChild(accordionSection);
+
+    const result = runInMockContext(EXPAND_SCRIPT, { doc, anchor: null });
+    assert.equal(result.clickedDescription, 0);
+    assert.equal(clicked, false);
+  });
+});
+
+test('extract_case.js deep Shadow DOM metadata and Description extraction', async (t) => {
+  await t.test('extracts Description from <lightning-accordion-section> with Shadow DOM button and content', () => {
+    const doc = createMockDocument();
+    doc.title = 'Case: 08316063 - QXDM crash on modem attach';
+
+    const accordionSection = createMockElement('lightning-accordion-section');
+    const shadow = accordionSection.attachShadow();
+    const btn = createMockElement('button', { 'aria-expanded': 'true' });
+    const btnSpan = createMockElement('span', { className: 'slds-accordion__summary-content' }, 'Description');
+    btn.appendChild(btnSpan);
+    shadow.appendChild(btn);
+
+    const contentDiv = createMockElement('div', { className: 'slds-accordion__content' });
+    const textEl = createMockElement('lightning-formatted-text', {}, 'The UE crashes during 5G SA registration after receiving RRCReconfiguration.');
+    contentDiv.appendChild(textEl);
+    accordionSection.appendChild(contentDiv);
+    doc.body.appendChild(accordionSection);
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+    assert.equal(result.description, 'The UE crashes during 5G SA registration after receiving RRCReconfiguration.');
+  });
+
+  await t.test('extracts Problem Description, Customer Project, Account Name, and Detail tab fields from inside LWC Shadow DOM', () => {
+    const doc = createMockDocument();
+    doc.title = 'Case: 08316063 - QXDM crash on modem attach';
+
+    // 1. Problem Description field in <records-record-layout-item>
+    const itemDesc = createMockElement('records-record-layout-item');
+    const shadowDesc = itemDesc.attachShadow();
+    const formElDesc = createMockElement('div', { className: 'slds-form-element' });
+    const labelDesc = createMockElement('span', { className: 'test-id__field-label slds-form-element__label' }, 'Problem Description');
+    const controlDesc = createMockElement('div', { className: 'slds-form-element__control' });
+    const valDesc = createMockElement('lightning-formatted-text', {}, 'Modem firmware assertion failure at line 452 in rrc_sm.c');
+    controlDesc.appendChild(valDesc);
+    formElDesc.appendChild(labelDesc);
+    formElDesc.appendChild(controlDesc);
+    shadowDesc.appendChild(formElDesc);
+    doc.body.appendChild(itemDesc);
+
+    // 2. Customer Project field
+    const itemProj = createMockElement('records-record-layout-item');
+    const shadowProj = itemProj.attachShadow();
+    const formElProj = createMockElement('div', { className: 'slds-form-element' });
+    const labelProj = createMockElement('span', { className: 'test-id__field-label slds-form-element__label' }, 'Customer Project');
+    const controlProj = createMockElement('div', { className: 'slds-form-element__control' });
+    const valProj = createMockElement('lightning-formatted-text', {}, 'Snapdragon_Auto_Gen4');
+    controlProj.appendChild(valProj);
+    formElProj.appendChild(labelProj);
+    formElProj.appendChild(controlProj);
+    shadowProj.appendChild(formElProj);
+    doc.body.appendChild(itemProj);
+
+    // 3. Account Name field
+    const itemAcc = createMockElement('records-record-layout-item');
+    const shadowAcc = itemAcc.attachShadow();
+    const formElAcc = createMockElement('div', { className: 'slds-form-element' });
+    const labelAcc = createMockElement('span', { className: 'test-id__field-label slds-form-element__label' }, 'Account Name');
+    const controlAcc = createMockElement('div', { className: 'slds-form-element__control' });
+    const valAcc = createMockElement('lightning-formatted-text', {}, 'Tier1 OEM Automotive Corp');
+    controlAcc.appendChild(valAcc);
+    formElAcc.appendChild(labelAcc);
+    formElAcc.appendChild(controlAcc);
+    shadowAcc.appendChild(formElAcc);
+    doc.body.appendChild(itemAcc);
+
+    // 4. Contact Name field
+    const itemContact = createMockElement('records-record-layout-item');
+    const shadowContact = itemContact.attachShadow();
+    const formElContact = createMockElement('div', { className: 'slds-form-element' });
+    const labelContact = createMockElement('span', { className: 'test-id__field-label slds-form-element__label' }, 'Contact Name');
+    const controlContact = createMockElement('div', { className: 'slds-form-element__control' });
+    const valContact = createMockElement('lightning-formatted-text', {}, 'Jane Doe');
+    controlContact.appendChild(valContact);
+    formElContact.appendChild(labelContact);
+    formElContact.appendChild(controlContact);
+    shadowContact.appendChild(formElContact);
+    doc.body.appendChild(itemContact);
+
+    // 5. Related CRs field
+    const itemCR = createMockElement('records-record-layout-item');
+    const shadowCR = itemCR.attachShadow();
+    const formElCR = createMockElement('div', { className: 'slds-form-element' });
+    const labelCR = createMockElement('span', { className: 'test-id__field-label slds-form-element__label' }, 'Related CRs');
+    const controlCR = createMockElement('div', { className: 'slds-form-element__control' });
+    const valCR = createMockElement('lightning-formatted-text', {}, 'CR-1049281');
+    controlCR.appendChild(valCR);
+    formElCR.appendChild(labelCR);
+    formElCR.appendChild(controlCR);
+    shadowCR.appendChild(formElCR);
+    doc.body.appendChild(itemCR);
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+
+    assert.equal(result.description, 'Modem firmware assertion failure at line 452 in rrc_sm.c');
+    assert.equal(result.customerProject, 'Snapdragon_Auto_Gen4');
+    assert.equal(result.accountName, 'Tier1 OEM Automotive Corp');
+    assert.equal(result.contactName, 'Jane Doe');
+    assert.equal(result.relatedCRs, 'CR-1049281');
+  });
+
+  await t.test('extracts metadata through multi-level deeply nested Shadow DOM roots', () => {
+    const doc = createMockDocument();
+    doc.title = 'Case: 08316063 - QXDM crash on modem attach';
+
+    const layoutItem = createMockElement('records-record-layout-item');
+    const shadowLevel1 = layoutItem.attachShadow();
+
+    const baseInput = createMockElement('records-record-layout-base-input');
+    const shadowLevel2 = baseInput.attachShadow();
+
+    const formElement = createMockElement('div', { className: 'slds-form-element' });
+    const label = createMockElement('label', { className: 'slds-form-element__label' }, 'Priority');
+    const control = createMockElement('div', { className: 'slds-form-element__control' });
+    const formatted = createMockElement('lightning-formatted-text', {}, 'P1 - Critical');
+
+    control.appendChild(formatted);
+    formElement.appendChild(label);
+    formElement.appendChild(control);
+
+    shadowLevel2.appendChild(formElement);
+    shadowLevel1.appendChild(baseInput);
+    doc.body.appendChild(layoutItem);
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+    assert.equal(result.priority, 'P1 - Critical');
+  });
+});
+
 

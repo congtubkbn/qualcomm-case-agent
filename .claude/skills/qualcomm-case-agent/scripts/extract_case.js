@@ -44,6 +44,41 @@
       .trim();
   };
 
+  const deepQsa = (sel, root) => {
+    const results = [];
+    const seen = new Set();
+    const add = el => {
+      if (el && !seen.has(el)) {
+        seen.add(el);
+        results.push(el);
+      }
+    };
+    const scan = node => {
+      if (!node) return;
+      if (node.querySelectorAll) {
+        try {
+          const matched = node.querySelectorAll(sel);
+          for (let i = 0; i < matched.length; i++) {
+            add(matched[i]);
+          }
+        } catch (e) {}
+        try {
+          const all = node.querySelectorAll('*');
+          for (let i = 0; i < all.length; i++) {
+            if (all[i] && all[i].shadowRoot) {
+              scan(all[i].shadowRoot);
+            }
+          }
+        } catch (e) {}
+      }
+      if (node.shadowRoot) {
+        scan(node.shadowRoot);
+      }
+    };
+    scan(root || document);
+    return results;
+  };
+
   // Case number: document.title is reliably "Case: <CODE>" on the case page.
   // Require the colon form + a leading digit so the Cases LIST view (title
   // "Cases") can't false-match and yield a junk id like "s". Fall back to a
@@ -61,32 +96,56 @@
     const lowerLabels = labelsList.map(l => (l || "").toLowerCase().trim()).filter(Boolean);
     if (!lowerLabels.length) return "";
 
-    // 1. Button with label (e.g. collapsible section button)
-    const btn = qsa("button").find(b => {
+    const findContainer = el => {
+      let cur = el;
+      while (cur) {
+        if (cur.matches && cur.matches(".slds-form-element, [class*='record-layout-item'], lightning-record-layout-item, records-record-layout-item, dl, .slds-grid, records-record-layout-row, records-record-layout-block, lightning-accordion-section, [class*='accordion']")) {
+          return cur;
+        }
+        if (cur.parentElement) {
+          cur = cur.parentElement;
+        } else if (cur.parent) {
+          cur = cur.parent;
+        } else if (cur.getRootNode && cur.getRootNode().host) {
+          cur = cur.getRootNode().host;
+        } else {
+          break;
+        }
+      }
+      return el.parentElement || (el.getRootNode && el.getRootNode().host) || null;
+    };
+
+    // 1. Button with label (e.g. collapsible section button in header or accordion)
+    const btns = deepQsa("button");
+    const btn = btns.find(b => {
       const bt = txt(b).toLowerCase();
       return lowerLabels.includes(bt) || lowerLabels.some(l => bt === l || bt.startsWith(l + ":"));
     });
     if (btn) {
-      const host = btn.closest("li, div, lightning-record-layout-item") || btn.parentElement;
-      const p = host && host.querySelector("p, lightning-formatted-text, lightning-formatted-name, span:not([class*='label'])");
-      if (p) {
-        const val = txt(p);
-        if (val) return val;
+      const host = findContainer(btn);
+      if (host) {
+        const valEls = deepQsa(".slds-accordion__content, [class*='accordion__content'], lightning-formatted-text, lightning-formatted-name, p, span:not([class*='label'])", host);
+        const valEl = valEls.find(el => el !== btn && !btn.contains(el) && !lowerLabels.includes(txt(el).toLowerCase()) && txt(el).length > 0);
+        if (valEl) {
+          const val = txt(valEl);
+          if (val) return val;
+        }
       }
     }
 
     // 2. Standard Salesforce Lightning label selectors
-    const labels = qsa(".slds-form-element__label, label, [class*='label'], dt, .test-id__field-label, [data-label]");
+    const labels = deepQsa(".slds-form-element__label, label, [class*='label'], dt, .test-id__field-label, [data-label]");
     const matchedLabel = labels.find(l => {
       const t = txt(l).toLowerCase();
       return lowerLabels.includes(t) || lowerLabels.some(lbl => t === lbl || t.startsWith(lbl + ":") || t.startsWith(lbl + " *") || t === lbl + "*");
     });
 
     if (matchedLabel) {
-      const parent = matchedLabel.closest(".slds-form-element, [class*='record-layout-item'], lightning-record-layout-item, dl, .slds-grid") || matchedLabel.parentElement;
+      const parent = findContainer(matchedLabel);
       if (parent) {
-        const valEl = parent.querySelector(".slds-form-element__control, dd, lightning-formatted-text, lightning-formatted-name, lightning-formatted-date-time, lightning-formatted-lookup, p, a, span:not([class*='label'])");
-        if (valEl && valEl !== matchedLabel) {
+        const valEls = deepQsa(".slds-form-element__control, dd, lightning-formatted-text, lightning-formatted-name, lightning-formatted-date-time, lightning-formatted-lookup, p, a, span:not([class*='label']), .test-id__field-value", parent);
+        const valEl = valEls.find(el => el !== matchedLabel && !matchedLabel.contains(el) && !lowerLabels.includes(txt(el).toLowerCase()) && txt(el).length > 0);
+        if (valEl) {
           const val = txt(valEl);
           if (val) return val;
         }
@@ -95,9 +154,9 @@
 
     // 3. Direct data attributes
     for (const lbl of lowerLabels) {
-      const el = qsa(`[data-field="${lbl}"], [data-field-name="${lbl}"], [data-name="${lbl}"]`)[0];
-      if (el) {
-        const val = txt(el);
+      const els = deepQsa(`[data-field="${lbl}"], [data-field-name="${lbl}"], [data-name="${lbl}"], [data-target-selection-name*="${lbl}"]`);
+      if (els && els.length > 0) {
+        const val = txt(els[0]);
         if (val) return val;
       }
     }

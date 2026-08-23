@@ -11,7 +11,7 @@ Type: Tracer Bullet
 - Add unit tests verifying shadow DOM traversal and field extraction.
 
 ## Acceptance criteria
-- [ ] Header `Description` accordion button is found and clicked when collapsed
-- [ ] `sectionValue` in `extract_case.js` extracts `Description` and other fields from inside LWC Shadow DOM
-- [ ] Detail tab metadata extraction populates `description` accurately
-- [ ] Unit tests pass
+- [x] Header `Description` accordion button is found and clicked when collapsed
+- [x] `sectionValue` in `extract_case.js` extracts `Description` and other fields from inside LWC Shadow DOM
+- [x] Detail tab metadata extraction populates `description` accurately
+- [x] Unit tests pass
