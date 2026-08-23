@@ -18,8 +18,8 @@ const arr = v => (Array.isArray(v) ? v : []);
 
 /**
  * Format a comment or description body for Markdown rendering.
- * Preserves line structure, formats lists, escapes Markdown headers within bodies,
- * and maintains readability without breaking document-level structure.
+ * Preserves line structure, formats lists, renders modem log excerpts as fenced blocks,
+ * escapes Markdown headers within bodies, and maintains readability without breaking document-level structure.
  */
 export function formatBody(body) {
   if (!body) return '';
@@ -28,6 +28,7 @@ export function formatBody(body) {
   const out = [];
 
   const isListItem = (line) => /^\s*(\d+\.|[-*+])\s+/.test(line);
+  const isLogLine = (line) => /^\s*\d{2}:\d{2}:\d{2}(?:\.\d+)?\s*\|/.test(line);
 
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i];
@@ -35,6 +36,24 @@ export function formatBody(body) {
 
     if (!trimmed) {
       out.push('');
+      continue;
+    }
+
+    // Fenced code block for runs of modem log lines
+    if (isLogLine(line)) {
+      const logLines = [line];
+      while (i + 1 < lines.length && isLogLine(lines[i + 1])) {
+        i++;
+        logLines.push(lines[i]);
+      }
+      if (out.length > 0 && out[out.length - 1] !== '') {
+        out.push('');
+      }
+      out.push('```');
+      for (const logLine of logLines) {
+        out.push(logLine);
+      }
+      out.push('```');
       continue;
     }
 
@@ -51,10 +70,15 @@ export function formatBody(body) {
       out.push(line);
     } else {
       // Regular text line.
-      // If the next line is also non-empty (and not the end of lines or a list item),
+      // If previous item in out was a fenced code block, separate with blank line
+      if (out.length > 0 && out[out.length - 1] === '```') {
+        out.push('');
+      }
+
+      // If the next line is also non-empty (and not the end of lines, a list item, or a log line),
       // append 2 trailing spaces for hard line break in Markdown
       const nextLine = i + 1 < lines.length ? lines[i + 1].trim() : '';
-      if (nextLine && !isListItem(nextLine)) {
+      if (nextLine && !isListItem(nextLine) && !isLogLine(lines[i + 1])) {
         out.push(line.trimEnd() + '  ');
       } else {
         out.push(line.trimEnd());

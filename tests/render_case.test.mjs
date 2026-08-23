@@ -315,3 +315,112 @@ describe('render_case: issue #93 body line structure and block formatting', () =
   });
 });
 
+describe('render_case: issue #94 render pasted log excerpts as fenced blocks', () => {
+  it('renders reference log excerpt from case 08642051 as fenced code block with surrounding prose outside', () => {
+    const logBody = [
+      'Dear QC RRC team,',
+      'Could you help check why modem does not trigger UlInformationTransfer to send SERVICE REQUEST?',
+      '# FAILlog_X716B_SEAU_5G_IMS_Ecall_VoNR_redial_TC1_RTD.zip',
+      '// SERVICE REQUEST with type "emergency serv fallback"',
+      '04:39:48.820000 | 1 | NR5G NAS SERVICE REQUEST                       | service_type_val :4 (emergency serv fallback), ident_type :4 (5G_S_TMSI), pdu_session_status:PSI[1],PSI[2]',
+      '// Since there is no ULInformationTransfer message, the equipment does not receive a SERVICE REQUEST.',
+      '// Because there are no other frequencies available inside the shield box, the E911 call will fail.',
+      '# PASSlog_X716B_oneui8.5_TC1_VoNR_PASS.zip',
+      '01:26:27.935052 | 1 | NR5G NAS SERVICE REQUEST                       | service_type_val :4 (emergency serv fallback)',
+    ].join('\n');
+
+    const caseData = {
+      ...MINIMAL,
+      comments: [comment('Duc Hoang', logBody)],
+    };
+    const r = renderFixture(caseData);
+    assert.equal(r.exit, 0);
+    const md = r.md();
+
+    // Surrounding prose stays outside the fence
+    assert.match(md, /Dear QC RRC team,/);
+    assert.match(md, /\/\/ SERVICE REQUEST with type "emergency serv fallback"/);
+    assert.match(md, /\/\/ Since there is no ULInformationTransfer message/);
+
+    // Reference log lines are fenced
+    assert.match(md, /```\r?\n04:39:48\.820000 \| 1 \| NR5G NAS SERVICE REQUEST {23}\| service_type_val :4 \(emergency serv fallback\), ident_type :4 \(5G_S_TMSI\), pdu_session_status:PSI\[1\],PSI\[2\]\r?\n```/);
+    assert.match(md, /```\r?\n01:26:27\.935052 \| 1 \| NR5G NAS SERVICE REQUEST {23}\| service_type_val :4 \(emergency serv fallback\)\r?\n```/);
+  });
+
+  it('groups multiple consecutive log lines into a single fenced code block without reflowing or wrapping', () => {
+    const logBody = [
+      'Captured log trace:',
+      '01:26:27.935052 | 1 | NR5G NAS SERVICE REQUEST                       | service_type_val :4 (emergency serv fallback)',
+      '01:26:27.935460 | 1 | NR5G RRC  UL_DCCH / UlInformationTransfer               | Cell ID:0, Freq:620352',
+      '01:26:28.166996 | 1 | NR5G RRC  DL_DCCH / RRC Release                    | Cell ID:0, Freq:620352, eutraFrequency 1275',
+      'End of trace.',
+    ].join('\n');
+
+    const caseData = {
+      ...MINIMAL,
+      comments: [comment('Engineer', logBody)],
+    };
+    const r = renderFixture(caseData);
+    assert.equal(r.exit, 0);
+    const md = r.md();
+
+    const expectedBlock = [
+      '```',
+      '01:26:27.935052 | 1 | NR5G NAS SERVICE REQUEST                       | service_type_val :4 (emergency serv fallback)',
+      '01:26:27.935460 | 1 | NR5G RRC  UL_DCCH / UlInformationTransfer               | Cell ID:0, Freq:620352',
+      '01:26:28.166996 | 1 | NR5G RRC  DL_DCCH / RRC Release                    | Cell ID:0, Freq:620352, eutraFrequency 1275',
+      '```',
+    ].join('\n');
+
+    assert.ok(
+      md.replace(/\r\n/g, '\n').includes(expectedBlock),
+      'Consecutive log lines must be rendered as a single fenced block verbatim'
+    );
+    assert.match(md, /Captured log trace:/);
+    assert.match(md, /End of trace\./);
+  });
+
+  it('exempts fenced log lines from markdown character escaping', () => {
+    const logBody = [
+      '14:02:00.123 | 0 | PROTOCOL_MSG #1 *critical* _flag_ | payload: <data> & [value] | mask: 0xFF',
+    ].join('\n');
+
+    const caseData = {
+      ...MINIMAL,
+      comments: [comment('Tester', logBody)],
+    };
+    const r = renderFixture(caseData);
+    assert.equal(r.exit, 0);
+    const md = r.md();
+
+    // Characters inside the fence must NOT be escaped with backslashes
+    assert.ok(md.includes('14:02:00.123 | 0 | PROTOCOL_MSG #1 *critical* _flag_ | payload: <data> & [value] | mask: 0xFF'));
+    assert.ok(!md.includes('\\#1'));
+    assert.ok(!md.includes('\\*critical\\*'));
+    assert.ok(!md.includes('\\_flag\\_'));
+  });
+
+  it('does not fence ordinary prose containing stray periods, colons or pipes', () => {
+    const proseBodies = [
+      'At 14:02:00, we verified that pipe | column formatting is maintained.',
+      '2026-08-20 14:02:00 | System status report | All checks passed.',
+      'Check time 04:39:48.820 - error occurred during startup.',
+      'Ratio is 12:30:00 | score is high.',
+      'Table header: Col 1 | Col 2 | Col 3',
+      '1. Step one at 04:39:48 | check log',
+    ];
+
+    for (const body of proseBodies) {
+      const caseData = {
+        ...MINIMAL,
+        comments: [comment('Author', body)],
+      };
+      const r = renderFixture(caseData);
+      assert.equal(r.exit, 0);
+      const md = r.md();
+      assert.ok(!md.includes('```'), `Prose should not produce a fenced block: "${body}"`);
+    }
+  });
+});
+
+
