@@ -12,7 +12,7 @@ Type: Critical Bug
 - Add unit tests verifying collapse detection with hidden elements and clean comment extraction.
 
 ## Acceptance criteria
-- [ ] `check_collapsed.js` returns `stillCollapsed: 0` when all `.cuf-more` elements are hidden
-- [ ] `expand_step.js` does not dispatch clicks to hidden expand controls
-- [ ] Extracted comment bodies and summaries do not contain trailing `"Expand Post"`
-- [ ] Unit tests pass
+- [x] `check_collapsed.js` returns `stillCollapsed: 0` when all `.cuf-more` elements are hidden
+- [x] `expand_step.js` does not dispatch clicks to hidden expand controls
+- [x] Extracted comment bodies and summaries do not contain trailing `"Expand Post"`
+- [x] Unit tests pass
