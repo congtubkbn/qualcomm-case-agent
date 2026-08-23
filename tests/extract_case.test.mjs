@@ -65,7 +65,11 @@ function createMockElement(tag, attrs = {}, text = '') {
       return false;
     },
     cloneNode(deep = false) {
-      const cloned = createMockElement(this.tagName.toLowerCase(), { ...this.attributes, className: this.className, id: this.id, style: { ...this.style } }, text);
+      // Detached nodes have no layout, so real Chrome's innerText on a clone
+      // falls back to something textContent-like and loses <br>/block-level
+      // line breaks (issue #83). Model that here instead of copying `text`
+      // verbatim, so tests can catch code that reads innerText post-clone.
+      const cloned = createMockElement(this.tagName.toLowerCase(), { ...this.attributes, className: this.className, id: this.id, style: { ...this.style } }, text.replace(/\n+/g, ' '));
       if (!deep) return cloned;
       for (const child of children) {
         cloned.appendChild(child.cloneNode(true));
@@ -979,6 +983,31 @@ test('extract_case.js cleans trailing Expand Post and .cuf-more elements from co
     assert.equal(c2.summary.includes('Expand Post'), false);
     assert.equal(c2.body, 'We are reviewing the trace.');
     assert.equal(c2.summary, 'We are reviewing the trace.');
+  });
+
+  // Issue #83: extraction used to read innerText off a cloneNode(true) DETACHED
+  // copy of .feedBodyInner (to strip the "...more" control), and a detached
+  // node has no layout so its innerText loses every <br>/block-level line
+  // break. Here the .feedBodyInner element's OWN text carries the paragraph/
+  // line breaks, exercising the exact node the old code cloned.
+  await t.test('preserves paragraph and line breaks in a multi-paragraph comment body', () => {
+    const doc = createMockDocument();
+    doc.title = 'Case: 08642051 - Multi-paragraph comment body';
+
+    const art = createMockElement('article', { id: 'post_multiline' });
+    art.appendChild(createMockElement('a', {}, 'Test Engineer'));
+    const bodyEl = createMockElement(
+      'div',
+      { className: 'feedBodyInner' },
+      'Para one.\n\nPara two.\nLine three.'
+    );
+    art.appendChild(bodyEl);
+    doc.body.appendChild(art);
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+
+    assert.equal(result.comments.length, 1);
+    assert.equal(result.comments[0].body, 'Para one.\n\nPara two.\nLine three.');
   });
 });
 

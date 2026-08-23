@@ -279,27 +279,13 @@
     const named = Array.from(a.querySelectorAll("a")).map(txt).map(stripPreviewAffordance).filter(Boolean);
     const author = named[0] || "";
     const bodyEl = a.querySelector(".feedBodyInner, .cuf-feedBodyText, [class*='feedBody']");
-    let rawBodyText = "";
-    if (bodyEl) {
-      try {
-        if (bodyEl.cloneNode) {
-          const clone = bodyEl.cloneNode(true);
-          const moreEls = clone.querySelectorAll ? clone.querySelectorAll(".cuf-more, [class*='cuf-more']") : [];
-          for (let mi = 0; mi < moreEls.length; mi++) {
-            const m = moreEls[mi];
-            if (m.remove) m.remove();
-            else if (m.parentNode) m.parentNode.removeChild(m);
-          }
-          rawBodyText = txt(clone);
-        } else {
-          rawBodyText = txt(bodyEl);
-        }
-      } catch (e) {
-        rawBodyText = txt(bodyEl);
-      }
-    } else {
-      rawBodyText = txt(a);
-    }
+    // Read innerText from the ATTACHED bodyEl, not a cloneNode(true) detached
+    // copy: a detached node has no layout, so its innerText falls back to
+    // something textContent-like and swallows every <br>/block-level line
+    // break. The trailing "...more"/"Expand Post" control text that used to
+    // be stripped by removing the cloned .cuf-more node is instead cut by
+    // cleanBody's trailing "Expand Post" regex below.
+    const rawBodyText = bodyEl ? txt(bodyEl) : txt(a);
     const body = cleanBody(rawBodyText);
     const timestamp = extractTimestamp(a, named, author);
 
