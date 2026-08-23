@@ -12,6 +12,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { classifyRole } from './scrape_case.mjs';
 
 const S = v => (v == null ? '' : String(v));
 const arr = v => (Array.isArray(v) ? v : []);
@@ -91,7 +92,10 @@ export function formatBody(body) {
 
 /* ----------------------------- Markdown ----------------------------- */
 export function generateMarkdown(data, stem = 'case') {
-  const comments = arr(data?.comments);
+  const allComments = arr(data?.comments);
+  const desc = S(data?.description).trim();
+  const timelineComments = allComments.filter(c => !(desc && S(c?.body).trim() === desc));
+
   const L = [];
   L.push(`# ${S(data?.caseNumber) || stem} — ${S(data?.title) || 'Untitled case'}`);
   L.push('');
@@ -111,7 +115,7 @@ export function generateMarkdown(data, stem = 'case') {
     ['Date Closed', data?.closedAt],
     ['Created', data?.created],
     ['Updated', data?.updated],
-    ['Comments', comments.length],
+    ['Comments', timelineComments.length],
     ['Synced', data?.extractedAt],
   ].filter(([, v]) => S(v) !== '');
   const mdCell = v => S(v).replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
@@ -121,15 +125,20 @@ export function generateMarkdown(data, stem = 'case') {
   }
   if (S(data?.url)) L.push(`- **URL:** ${S(data?.url)}`);
   L.push('');
+
+  if (desc) {
+    L.push('## Description', '');
+    L.push(formatBody(desc), '');
+  }
+
   L.push('## Chronological Timeline of Comments', '');
-  comments.forEach((c, i) => {
-    const head = [S(c.timestamp), S(c.author)].filter(Boolean).join(' · ');
+  timelineComments.forEach((c, i) => {
+    const role = c?.role || classifyRole(c?.author, c?.company, '', c?.body);
+    const authorStr = S(c?.author) ? (role ? `${S(c.author)} (${role})` : S(c.author)) : (role ? `(${role})` : '');
+    const head = [S(c?.timestamp), authorStr].filter(Boolean).join(' · ');
     L.push(`### ${i + 1}. ${head || 'Comment'}`, '');
-    if (S(c.summary) && S(c.summary) !== S(c.body)) {
-      L.push(`> **Summary:** ${S(c.summary)}`, '');
-    }
-    if (S(c.body)) L.push(formatBody(c.body), '');
-    const atts = arr(c.attachments).filter(a => a && (S(a.name) || S(a.href) || S(a.url)));
+    if (S(c?.body)) L.push(formatBody(c.body), '');
+    const atts = arr(c?.attachments).filter(a => a && (S(a.name) || S(a.href) || S(a.url)));
     if (atts.length) {
       L.push('**Attachments:** ' + atts.map(a => `[${S(a.name) || 'file'}](${S(a.href || a.url)})`).join(', '), '');
     }

@@ -269,7 +269,7 @@ describe('3. Dedup & Idempotency: scrape_case.mjs --merge', () => {
 });
 
 describe('4. Markdown Rendering: render_case.mjs', () => {
-  it('renders case description as Comment #1 in chronological timeline without redundant standalone header', () => {
+  it('renders case description in Description section and suppresses synthesized description comment from timeline', () => {
     const dir = mkdtempSync(join(tmpdir(), 'qc-render-desc-'));
     const caseData = {
       caseNumber: '08123456',
@@ -310,16 +310,13 @@ describe('4. Markdown Rendering: render_case.mjs', () => {
     assert.ok(existsSync(mdPath), 'case.md must exist');
     const md = readFileSync(mdPath, 'utf8');
 
-    // 1. Standalone ## Description must NOT be present
-    assert.doesNotMatch(md, /^## Description$/m, 'Must omit redundant standalone description section');
-
-    // 2. Timeline must render Comment #1 with customer and description body
-    assert.match(md, /## Chronological Timeline of Comments/);
-    assert.match(md, /### 1\. 2026-08-12T07:00:00\.000Z · Xiaomi Mobile/);
+    // 1. Description section is rendered
+    assert.match(md, /^## Description$/m);
     assert.match(md, /Initial problem statement: attach reject received from network\./);
 
-    // 3. Subsequent comment rendered
-    assert.match(md, /### 2\. 2026-08-12T09:00:00\.000Z · Qualcomm Support/);
+    // 2. Timeline must suppress synthesized description comment and render genuine comments starting at #1
+    assert.match(md, /## Chronological Timeline of Comments/);
+    assert.match(md, /### 1\. 2026-08-12T09:00:00\.000Z · Qualcomm Support \(Qualcomm\)/);
     assert.match(md, /We are analyzing the attach reject code\./);
   });
 });
@@ -398,8 +395,8 @@ describe('5. Cached Case Migration: tools/migrate_case.mjs', () => {
     assert.equal(updated.comments[0].body, legacyCase.description);
 
     const md = readFileSync(join(caseDir, 'case.md'), 'utf8');
-    assert.doesNotMatch(md, /^## Description$/m);
-    assert.match(md, /### 1\. August 1, 2026 at 6:00 AM · OnePlus OEM/);
-    assert.match(md, /### 2\. August 1, 2026 at 10:00 AM · QCOM Thermal Lead/);
+    assert.match(md, /^## Description$/m);
+    assert.match(md, /Thermal throttling observed during 4K 60fps video recording\./);
+    assert.match(md, /### 1\. August 1, 2026 at 10:00 AM · QCOM Thermal Lead \(Qualcomm\)/);
   });
 });

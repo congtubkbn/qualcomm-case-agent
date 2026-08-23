@@ -298,11 +298,11 @@ describe('tools/migrate_case.mjs - Integration tests (Slice 2)', () => {
     // Comment 1 should be the Qualcomm response
     assert.equal(updated.comments[1].author, 'Qualcomm Engineer');
 
-    // case.md should be rendered with Comment #1 and without standalone ## Description
+    // case.md should be rendered with ## Description section and suppressed description comment
     const md = readFileSync(join(caseDir, 'case.md'), 'utf8');
-    assert.doesNotMatch(md, /^## Description$/m);
-    assert.match(md, /### 1\. August 1, 2026 at 10:00 AM · Alpha Mobile/);
-    assert.match(md, /### 2\. August 2, 2026 at 2:00 PM · Qualcomm Engineer/);
+    assert.match(md, /^## Description$/m);
+    assert.match(md, /Call drops consistently on band n78 after handover\./);
+    assert.match(md, /### 1\. August 2, 2026 at 2:00 PM · Qualcomm Engineer \(Qualcomm\)/);
 
     // Idempotency: re-migrating should not add duplicates
     const res2 = migrateCaseJson(jsonPath);

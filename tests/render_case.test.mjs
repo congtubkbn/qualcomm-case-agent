@@ -108,24 +108,22 @@ describe('render_case: case.md content structure', () => {
     assert.match(md, /\| Customer \| OEM-Alpha \|/);
     assert.match(md, /\| Created \| 2026-08-18T08:00:00\.000Z \|/);
     assert.match(md, /\| Updated \| 2026-08-20T14:30:00\.000Z \|/);
-    assert.match(md, /\| Comments \| 3 \|/);
+    assert.match(md, /\| Comments \| 2 \|/);
     assert.match(md, /\| Synced \| 2026-08-22T00:00:00\.000Z \|/);
     assert.match(md, /- \*\*URL:\*\* https:\/\/support\.qualcomm\.com\/case\/08460319/);
 
-    // 2. Standalone Description section is NOT rendered
-    assert.doesNotMatch(md, /^## Description$/m, 'Standalone ## Description section must be removed to avoid duplication');
+    // 2. Description section is rendered before timeline
+    assert.match(md, /## Description\r?\n\r?\nUE fails registration on n78 standalone cell during initial attach\./);
 
-    // 3. Chronological timeline of comments with description comment as #1
+    // 3. Chronological timeline of comments: synthesized description comment is suppressed,
+    // subsequent comments start at #1, each with author + role label and NO summary line
     assert.match(md, /## Chronological Timeline of Comments/);
-    assert.match(md, /### 1\. 2026-08-18T08:00:00\.000Z · OEM-Alpha/);
-    assert.match(md, /UE fails registration on n78 standalone cell during initial attach\./);
-
-    assert.match(md, /### 2\. 2026-08-18T08:30:00\.000Z · Alice/);
+    assert.match(md, /### 1\. 2026-08-18T08:30:00\.000Z · Alice \(Customer\)/);
     assert.match(md, /Initial case filing with issue description\./);
     assert.match(md, /\*\*Attachments:\*\* \[modem_boot\.pcap\]\(https:\/\/support\.qualcomm\.com\/f\/pcap123\)/);
 
-    assert.match(md, /### 3\. 2026-08-19T10:15:00\.000Z · Qualcomm Support/);
-    assert.match(md, /> \*\*Summary:\*\* Please provide QXDM log with 0xB0C0 message mask\./);
+    assert.match(md, /### 2\. 2026-08-19T10:15:00\.000Z · Qualcomm Support \(Qualcomm\)/);
+    assert.doesNotMatch(md, /> \*\*Summary:\*\*/, 'Summary preview lines must not be rendered');
     assert.match(md, /Please provide QXDM log with 0xB0C0 message mask\./);
     assert.match(md, /\*\*Attachments:\*\* \[mask_config\.cfg\]\(https:\/\/support\.qualcomm\.com\/f\/cfg123\), \[readme\.txt\]\(https:\/\/support\.qualcomm\.com\/f\/txt123\)/);
   });
@@ -418,9 +416,111 @@ describe('render_case: issue #94 render pasted log excerpts as fenced blocks', (
       const r = renderFixture(caseData);
       assert.equal(r.exit, 0);
       const md = r.md();
-      assert.ok(!md.includes('```'), `Prose should not produce a fenced block: "${body}"`);
+    assert.ok(!md.includes('```'), `Prose should not produce a fenced block: "${body}"`);
     }
   });
 });
 
+describe('render_case: issue #95 portal structure, Description section, role labels, no summary lines', () => {
+  it('renders Description section before timeline and suppresses synthesized description comment from timeline', () => {
+    const descText = 'Configuration:\n1. Enable Sib1 with ims-EmergencySupport-r9: true\n2. Power on NR cell.';
+    const caseData = {
+      caseNumber: '08642051',
+      title: 'SIDIA Ecall Test VoNR redial',
+      description: descText,
+      comments: [
+        {
+          id: 'c_desc',
+          author: 'Duc Hoang',
+          role: 'Customer',
+          timestamp: '8/10/2026, 7:37 PM',
+          summary: 'Configuration: 1. Enable Sib1 with ims-EmergencySupport-r9: true',
+          body: descText,
+        },
+        {
+          id: 'c_qcom',
+          author: 'Sushmita Suresh Rao',
+          role: 'Qualcomm',
+          timestamp: 'August 11, 2026 at 9:44 AM',
+          summary: 'I shall check this from NAS POV and get back to you.',
+          body: 'Dear Customer,\nI shall check this from NAS POV and get back to you.\nThanks,\nSushmita',
+        },
+      ],
+    };
 
+    const r = renderFixture(caseData);
+    assert.equal(r.exit, 0);
+    const md = r.md();
+
+    // 1. Description section rendered before timeline
+    const descIndex = md.indexOf('## Description');
+    const timelineIndex = md.indexOf('## Chronological Timeline of Comments');
+    assert.ok(descIndex > 0, 'Must have ## Description section');
+    assert.ok(timelineIndex > descIndex, 'Timeline must appear after Description section');
+
+    // 2. Description text appears exactly once in the entire document
+    const occurrences = md.split('1. Enable Sib1 with ims-EmergencySupport-r9: true').length - 1;
+    assert.equal(occurrences, 1, 'Description content must appear exactly once');
+
+    // 3. Synthesized description comment does not appear as comment 1 in timeline
+    assert.doesNotMatch(md, /### 1\. .* · Duc Hoang/);
+    assert.match(md, /### 1\. August 11, 2026 at 9:44 AM · Sushmita Suresh Rao \(Qualcomm\)/);
+
+    // 4. No summary line rendered
+    assert.doesNotMatch(md, /> \*\*Summary:\*\*/);
+  });
+
+  it('renders author and Qualcomm/Customer role label for each comment', () => {
+    const caseData = {
+      caseNumber: '08112233',
+      title: 'Call Drop Test',
+      comments: [
+        {
+          author: 'Alice',
+          timestamp: '2026-08-01T10:00:00.000Z',
+          body: 'Call drops on cell boundary.',
+        },
+        {
+          author: 'Qualcomm Support',
+          timestamp: '2026-08-01T11:00:00.000Z',
+          body: 'Dear customer,\nPlease provide QXDM log.',
+        },
+        {
+          author: 'Automated Process',
+          timestamp: '2026-08-01T12:00:00.000Z',
+          body: 'Case status updated.',
+        },
+      ],
+    };
+
+    const r = renderFixture(caseData);
+    assert.equal(r.exit, 0);
+    const md = r.md();
+
+    assert.match(md, /### 1\. 2026-08-01T10:00:00\.000Z · Alice \(Customer\)/);
+    assert.match(md, /### 2\. 2026-08-01T11:00:00\.000Z · Qualcomm Support \(Qualcomm\)/);
+    assert.match(md, /### 3\. 2026-08-01T12:00:00\.000Z · Automated Process \(System\)/);
+  });
+
+  it('omits Description section when case description is empty or whitespace-only', () => {
+    const caseData = {
+      caseNumber: '08999999',
+      title: 'No Description Case',
+      description: '   \n  ',
+      comments: [
+        {
+          author: 'Bob',
+          timestamp: '2026-08-01T10:00:00.000Z',
+          body: 'Only feed comment.',
+        },
+      ],
+    };
+
+    const r = renderFixture(caseData);
+    assert.equal(r.exit, 0);
+    const md = r.md();
+
+    assert.doesNotMatch(md, /^## Description$/m);
+    assert.match(md, /### 1\. 2026-08-01T10:00:00\.000Z · Bob \(Customer\)/);
+  });
+});
