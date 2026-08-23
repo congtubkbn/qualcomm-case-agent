@@ -820,7 +820,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       background: var(--border-subtle);
       color: var(--text-primary);
     }
-    .copy-btn.copied {
+    .copy-btn.copied, .delete-btn.copied {
       background: var(--summary-bg);
       color: var(--summary-text);
       border-color: var(--summary-border);
