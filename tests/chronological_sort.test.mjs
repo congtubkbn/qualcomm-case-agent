@@ -225,6 +225,26 @@ describe('sortCommentsChronological', () => {
     assert.equal(sorted[1].author, 'User2');
     assert.equal(sorted[2].author, 'User3');
   });
+
+  it('sorts nested replies by actual post time relative to top-level posts (Issue #91)', () => {
+    // Top-level post 1: 5 days ago (oldest)
+    // Nested reply to post 1: 4 days ago
+    // Top-level post 2: 2 days ago
+    // Nested reply to post 2: 1 day ago (newest)
+    const raw = [
+      comment('Duc Hoang', 'Nested reply to top post 2', '1 day ago', { isReply: true }),
+      comment('Alice', 'Top-level post 2', '2 days ago', { isReply: false }),
+      comment('Duc Hoang', 'Nested reply to top post 1', '4 days ago', { isReply: true }),
+      comment('Bob', 'Top-level post 1', '5 days ago', { isReply: false }),
+    ];
+
+    const sorted = m.sortCommentsChronological(raw, refDate);
+    assert.equal(sorted.length, 4);
+    assert.equal(sorted[0].body, 'Top-level post 1');
+    assert.equal(sorted[1].body, 'Nested reply to top post 1');
+    assert.equal(sorted[2].body, 'Top-level post 2');
+    assert.equal(sorted[3].body, 'Nested reply to top post 2');
+  });
 });
 
 describe('mergeComments chronological ordering', () => {

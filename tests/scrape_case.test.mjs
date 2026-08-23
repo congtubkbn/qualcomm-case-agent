@@ -101,12 +101,24 @@ describe('findCollapsed', () => {
   });
 });
 
-describe('countAssert', () => {
-  it('blocks an under-capture, allows equal or over (nested replies)', () => {
+describe('countAssert (Issue #91 gate reconciliation)', () => {
+  it('blocks an under-capture with error object', () => {
     assert.equal(m.countAssert(4, 5).ok, false);
     assert.deepEqual(m.countAssert(4, 5), { ok: false, captured: 4, displayed: 5 });
-    assert.equal(m.countAssert(5, 5).ok, true);
-    assert.equal(m.countAssert(7, 5).ok, true);
+  });
+
+  it('allows exact count match without warning', () => {
+    const res = m.countAssert(5, 5);
+    assert.equal(res.ok, true);
+    assert.equal(res.warning, undefined);
+  });
+
+  it('allows excess comments with warning documenting nested replies', () => {
+    const res = m.countAssert(7, 5);
+    assert.equal(res.ok, true);
+    assert.equal(res.captured, 7);
+    assert.equal(res.displayed, 5);
+    assert.match(res.warning, /nested replies/i);
   });
 
   it('persists with a warning when the portal showed no total', () => {

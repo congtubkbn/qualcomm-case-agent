@@ -88,14 +88,28 @@ export function findCollapsed(comments, newIds) {
   return (comments || []).filter(c => fresh.has(c.id) && COLLAPSED_BODY_RE.test(c.body));
 }
 
-// captured < displayed => the agent must expand more / re-extract (do NOT persist
-// a partial capture). displayed == null => portal showed no total; persist with a warning.
+// Completeness gate comparison (Issue #91):
+// The Salesforce Chatter badge ("N Chatter Feed Items") counts only top-level posts,
+// whereas our Feed extractor captures both top-level posts AND nested replies (e.g. articles inside ul.cuf-replies).
+// Therefore:
+// 1. capturedCount < displayedCount => under-capture: agent missed items, must fail/retry.
+// 2. capturedCount > displayedCount => valid excess due to nested replies; passes with informative warning.
+// 3. capturedCount == displayedCount => exact match; passes.
+// 4. displayedCount == null => portal badge omitted; persists with warning.
 export function countAssert(capturedCount, displayedCount) {
   if (displayedCount == null) {
     return { ok: true, warning: 'displayedCommentCount not provided' };
   }
   if (capturedCount < displayedCount) {
     return { ok: false, captured: capturedCount, displayed: displayedCount };
+  }
+  if (capturedCount > displayedCount) {
+    return {
+      ok: true,
+      captured: capturedCount,
+      displayed: displayedCount,
+      warning: `Captured ${capturedCount} comments exceeding displayed badge total of ${displayedCount} (nested replies present)`,
+    };
   }
   return { ok: true };
 }
@@ -845,7 +859,7 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
   // Preview is generated HERE, for every persisted comment — fresh, cached,
   // and the synthesized description comment alike — so this is the single
   // place a comment's preview is ever derived (see extractSummary above).
-  out.comments = out.comments.map(({ role, company, displayPosition, ...rest }) => ({
+  out.comments = out.comments.map(({ role, company, displayPosition, isReply, ...rest }) => ({
     ...rest,
     summary: extractSummary(rest.body),
   }));

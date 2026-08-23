@@ -398,7 +398,7 @@ test('extract_case.js DOM extraction engine', async (t) => {
     assert.equal(result.comments.length, 1);
     assert.deepEqual(
       Object.keys(result.comments[0]).sort(),
-      ['attachments', 'author', 'body', 'displayPosition', 'id', 'timestamp'].sort()
+      ['attachments', 'author', 'body', 'displayPosition', 'id', 'isReply', 'timestamp'].sort()
     );
   });
 
@@ -1251,7 +1251,9 @@ test('extract_case.js deep Shadow DOM metadata and Description extraction', asyn
       const result = runInMockContext(EXTRACT_SCRIPT, { doc });
       assert.equal(result.comments.length, 2);
       assert.equal(result.comments[0].timestamp, 'August 10, 2026 at 7:59 PM');
+      assert.equal(result.comments[0].isReply, false);
       assert.equal(result.comments[1].timestamp, '12 days ago');
+      assert.equal(result.comments[1].isReply, true);
     });
 
     await st.test('fixture 4: comment attachment card with download URL and display name (Case 08642051)', () => {
@@ -1418,6 +1420,37 @@ test('extract_case.js deep Shadow DOM metadata and Description extraction', asyn
 
       const result = runInMockContext(EXTRACT_SCRIPT, { doc });
       assert.equal(result.relatedCRs, 'CR3891002, CR3891003');
+    });
+  });
+
+  await t.test('nested reply timestamp and ordering (Issue #91)', async (st) => {
+    await st.test('extracts absolute timestamp from nested reply title/datetime attribute when present', () => {
+      const doc = createMockDocument();
+      doc.title = 'Case: 08642051 - Nested reply absolute timestamp';
+
+      const topArticle = createMockElement('article', { className: 'cuf-feedItem', id: 'post_1' });
+      topArticle.appendChild(createMockElement('a', { className: 'cuf-actorName' }, 'Customer'));
+      topArticle.appendChild(createMockElement('time', { datetime: '2026-08-10T10:00:00.000Z' }, 'August 10, 2026 at 10:00 AM'));
+      topArticle.appendChild(createMockElement('div', { className: 'feedBodyInner' }, 'Top post'));
+
+      const repliesUl = createMockElement('ul', { className: 'cuf-replies' });
+      const replyLi = createMockElement('li', { className: 'cuf-reply' });
+      const replyArticle = createMockElement('article', { className: 'cuf-comment', id: 'reply_1' });
+      replyArticle.appendChild(createMockElement('a', { className: 'cuf-actorName' }, 'Qualcomm Support'));
+      const replyTs = createMockElement('a', { className: 'cuf-timestamp', title: 'August 10, 2026 at 11:30 AM' }, '12 days ago');
+      replyArticle.appendChild(replyTs);
+      replyArticle.appendChild(createMockElement('div', { className: 'feedBodyInner' }, 'Nested response'));
+      replyLi.appendChild(replyArticle);
+      repliesUl.appendChild(replyLi);
+      topArticle.appendChild(repliesUl);
+      doc.body.appendChild(topArticle);
+
+      const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+      assert.equal(result.comments.length, 2);
+      assert.equal(result.comments[0].timestamp, '2026-08-10T10:00:00.000Z');
+      assert.equal(result.comments[0].isReply, false);
+      assert.equal(result.comments[1].timestamp, 'August 10, 2026 at 11:30 AM');
+      assert.equal(result.comments[1].isReply, true);
     });
   });
 });

@@ -223,7 +223,7 @@
     const datePattern = /(?:ago|yesterday|today|\d{4}|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b)/i;
     const tsEl = a.querySelector("a.cuf-timestamp, span.cuf-timestamp, time, .uiOutputDateTime, [class*='timestamp'], [class*='Timestamp'], [class*='dateTime'], [class*='DateTime'], [class*='createdDate'], [class*='created-date']");
     if (tsEl) {
-      const val = tsEl.getAttribute("title") || txt(tsEl) || tsEl.getAttribute("datetime") || "";
+      const val = tsEl.getAttribute("title") || tsEl.getAttribute("datetime") || tsEl.getAttribute("data-timestamp") || tsEl.getAttribute("data-created-date") || txt(tsEl) || "";
       if (val && !isBlacklistedTs(val)) return val;
     }
     // Scan named links for date/time patterns
@@ -231,15 +231,16 @@
     if (match) return match;
 
     // Scan all spans/elements for relative or date patterns
-    const inlineCandidates = qsa("span, div, p, time", a);
+    const inlineCandidates = qsa("span, div, p, time, a", a);
     for (const el of inlineCandidates) {
+      if (el.closest && (el.closest('.feedBodyInner') || el.closest('.cuf-feedItemAttachments'))) continue;
+      const titleAttr = el.getAttribute("title") || el.getAttribute("datetime") || el.getAttribute("data-timestamp");
+      if (titleAttr && !isBlacklistedTs(titleAttr) && datePattern.test(titleAttr)) {
+        return titleAttr;
+      }
       const t = txt(el);
       if (t && t !== author && !isBlacklistedTs(t) && t.length < 60 && datePattern.test(t)) {
         return t;
-      }
-      const titleAttr = el.getAttribute("title");
-      if (titleAttr && !isBlacklistedTs(titleAttr) && datePattern.test(titleAttr)) {
-        return titleAttr;
       }
     }
 
@@ -290,6 +291,7 @@
     const timestamp = extractTimestamp(a, named, author);
 
     const attachments = extractAttachments(a);
+    const isReply = a.classList.contains('cuf-comment') || Boolean(a.closest && a.closest('ul.cuf-replies, .cuf-replies, li.cuf-reply'));
 
     // Secondary ordering signal for comments whose parsed timestamps tie (e.g.
     // two posts both "15 days ago"): the article's on-page vertical position,
@@ -304,6 +306,7 @@
       author,
       body,
       attachments,
+      isReply,
       displayPosition,
     };
   }).filter(c => c.body.length > 0);
