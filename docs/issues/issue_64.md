@@ -16,7 +16,7 @@ Add direct Qualcomm Support Portal navigation and client-side Hide/Unhide capabi
 - Add unit/DOM verification tests in `tests/cases_overview.test.mjs`.
 
 ## Acceptance criteria
-- [ ] Clicking case title or ID opens `case.url` in new browser tab
-- [ ] Clicking "Hide" removes case card from active view and persists to `localStorage`
-- [ ] "Hidden Cases" tab displays hidden cases with working "Unhide" restoration
-- [ ] Unit tests verify HTML generation contains required attributes and scripts
+- [x] Clicking case title or ID opens `case.url` in new browser tab
+- [x] Clicking "Hide" removes case card from active view and persists to `localStorage`
+- [x] "Hidden Cases" tab displays hidden cases with working "Unhide" restoration
+- [x] Unit tests verify HTML generation contains required attributes and scripts

@@ -368,6 +368,8 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     const escapedProduct = escapeHtml(c.product || '');
     const escapedAiSummary = escapeHtml(c.aiSummary || '');
     const escapedSyncedAt = escapeHtml(c.syncedAt || '');
+    const escapedRaisedBy = escapeHtml(c.raisedBy || '');
+    const escapedUrl = escapeHtml(c.url || '');
     const commentCount = c.commentCount || 0;
 
     // Searchable text index for client-side filtering
@@ -428,12 +430,22 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         </details>`;
     }
 
+    const caseNumElement = escapedUrl
+      ? `<a href="${escapedUrl}" target="_blank" rel="noopener noreferrer" class="case-number" title="Open in Qualcomm Support Portal">#${escapedCaseNum}</a>`
+      : `<span class="case-number">#${escapedCaseNum}</span>`;
+
+    const titleElement = escapedUrl
+      ? `<h3 class="case-title"><a href="${escapedUrl}" target="_blank" rel="noopener noreferrer" title="Open in Qualcomm Support Portal">${escapedTitle}</a></h3>`
+      : `<h3 class="case-title">${escapedTitle}</h3>`;
+
     return `
-      <article class="case-card" data-status-category="${category}" data-search="${escapedSearchIndex}">
+      <article class="case-card" data-case-id="${escapedCaseNum}" data-status-category="${category}" data-search="${escapedSearchIndex}">
         <div class="card-top">
           <div class="case-id-group">
-            <span class="case-number">#${escapedCaseNum}</span>
-            <button class="copy-btn" data-case-id="${escapedCaseNum}" title="Copy Case ID">Copy ID</button>
+            ${caseNumElement}
+            <button class="action-btn copy-btn" data-case-id="${escapedCaseNum}" title="Copy Case ID" type="button">Copy ID</button>
+            <button class="action-btn hide-btn" data-case-id="${escapedCaseNum}" title="Hide Case from active views" type="button">🚫 Hide</button>
+            <button class="action-btn unhide-btn" data-case-id="${escapedCaseNum}" title="Unhide Case to active views" type="button">👁️ Unhide</button>
           </div>
           <div class="card-badges">
             <span class="badge ${badgeClass}">${escapedStatus}</span>
@@ -443,10 +455,11 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
           </div>
         </div>
 
-        <h3 class="case-title">${escapedTitle}</h3>
+        ${titleElement}
         ${summaryBlock}
 
         <div class="meta-row">
+          ${escapedRaisedBy ? `<span>Raised by: ${escapedRaisedBy}</span>` : ''}
           ${escapedSyncedAt ? `<span>Synced: ${escapedSyncedAt.slice(0, 10)}</span>` : ''}
           ${c.lastCommentAuthor ? `<span>Latest by: ${escapeHtml(c.lastCommentAuthor)}</span>` : ''}
         </div>
@@ -694,8 +707,13 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       font-weight: 700;
       font-size: 16px;
       color: var(--accent);
+      text-decoration: none;
     }
-    .copy-btn {
+    a.case-number:hover {
+      text-decoration: underline;
+      color: var(--accent-hover);
+    }
+    .action-btn, .copy-btn, .hide-btn, .unhide-btn {
       background: transparent;
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
@@ -703,9 +721,12 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       padding: 3px 8px;
       font-size: 12px;
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
       transition: all 0.15s ease;
     }
-    .copy-btn:hover {
+    .action-btn:hover, .copy-btn:hover {
       background: var(--border-subtle);
       color: var(--text-primary);
     }
@@ -713,6 +734,28 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       background: var(--summary-bg);
       color: var(--summary-text);
       border-color: var(--summary-border);
+    }
+    .hide-btn:hover {
+      background: var(--badge-action-bg);
+      color: var(--badge-action-text);
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+    .unhide-btn {
+      display: none;
+    }
+    .unhide-btn:hover {
+      background: var(--summary-bg);
+      color: var(--summary-text);
+      border-color: var(--summary-border);
+    }
+    body[data-active-filter="hidden"] .hide-btn {
+      display: none !important;
+    }
+    body[data-active-filter="hidden"] .unhide-btn {
+      display: inline-flex !important;
+    }
+    body:not([data-active-filter="hidden"]) .unhide-btn {
+      display: none !important;
     }
     .card-badges {
       display: flex;
@@ -744,6 +787,15 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       color: var(--text-primary);
       margin-bottom: 10px;
       word-break: break-word;
+    }
+    .case-title a {
+      color: inherit;
+      text-decoration: none;
+      transition: color 0.15s ease;
+    }
+    .case-title a:hover {
+      color: var(--accent);
+      text-decoration: underline;
     }
     .ai-summary {
       background: var(--summary-bg);
@@ -858,6 +910,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         <button class="filter-tab" data-filter="in_progress" type="button">In Progress (${progressCount})</button>
         <button class="filter-tab" data-filter="action_required" type="button">Action Required (${actionCount})</button>
         <button class="filter-tab" data-filter="closed" type="button">Closed (${closedCount})</button>
+        <button class="filter-tab" data-filter="hidden" type="button">Hidden Cases (<span id="hiddenCount">0</span>)</button>
       </div>
     </div>
 
@@ -877,19 +930,59 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       const cards = document.querySelectorAll('.case-card');
       const emptyState = document.getElementById('emptyState');
       const themeToggle = document.getElementById('themeToggle');
+      const hiddenCountEl = document.getElementById('hiddenCount');
+
+      const STORAGE_KEY_HIDDEN = 'qc_dashboard_hidden_cases';
+      let hiddenCases = new Set();
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY_HIDDEN);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            hiddenCases = new Set(parsed);
+          }
+        }
+      } catch {
+        hiddenCases = new Set();
+      }
 
       let currentFilter = 'all';
       let currentSearch = '';
 
+      function saveHiddenCases() {
+        try {
+          localStorage.setItem(STORAGE_KEY_HIDDEN, JSON.stringify(Array.from(hiddenCases)));
+        } catch {}
+      }
+
+      function updateHiddenCount() {
+        if (hiddenCountEl) {
+          hiddenCountEl.textContent = hiddenCases.size;
+        }
+      }
+
       function applyFilters() {
+        document.body.setAttribute('data-active-filter', currentFilter);
         let visibleCount = 0;
         const query = currentSearch.toLowerCase().trim();
 
         cards.forEach(card => {
+          const cardId = card.getAttribute('data-case-id') || '';
           const cardCategory = card.getAttribute('data-status-category') || '';
           const cardText = (card.getAttribute('data-search') || '').toLowerCase();
+          const isHidden = hiddenCases.has(cardId);
 
-          const matchesFilter = (currentFilter === 'all') || (cardCategory === currentFilter);
+          let matchesFilter = false;
+          if (currentFilter === 'hidden') {
+            matchesFilter = isHidden;
+          } else {
+            if (isHidden) {
+              matchesFilter = false;
+            } else {
+              matchesFilter = (currentFilter === 'all') || (cardCategory === currentFilter);
+            }
+          }
+
           const matchesSearch = !query || cardText.includes(query);
 
           if (matchesFilter && matchesSearch) {
@@ -902,6 +995,9 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
 
         if (emptyState) {
           if (visibleCount === 0) {
+            emptyState.textContent = currentFilter === 'hidden'
+              ? 'No hidden cases. Click "Hide" on any case card to move it here.'
+              : 'No Qualcomm cases match the selected filter and search criteria.';
             emptyState.classList.add('visible');
           } else {
             emptyState.classList.remove('visible');
@@ -922,6 +1018,34 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
           tab.classList.add('active');
           currentFilter = tab.getAttribute('data-filter');
           applyFilters();
+        });
+      });
+
+      // Hide buttons
+      document.querySelectorAll('.hide-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const caseId = btn.getAttribute('data-case-id');
+          if (caseId) {
+            hiddenCases.add(caseId);
+            saveHiddenCases();
+            updateHiddenCount();
+            applyFilters();
+          }
+        });
+      });
+
+      // Unhide buttons
+      document.querySelectorAll('.unhide-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const caseId = btn.getAttribute('data-case-id');
+          if (caseId) {
+            hiddenCases.delete(caseId);
+            saveHiddenCases();
+            updateHiddenCount();
+            applyFilters();
+          }
         });
       });
 
@@ -981,6 +1105,10 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
           themeToggle.textContent = next === 'dark' ? '☀️ Light' : '🌙 Dark';
         });
       }
+
+      // Initial filter & hidden count pass
+      updateHiddenCount();
+      applyFilters();
     });
   </script>
 </body>

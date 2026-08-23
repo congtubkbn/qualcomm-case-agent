@@ -132,7 +132,7 @@ describe('cases_overview_render: renderDashboardHtml', () => {
     assert.ok(html.includes('data-filter="action_required"'));
   });
 
-  it('renders copy button for Case IDs with no broken direct portal hyperlinks as primary action', () => {
+  it('renders copy button, hide button, and unhide button for case cards', () => {
     const data = createSampleOverviewData();
     const html = renderDashboardHtml(data);
 
@@ -140,6 +140,28 @@ describe('cases_overview_render: renderDashboardHtml', () => {
     assert.ok(html.includes('copy-btn'));
     assert.ok(html.includes('data-case-id="08603854"'));
     assert.ok(html.includes('data-case-id="08642051"'));
+
+    // Hide & Unhide buttons
+    assert.ok(html.includes('hide-btn'));
+    assert.ok(html.includes('unhide-btn'));
+  });
+
+  it('renders direct portal links on case number and case title when url is available', () => {
+    const data = createSampleOverviewData();
+    const html = renderDashboardHtml(data);
+
+    // Case 1 URL link on number and title
+    assert.ok(html.includes('href="https://support.qualcomm.com/s/case/500dK00000Njp7aQAB/test-case"'));
+    assert.ok(html.includes('target="_blank"'));
+    assert.ok(html.includes('rel="noopener noreferrer"'));
+  });
+
+  it('renders Hidden Cases tab in filter navigation bar', () => {
+    const data = createSampleOverviewData();
+    const html = renderDashboardHtml(data);
+
+    assert.ok(html.includes('data-filter="hidden"'));
+    assert.ok(html.includes('Hidden Cases'));
   });
 
   it('renders expandable comment accordion with latest updates', () => {
