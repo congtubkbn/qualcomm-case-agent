@@ -11,52 +11,91 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-
-const jsonPath = process.argv[2];
-if (!jsonPath) {
-  console.error('usage: node render_case.mjs <path-to-case.json>');
-  process.exit(2);
-}
-
-const _raw = readFileSync(jsonPath, 'utf8');
-const data = JSON.parse(_raw.charCodeAt(0) === 0xFEFF ? _raw.slice(1) : _raw);
-const dir = dirname(jsonPath);
-const stem = basename(jsonPath).replace(/\.json$/i, '');
+import { fileURLToPath } from 'node:url';
 
 const S = v => (v == null ? '' : String(v));
 const arr = v => (Array.isArray(v) ? v : []);
-const comments = arr(data.comments);
+
+/**
+ * Format a comment or description body for Markdown rendering.
+ * Preserves line structure, formats lists, escapes Markdown headers within bodies,
+ * and maintains readability without breaking document-level structure.
+ */
+export function formatBody(body) {
+  if (!body) return '';
+  const text = String(body).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const lines = text.split('\n');
+  const out = [];
+
+  const isListItem = (line) => /^\s*(\d+\.|[-*+])\s+/.test(line);
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      out.push('');
+      continue;
+    }
+
+    // Escape leading # that would create a markdown header hierarchy issue
+    if (/^\s*#{1,6}\s/.test(line)) {
+      line = line.replace(/^(\s*)#{1,6}\s/, (m, spaces) => `${spaces}\\${m.trimStart()}`);
+    }
+
+    // If this line is a list item and previous line was regular non-empty text, insert blank line
+    if (isListItem(line)) {
+      if (out.length > 0 && out[out.length - 1] !== '' && !isListItem(lines[i - 1])) {
+        out.push('');
+      }
+      out.push(line);
+    } else {
+      // Regular text line.
+      // If the next line is also non-empty (and not the end of lines or a list item),
+      // append 2 trailing spaces for hard line break in Markdown
+      const nextLine = i + 1 < lines.length ? lines[i + 1].trim() : '';
+      if (nextLine && !isListItem(nextLine)) {
+        out.push(line.trimEnd() + '  ');
+      } else {
+        out.push(line.trimEnd());
+      }
+    }
+  }
+
+  return out.join('\n');
+}
 
 /* ----------------------------- Markdown ----------------------------- */
-function md() {
+export function generateMarkdown(data, stem = 'case') {
+  const comments = arr(data?.comments);
   const L = [];
-  L.push(`# ${S(data.caseNumber) || stem} — ${S(data.title) || 'Untitled case'}`);
+  L.push(`# ${S(data?.caseNumber) || stem} — ${S(data?.title) || 'Untitled case'}`);
   L.push('');
   const meta = [
-    ['Status', data.status],
-    ['Priority', data.priority],
-    ['Severity', data.severity],
-    ['Product', data.product],
-    ['Component', data.component],
-    ['Contact Name', data.contactName],
-    ['Customer Project', data.customerProject],
-    ['Customer', data.customer],
-    ['Account Name', data.accountName && data.accountName !== data.customer ? data.accountName : null],
-    ['Case Record Type', data.caseRecordType],
-    ['Related CRs', data.relatedCRs],
-    ['Date Opened', data.openedAt],
-    ['Date Closed', data.closedAt],
-    ['Created', data.created],
-    ['Updated', data.updated],
+    ['Status', data?.status],
+    ['Priority', data?.priority],
+    ['Severity', data?.severity],
+    ['Product', data?.product],
+    ['Component', data?.component],
+    ['Contact Name', data?.contactName],
+    ['Customer Project', data?.customerProject],
+    ['Customer', data?.customer],
+    ['Account Name', data?.accountName && data?.accountName !== data?.customer ? data?.accountName : null],
+    ['Case Record Type', data?.caseRecordType],
+    ['Related CRs', data?.relatedCRs],
+    ['Date Opened', data?.openedAt],
+    ['Date Closed', data?.closedAt],
+    ['Created', data?.created],
+    ['Updated', data?.updated],
     ['Comments', comments.length],
-    ['Synced', data.extractedAt],
+    ['Synced', data?.extractedAt],
   ].filter(([, v]) => S(v) !== '');
   const mdCell = v => S(v).replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
   if (meta.length) {
     L.push('| Field | Value |', '| --- | --- |');
     for (const [k, v] of meta) L.push(`| ${k} | ${mdCell(v)} |`);
   }
-  if (S(data.url)) L.push(`- **URL:** ${S(data.url)}`);
+  if (S(data?.url)) L.push(`- **URL:** ${S(data?.url)}`);
   L.push('');
   L.push('## Chronological Timeline of Comments', '');
   comments.forEach((c, i) => {
@@ -65,7 +104,7 @@ function md() {
     if (S(c.summary) && S(c.summary) !== S(c.body)) {
       L.push(`> **Summary:** ${S(c.summary)}`, '');
     }
-    if (S(c.body)) L.push(S(c.body), '');
+    if (S(c.body)) L.push(formatBody(c.body), '');
     const atts = arr(c.attachments).filter(a => a && (S(a.name) || S(a.href) || S(a.url)));
     if (atts.length) {
       L.push('**Attachments:** ' + atts.map(a => `[${S(a.name) || 'file'}](${S(a.href || a.url)})`).join(', '), '');
@@ -75,6 +114,28 @@ function md() {
   return L.join('\n');
 }
 
-const mdPath = join(dir, `${stem}.md`);
-writeFileSync(mdPath, md(), 'utf8');
-console.log(`wrote:\n  ${mdPath}`);
+export function renderCase(jsonPath) {
+  const _raw = readFileSync(jsonPath, 'utf8');
+  const data = JSON.parse(_raw.charCodeAt(0) === 0xFEFF ? _raw.slice(1) : _raw);
+  const dir = dirname(jsonPath);
+  const stem = basename(jsonPath).replace(/\.json$/i, '');
+  const mdPath = join(dir, `${stem}.md`);
+  writeFileSync(mdPath, generateMarkdown(data, stem), 'utf8');
+  return mdPath;
+}
+
+const isDirectRun = process.argv[1] && (
+  process.argv[1] === fileURLToPath(import.meta.url) ||
+  process.argv[1].endsWith('render_case.mjs')
+);
+
+if (isDirectRun) {
+  const jsonPath = process.argv[2];
+  if (!jsonPath) {
+    console.error('usage: node render_case.mjs <path-to-case.json>');
+    process.exit(2);
+  }
+  const mdPath = renderCase(jsonPath);
+  console.log(`wrote:\n  ${mdPath}`);
+}
+

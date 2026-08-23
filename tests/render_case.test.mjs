@@ -256,3 +256,62 @@ describe('render_case: malformed / missing data tolerance', () => {
     assert.ok(!existsSync(join(dir, 'case.md')));
   });
 });
+
+describe('render_case: issue #93 body line structure and block formatting', () => {
+  it('preserves newline-separated lines in comment bodies so line structure survives in rendered markdown', () => {
+    const caseData = {
+      ...MINIMAL,
+      comments: [
+        comment('Alice', 'Dear Customer,\nI shall check this from NAS POV and get back to you.\nThanks,\nAlice'),
+      ],
+    };
+    const r = renderFixture(caseData);
+    assert.equal(r.exit, 0);
+    const md = r.md();
+    // Line breaks should be preserved either with trailing spaces or explicit structure
+    assert.match(md, /Dear Customer,  \r?\nI shall check this from NAS POV and get back to you\.  \r?\nThanks,  \r?\nAlice/);
+  });
+
+  it('renders a body of numbered steps as a list separated from preceding text', () => {
+    const caseData = {
+      ...MINIMAL,
+      comments: [
+        comment('Duc Hoang', 'Steps:\n1. Power on NR HPLMN SA Cell.\n2. UE Sends Registration request.\n3. Initiate ecall.'),
+      ],
+    };
+    const r = renderFixture(caseData);
+    assert.equal(r.exit, 0);
+    const md = r.md();
+    assert.match(md, /Steps:\r?\n\r?\n1\. Power on NR HPLMN SA Cell\.\r?\n2\. UE Sends Registration request\.\r?\n3\. Initiate ecall\./);
+  });
+
+  it('renders bodies with pipes, hashes, underscores, and asterisks without corrupting structure', () => {
+    const caseData = {
+      ...MINIMAL,
+      comments: [
+        comment('Tester', '# FAILlog_X716B_SEAU_5G.zip\n04:39:48.820 | 1 | NR5G NAS SERVICE REQUEST | ident_type: 4 (5G_S_TMSI)\nVariable SS_SM8550_Tab_S9 *bold* _italic_'),
+      ],
+    };
+    const r = renderFixture(caseData);
+    assert.equal(r.exit, 0);
+    const md = r.md();
+    // Leading '#' in a comment should be escaped so it doesn't create an H1 header
+    assert.match(md, /\\# FAILlog_X716B_SEAU_5G\.zip/);
+    assert.match(md, /04:39:48\.820 \| 1 \| NR5G NAS SERVICE REQUEST \| ident_type: 4 \(5G_S_TMSI\)/);
+    assert.match(md, /Variable SS_SM8550_Tab_S9 \*bold\* _italic_/);
+  });
+
+  it('handles degenerate cases with missing description, empty comments without throwing', () => {
+    const caseData = {
+      caseNumber: '00000000',
+      title: 'Empty case',
+      description: '',
+      comments: [],
+    };
+    const r = renderFixture(caseData);
+    assert.equal(r.exit, 0);
+    assert.ok(r.hasFile('case.md'));
+    assert.ok(!r.hasFile('case.html'));
+  });
+});
+
