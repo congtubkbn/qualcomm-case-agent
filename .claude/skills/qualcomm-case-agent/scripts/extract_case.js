@@ -282,9 +282,9 @@
     // Read innerText from the ATTACHED bodyEl, not a cloneNode(true) detached
     // copy: a detached node has no layout, so its innerText falls back to
     // something textContent-like and swallows every <br>/block-level line
-    // break. The trailing "...more"/"Expand Post" control text that used to
-    // be stripped by removing the cloned .cuf-more node is instead cut by
-    // cleanBody's trailing "Expand Post" regex below.
+    // break. The trailing ".cuf-more" control's text (always exactly "Expand
+    // Post" — see check_collapsed.js) that used to be stripped by removing
+    // the cloned node is instead cut by cleanBody's trailing regex below.
     const rawBodyText = bodyEl ? txt(bodyEl) : txt(a);
     const body = cleanBody(rawBodyText);
     const timestamp = extractTimestamp(a, named, author);
