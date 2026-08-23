@@ -11,10 +11,10 @@ import {
   migrateCaseDetailData,
   migrateCaseDetailJson,
   parseDetailFlags,
-} from '../tools/migrate_case_detail.mjs';
+} from '../.claude/skills/qualcomm-case-agent/scripts/migrate_case_detail.mjs';
 import { extractCaseOverview } from '../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs';
 
-const SCRIPT = fileURLToPath(new URL('../tools/migrate_case_detail.mjs', import.meta.url));
+const SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/migrate_case_detail.mjs', import.meta.url));
 
 describe('tools/migrate_case_detail.mjs - Unit & Migration tests (Slice 3)', () => {
   it('parseDetailFlags extracts supported Detail CLI flags into an overrides object', () => {

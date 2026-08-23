@@ -21,11 +21,11 @@ import {
 import {
   migrateCaseData,
   migrateCaseJson,
-} from '../tools/migrate_case.mjs';
+} from '../.claude/skills/qualcomm-case-agent/scripts/migrate_case.mjs';
 
 const SCRAPE_SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs', import.meta.url));
 const RENDER_SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/render_case.mjs', import.meta.url));
-const MIGRATE_SCRIPT = fileURLToPath(new URL('../tools/migrate_case.mjs', import.meta.url));
+const MIGRATE_SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/migrate_case.mjs', import.meta.url));
 
 function createTempEnv(caseCode = '08123456') {
   const root = mkdtempSync(join(tmpdir(), 'qc-desc-test-'));

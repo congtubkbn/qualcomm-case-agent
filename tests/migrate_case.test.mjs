@@ -12,9 +12,9 @@ import {
   migrateCaseData,
   migrateCaseJson,
   classifyRole,
-} from '../tools/migrate_case.mjs';
+} from '../.claude/skills/qualcomm-case-agent/scripts/migrate_case.mjs';
 
-const SCRIPT = fileURLToPath(new URL('../tools/migrate_case.mjs', import.meta.url));
+const SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/migrate_case.mjs', import.meta.url));
 
 describe('tools/migrate_case.mjs - Unit tests (Slice 1)', () => {
   it('sanitizeComment filters tooltip garbage timestamps, removes analysisLog, and generates summary', () => {

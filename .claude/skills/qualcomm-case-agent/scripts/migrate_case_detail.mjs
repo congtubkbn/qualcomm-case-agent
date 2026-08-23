@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// tools/migrate_case_detail.mjs — Upgrade and migrate cached cases with Salesforce Detail tab metadata,
-// re-render case.md with Detail fields, and update case index/overview.
+// .claude/skills/qualcomm-case-agent/scripts/migrate_case_detail.mjs — Upgrade and migrate cached
+// cases with Salesforce Detail tab metadata, re-render case.md with Detail fields, and update
+// case index/overview.
 //
 // Usage:
-//   node tools/migrate_case_detail.mjs [path-to-case.json | caseCode | all] [options]
+//   node .claude/skills/qualcomm-case-agent/scripts/migrate_case_detail.mjs [path-to-case.json | caseCode | all] [options]
 //
 // Options:
 //   --contactName "Name"
@@ -30,13 +31,13 @@ import {
   synthesizeDescriptionComment,
   hasDescriptionComment,
   assignIds,
-} from '../.claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs';
-import { extractProductFromTitle } from '../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs';
+} from './scrape_case.mjs';
+import { extractProductFromTitle } from '../../qualcomm-case-overview/scripts/cases_overview.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const RENDER_SCRIPT = join(__dirname, '../.claude/skills/qualcomm-case-agent/scripts/render_case.mjs');
-const OVERVIEW_SCRIPT = join(__dirname, '../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs');
-const DATA_CASES_DIR = join(__dirname, '../data/cases');
+const RENDER_SCRIPT = join(__dirname, 'render_case.mjs');
+const OVERVIEW_SCRIPT = join(__dirname, '../../qualcomm-case-overview/scripts/cases_overview.mjs');
+const DATA_CASES_DIR = join(__dirname, '../../../../data/cases');
 
 export const SUPPORTED_DETAIL_FLAGS = [
   ...DETAIL_KEYS,
