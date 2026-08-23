@@ -120,6 +120,10 @@ describe('cases_overview: End-to-End Pipeline & Auto-Sync Hooks', () => {
       assert.ok(existsSync(join(casesDir, '_overview.json')), '_overview.json should be auto-created on capture');
       assert.ok(existsSync(join(casesDir, 'dashboard.html')), 'dashboard.html should be auto-created on capture');
 
+      const dashboardHtml1 = readFileSync(join(casesDir, 'dashboard.html'), 'utf8');
+      assert.ok(dashboardHtml1.includes('href="qc://case/08603854"'));
+      assert.ok(dashboardHtml1.includes('title="Open in Qualcomm Profile (qc://)"'));
+
       // Verify overview contents after capture
       const overview1 = JSON.parse(readFileSync(join(casesDir, '_overview.json'), 'utf8'));
       assert.equal(overview1.stats.total, 1);

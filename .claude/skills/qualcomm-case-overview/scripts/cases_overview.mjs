@@ -459,13 +459,9 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         </details>`;
     }
 
-    const caseNumElement = escapedUrl
-      ? `<a href="${escapedUrl}" target="_blank" rel="noopener noreferrer" class="case-number" title="Open in Qualcomm Support Portal">#${escapedCaseNum}</a>`
-      : `<span class="case-number">#${escapedCaseNum}</span>`;
+    const caseNumElement = `<a href="qc://case/${escapedCaseNum}" class="case-number" title="Open in Qualcomm Profile (qc://)">#${escapedCaseNum}</a>`;
 
-    const titleElement = escapedUrl
-      ? `<h3 class="case-title"><a href="${escapedUrl}" target="_blank" rel="noopener noreferrer" title="Open in Qualcomm Support Portal">${escapedTitle}</a></h3>`
-      : `<h3 class="case-title">${escapedTitle}</h3>`;
+    const titleElement = `<h3 class="case-title"><a href="qc://case/${escapedCaseNum}" title="Open in Qualcomm Profile (qc://)">${escapedTitle}</a></h3>`;
 
     return `
       <article class="case-card" data-case-id="${escapedCaseNum}" data-status-category="${category}" data-search="${escapedSearchIndex}">

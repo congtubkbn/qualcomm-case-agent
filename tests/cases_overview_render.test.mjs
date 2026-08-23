@@ -147,14 +147,16 @@ describe('cases_overview_render: renderDashboardHtml', () => {
     assert.ok(html.includes('unhide-btn'));
   });
 
-  it('renders direct portal links on case number and case title when url is available', () => {
+  it('renders qc:// protocol links on case number and case title', () => {
     const data = createSampleOverviewData();
     const html = renderDashboardHtml(data);
 
-    // Case 1 URL link on number and title
-    assert.ok(html.includes('href="https://support.qualcomm.com/s/case/500dK00000Njp7aQAB/test-case"'));
-    assert.ok(html.includes('target="_blank"'));
-    assert.ok(html.includes('rel="noopener noreferrer"'));
+    // Case 1 qc:// link on number and title
+    assert.ok(html.includes('href="qc://case/08603854"'));
+    assert.ok(html.includes('title="Open in Qualcomm Profile (qc://)"'));
+    assert.ok(html.includes('href="qc://case/08642051"'));
+    assert.ok(html.includes('<a href="qc://case/08603854" class="case-number" title="Open in Qualcomm Profile (qc://)">#08603854</a>'));
+    assert.ok(html.includes('<a href="qc://case/08603854" title="Open in Qualcomm Profile (qc://)">'));
   });
 
   it('renders a Delete button per case card that copies a safe chat instruction, never a raw CLI command', () => {
