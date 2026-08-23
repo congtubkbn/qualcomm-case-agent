@@ -1453,6 +1453,124 @@ test('extract_case.js deep Shadow DOM metadata and Description extraction', asyn
       assert.equal(result.comments[1].isReply, true);
     });
   });
+
+  await t.test('extract comment attachments (Issue #92)', async (st) => {
+    await st.test('extracts single attachment with display name and fully-qualified portal URL', () => {
+      const doc = createMockDocument();
+      doc.title = 'Case: 08642051 - Attachment Test';
+
+      const art = createMockElement('article', { className: 'cuf-feedItem', id: 'post_1' });
+      art.appendChild(createMockElement('a', { className: 'cuf-actorName' }, 'Duc Hoang'));
+      art.appendChild(createMockElement('div', { className: 'feedBodyInner' }, 'Please check attached log.'));
+
+      const container = createMockElement('div', { className: 'cuf-feedItemAttachments' });
+      const fileCard = createMockElement('div', { className: 'slds-file slds-file_card' });
+      const dlLink = createMockElement('a', {
+        href: '/s/sfc/servlet.shepherd/version/download/068dK0000012345?asPdf=false&operationContext=CHATTER',
+        download: 'qxdm_n78_drop.zip',
+        title: 'qxdm_n78_drop.zip',
+      });
+      fileCard.appendChild(dlLink);
+      container.appendChild(fileCard);
+      art.appendChild(container);
+      doc.body.appendChild(art);
+
+      const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+      assert.equal(result.comments.length, 1);
+      assert.equal(result.comments[0].attachments.length, 1);
+      assert.equal(result.comments[0].attachments[0].name, 'qxdm_n78_drop.zip');
+      assert.equal(result.comments[0].attachments[0].url, 'https://support.qualcomm.com/s/sfc/servlet.shepherd/version/download/068dK0000012345?asPdf=false&operationContext=CHATTER');
+    });
+
+    await st.test('deduplicates multiple links inside the same attachment card', () => {
+      const doc = createMockDocument();
+      doc.title = 'Case: 08642051 - Multi-link File Card';
+
+      const art = createMockElement('article', { className: 'cuf-feedItem', id: 'post_1' });
+      art.appendChild(createMockElement('a', { className: 'cuf-actorName' }, 'Duc Hoang'));
+      art.appendChild(createMockElement('div', { className: 'feedBodyInner' }, 'Files attached.'));
+
+      const container = createMockElement('div', { className: 'cuf-feedItemAttachments' });
+      const fileCard = createMockElement('div', { className: 'slds-file slds-file_card' });
+      
+      // Thumbnail download link
+      const thumb = createMockElement('a', {
+        className: 'slds-file__crop cuf-attachmentThumbnail',
+        href: 'https://support.qualcomm.com/s/sfc/servlet.shepherd/version/download/068dK0000099999',
+        download: 'modem_diag.pcap',
+      });
+      // Text preview link
+      const textLink = createMockElement('a', {
+        className: 'slds-file__text cuf-attachment',
+        href: 'https://support.qualcomm.com/s/contentdocument/069dK0000099999',
+        title: 'modem_diag.pcap',
+      });
+      const titleSpan = createMockElement('span', { className: 'slds-file__text-title' }, 'modem_diag.pcap');
+      textLink.appendChild(titleSpan);
+
+      fileCard.appendChild(thumb);
+      fileCard.appendChild(textLink);
+      container.appendChild(fileCard);
+      art.appendChild(container);
+      doc.body.appendChild(art);
+
+      const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+      assert.equal(result.comments.length, 1);
+      // Yields exactly one entry per file despite multiple inner links
+      assert.equal(result.comments[0].attachments.length, 1);
+      assert.equal(result.comments[0].attachments[0].name, 'modem_diag.pcap');
+      assert.equal(result.comments[0].attachments[0].url, 'https://support.qualcomm.com/s/sfc/servlet.shepherd/version/download/068dK0000099999');
+    });
+
+    await st.test('extracts multiple distinct attachments on the same comment', () => {
+      const doc = createMockDocument();
+      doc.title = 'Case: 08642051 - Multiple Attachments';
+
+      const art = createMockElement('article', { className: 'cuf-feedItem', id: 'post_multi' });
+      art.appendChild(createMockElement('a', { className: 'cuf-actorName' }, 'Duc Hoang'));
+      art.appendChild(createMockElement('div', { className: 'feedBodyInner' }, 'Two files attached.'));
+
+      const container = createMockElement('div', { className: 'cuf-feedItemAttachments' });
+      
+      const fileCard1 = createMockElement('div', { className: 'slds-file slds-file_card' });
+      fileCard1.appendChild(createMockElement('a', {
+        href: 'https://support.qualcomm.com/sfc/servlet.shepherd/version/download/068001',
+        title: 'log1.zip',
+      }));
+
+      const fileCard2 = createMockElement('div', { className: 'slds-file slds-file_card' });
+      fileCard2.appendChild(createMockElement('a', {
+        href: 'https://support.qualcomm.com/sfc/servlet.shepherd/version/download/068002',
+        title: 'log2.zip',
+      }));
+
+      container.appendChild(fileCard1);
+      container.appendChild(fileCard2);
+      art.appendChild(container);
+      doc.body.appendChild(art);
+
+      const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+      assert.equal(result.comments.length, 1);
+      assert.equal(result.comments[0].attachments.length, 2);
+      assert.equal(result.comments[0].attachments[0].name, 'log1.zip');
+      assert.equal(result.comments[0].attachments[1].name, 'log2.zip');
+    });
+
+    await st.test('yields an empty attachment list when comment has no attachments and does not pick up author/profile links', () => {
+      const doc = createMockDocument();
+      doc.title = 'Case: 08642051 - No Attachments';
+
+      const art = createMockElement('article', { className: 'cuf-feedItem', id: 'post_no_att' });
+      art.appendChild(createMockElement('a', { className: 'cuf-actorName', href: '/s/profile/005dK000000ABCD' }, 'Alice Developer'));
+      art.appendChild(createMockElement('a', { href: '#reply', className: 'cuf-reply-btn' }, 'Reply'));
+      art.appendChild(createMockElement('div', { className: 'feedBodyInner' }, 'Simple comment without any attachments.'));
+      doc.body.appendChild(art);
+
+      const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+      assert.equal(result.comments.length, 1);
+      assert.equal(result.comments[0].attachments.length, 0);
+    });
+  });
 });
 
 

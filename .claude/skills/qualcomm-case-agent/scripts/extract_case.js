@@ -254,21 +254,73 @@
     return "";
   };
 
-  // Attachments extraction helper
+  // Attachments extraction helper (Issue #92)
   const extractAttachments = art => {
     const attList = [];
-    const seen = new Set();
-    const links = qsa("a.cuf-attachment, a[href*='ContentDocument'], a[href*='download'], a[href*='sfc/servlet.shepherd'], .cuf-feedItemAttachments a, .slds-file a, a[class*='attachment']", art);
-    for (const a of links) {
-      const href = a.getAttribute("href") || a.href || "";
-      // Exclude author or navigation links
+    const seenFiles = new Set();
+    const seenHrefs = new Set();
+
+    // 1. Process structured file cards: .cuf-feedItemAttachments, .slds-file
+    const cards = qsa(".cuf-feedItemAttachments .slds-file, .cuf-attachment.slds-file, .slds-file_card, .cuf-feedItemAttachments, [class*='feedItemAttachments']", art);
+    for (const card of cards) {
+      // Find all links inside the card
+      const links = qsa("a[href*='sfc/servlet.shepherd'], a[href*='ContentDocument'], a[href*='download'], a.slds-file__crop, a.slds-file__text, a.cuf-attachment", card);
+      
+      // Preferred download link vs preview link
+      const downloadLink = links.find(l => {
+        const h = l.getAttribute("href") || l.href || "";
+        return h.includes("/version/download/") || h.includes("download");
+      });
+      const chosenLink = downloadLink || links[0];
+      if (!chosenLink) continue;
+
+      let href = chosenLink.getAttribute("href") || chosenLink.href || "";
       if (!href || href === "#" || href.startsWith("javascript:")) continue;
-      const name = txt(a) || a.getAttribute("title") || a.getAttribute("download") || href.split("/").pop() || "attachment";
-      if (!seen.has(href)) {
-        seen.add(href);
+      if (href.startsWith("/")) {
+        href = "https://support.qualcomm.com" + href;
+      }
+      if (href.includes("/s/profile/") || href.includes("/_ui/core/userprofile/")) continue;
+
+      // Extract display name from download attr, title attr, or file text title element
+      let name = chosenLink.getAttribute("download") || chosenLink.getAttribute("title");
+      if (!name) {
+        const titleEl = card.querySelector(".slds-file__text-title, .slds-file__title, .slds-truncate, .slds-assistive-text");
+        if (titleEl) name = txt(titleEl);
+      }
+      if (!name) {
+        name = txt(chosenLink) || href.split("/").pop()?.split("?")[0] || "attachment";
+      }
+      name = name.trim();
+
+      const dedupKey = name.toLowerCase();
+      if (!seenFiles.has(dedupKey) && !seenHrefs.has(href)) {
+        seenFiles.add(dedupKey);
+        seenHrefs.add(href);
         attList.push({ name, url: href });
       }
     }
+
+    // 2. Direct attachment links anywhere inside the article not already in cards
+    const allLinks = qsa("a.cuf-attachment, a[href*='ContentDocument'], a[href*='sfc/servlet.shepherd/version/download']", art);
+    for (const a of allLinks) {
+      let href = a.getAttribute("href") || a.href || "";
+      if (!href || href === "#" || href.startsWith("javascript:")) continue;
+      if (href.startsWith("/")) {
+        href = "https://support.qualcomm.com" + href;
+      }
+      if (href.includes("/s/profile/") || href.includes("/_ui/core/userprofile/")) continue;
+
+      let name = a.getAttribute("download") || a.getAttribute("title") || txt(a) || href.split("/").pop()?.split("?")[0] || "attachment";
+      name = name.trim();
+
+      const dedupKey = name.toLowerCase();
+      if (!seenFiles.has(dedupKey) && !seenHrefs.has(href)) {
+        seenFiles.add(dedupKey);
+        seenHrefs.add(href);
+        attList.push({ name, url: href });
+      }
+    }
+
     return attList;
   };
 
