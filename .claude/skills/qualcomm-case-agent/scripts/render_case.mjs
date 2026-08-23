@@ -138,9 +138,31 @@ export function generateMarkdown(data, stem = 'case') {
     const head = [S(c?.timestamp), authorStr].filter(Boolean).join(' · ');
     L.push(`### ${i + 1}. ${head || 'Comment'}`, '');
     if (S(c?.body)) L.push(formatBody(c.body), '');
-    const atts = arr(c?.attachments).filter(a => a && (S(a.name) || S(a.href) || S(a.url)));
-    if (atts.length) {
-      L.push('**Attachments:** ' + atts.map(a => `[${S(a.name) || 'file'}](${S(a.href || a.url)})`).join(', '), '');
+    const rawAtts = arr(c?.attachments);
+    const validAtts = rawAtts.filter(a => {
+      if (!a) return false;
+      if (typeof a === 'string') return a.trim().length > 0;
+      return S(a.name).trim().length > 0 || S(a.url || a.href).trim().length > 0;
+    });
+
+    if (validAtts.length) {
+      L.push('**Attachments:**');
+      for (const a of validAtts) {
+        if (typeof a === 'string') {
+          L.push(`- ${a.trim()}`);
+        } else {
+          const name = S(a.name).trim();
+          const url = S(a.url || a.href).trim();
+          if (name && url) {
+            L.push(`- [${name}](${url})`);
+          } else if (name) {
+            L.push(`- ${name}`);
+          } else if (url) {
+            L.push(`- [${url}](${url})`);
+          }
+        }
+      }
+      L.push('');
     }
     L.push('---', '');
   });

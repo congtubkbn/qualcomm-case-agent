@@ -120,12 +120,12 @@ describe('render_case: case.md content structure', () => {
     assert.match(md, /## Chronological Timeline of Comments/);
     assert.match(md, /### 1\. 2026-08-18T08:30:00\.000Z · Alice \(Customer\)/);
     assert.match(md, /Initial case filing with issue description\./);
-    assert.match(md, /\*\*Attachments:\*\* \[modem_boot\.pcap\]\(https:\/\/support\.qualcomm\.com\/f\/pcap123\)/);
+    assert.match(md, /\*\*Attachments:\*\*\r?\n- \[modem_boot\.pcap\]\(https:\/\/support\.qualcomm\.com\/f\/pcap123\)/);
 
     assert.match(md, /### 2\. 2026-08-19T10:15:00\.000Z · Qualcomm Support \(Qualcomm\)/);
     assert.doesNotMatch(md, /> \*\*Summary:\*\*/, 'Summary preview lines must not be rendered');
     assert.match(md, /Please provide QXDM log with 0xB0C0 message mask\./);
-    assert.match(md, /\*\*Attachments:\*\* \[mask_config\.cfg\]\(https:\/\/support\.qualcomm\.com\/f\/cfg123\), \[readme\.txt\]\(https:\/\/support\.qualcomm\.com\/f\/txt123\)/);
+    assert.match(md, /\*\*Attachments:\*\*\r?\n- \[mask_config\.cfg\]\(https:\/\/support\.qualcomm\.com\/f\/cfg123\)\r?\n- \[readme\.txt\]\(https:\/\/support\.qualcomm\.com\/f\/txt123\)/);
   });
 
   it('renders Salesforce Detail tab metadata (Contact Name, Customer Project, Date Opened, Date Closed, Related CRs, Case Record Type)', () => {
@@ -201,7 +201,7 @@ describe('render_case: case.md content structure', () => {
 
     const r = renderFixture(caseWithUrlAtt);
     assert.equal(r.exit, 0);
-    assert.match(r.md(), /\*\*Attachments:\*\* \[crash\.bin\]\(https:\/\/support\.qualcomm\.com\/download\/crash\.bin\)/);
+    assert.match(r.md(), /\*\*Attachments:\*\*\r?\n- \[crash\.bin\]\(https:\/\/support\.qualcomm\.com\/download\/crash\.bin\)/);
   });
 
   it('exits 2 with a usage message when no path is given', () => {
@@ -522,5 +522,90 @@ describe('render_case: issue #95 portal structure, Description section, role lab
 
     assert.doesNotMatch(md, /^## Description$/m);
     assert.match(md, /### 1\. 2026-08-01T10:00:00\.000Z · Bob \(Customer\)/);
+  });
+
+  describe('Comment Attachments Rendering (Issue #96)', () => {
+    it('renders comment attachments as a clean markdown list under the comment', () => {
+      const caseData = {
+        caseNumber: '08642051',
+        title: 'VoNR Redial Ecall Test',
+        comments: [
+          {
+            author: 'Duc Hoang',
+            timestamp: '2026-08-10T19:59:00.000Z',
+            body: 'Log files attached for analysis.',
+            attachments: [
+              {
+                name: 'FAILlog_X716B_SEAU_5G_IMS_Ecall_VoNR_redial_TC1_RTD.zip',
+                url: 'https://support.qualcomm.com/s/sfc/servlet.shepherd/version/download/068dK0000012345?asPdf=false&operationContext=CHATTER',
+              },
+              {
+                name: 'QXDM_mask.cfg',
+                url: 'https://support.qualcomm.com/s/sfc/servlet.shepherd/version/download/068dK0000067890',
+              },
+            ],
+          },
+        ],
+      };
+
+      const r = renderFixture(caseData);
+      assert.equal(r.exit, 0);
+      const md = r.md();
+
+      assert.match(md, /\*\*Attachments:\*\*\r?\n- \[FAILlog_X716B_SEAU_5G_IMS_Ecall_VoNR_redial_TC1_RTD\.zip\]\(https:\/\/support\.qualcomm\.com\/s\/sfc\/servlet\.shepherd\/version\/download\/068dK0000012345\?asPdf=false&operationContext=CHATTER\)\r?\n- \[QXDM_mask\.cfg\]\(https:\/\/support\.qualcomm\.com\/s\/sfc\/servlet\.shepherd\/version\/download\/068dK0000067890\)/);
+    });
+
+    it('produces no attachment markup when comment has no attachments or empty attachments list', () => {
+      const caseData = {
+        caseNumber: '08642051',
+        title: 'Empty Attachments Test',
+        comments: [
+          {
+            author: 'Duc Hoang',
+            timestamp: '2026-08-10T19:59:00.000Z',
+            body: 'No attachments on this comment.',
+            attachments: [],
+          },
+          {
+            author: 'Qualcomm Engineer',
+            timestamp: '2026-08-11T10:00:00.000Z',
+            body: 'Also no attachments here.',
+          },
+        ],
+      };
+
+      const r = renderFixture(caseData);
+      assert.equal(r.exit, 0);
+      const md = r.md();
+
+      assert.doesNotMatch(md, /\*\*Attachments:\*\*/);
+    });
+
+    it('gracefully degrades when attachment entries are malformed (missing URL, missing name, or plain string)', () => {
+      const caseData = {
+        caseNumber: '08642051',
+        title: 'Malformed Attachments Test',
+        comments: [
+          {
+            author: 'Duc Hoang',
+            timestamp: '2026-08-10T19:59:00.000Z',
+            body: 'Check various attachments.',
+            attachments: [
+              'standalone_filename.log',
+              { name: 'file_with_no_url.zip' },
+              { url: 'https://support.qualcomm.com/s/download/068999' },
+              null,
+              {},
+            ],
+          },
+        ],
+      };
+
+      const r = renderFixture(caseData);
+      assert.equal(r.exit, 0);
+      const md = r.md();
+
+      assert.match(md, /\*\*Attachments:\*\*\r?\n- standalone_filename\.log\r?\n- file_with_no_url\.zip\r?\n- \[https:\/\/support\.qualcomm\.com\/s\/download\/068999\]\(https:\/\/support\.qualcomm\.com\/s\/download\/068999\)/);
+    });
   });
 });
