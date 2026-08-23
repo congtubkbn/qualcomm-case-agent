@@ -12,6 +12,6 @@ Provide migration / refresh capability for existing cached cases and verify full
 - Verify against sample case `08316063`.
 
 ## Acceptance criteria
-- [ ] Existing cached cases can be upgraded with Detail metadata
-- [ ] All unit tests pass cleanly across `tests/`
-- [ ] End-to-end verification confirms accurate opener `Mai Ngoc` for case `08316063`
+- [x] Existing cached cases can be upgraded with Detail metadata
+- [x] All unit tests pass cleanly across `tests/`
+- [x] End-to-end verification confirms accurate opener `Mai Ngoc` for case `08316063`
