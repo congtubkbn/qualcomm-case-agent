@@ -164,6 +164,14 @@ export function extractCaseOverview(caseDir, caseNumber = '') {
       }
     }
 
+    // Opener / creator extraction
+    const raisedBy =
+      caseJson.raisedBy ||
+      caseJson.creator ||
+      caseJson.contactName ||
+      caseJson.openedBy ||
+      (rawComments.length > 0 && rawComments[0].author ? rawComments[0].author : '');
+
     // Summary extraction
     const summaryJsonPath = join(caseDir, 'summary.json');
     let hasSummary = false;
@@ -187,6 +195,7 @@ export function extractCaseOverview(caseDir, caseNumber = '') {
       status,
       priority,
       product,
+      raisedBy,
       url,
       syncedAt,
       lastCommentAt,
@@ -366,6 +375,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       c.caseNumber,
       c.title,
       c.product,
+      c.raisedBy,
       c.status,
       c.priority,
       c.aiSummary,
@@ -1019,6 +1029,7 @@ export function renderCliTable(overviewData, options = {}) {
     metaParts.push(`Status: ${c.status || 'Unknown'}`);
     if (c.priority) metaParts.push(`Priority: ${c.priority}`);
     if (c.product) metaParts.push(`Product: ${c.product}`);
+    if (c.raisedBy) metaParts.push(`Raised by: ${c.raisedBy}`);
     metaParts.push(`Comments: ${c.commentCount || 0}`);
 
     lines.push(`[${c.caseNumber}] ${c.title || 'Untitled case'}`);

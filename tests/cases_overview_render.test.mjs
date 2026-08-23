@@ -196,6 +196,23 @@ describe('cases_overview_render: renderCliTable', () => {
     assert.ok(output.includes('[08642051]'));
     assert.ok(!output.includes('[08603854]'));
   });
+
+  it('renders Raised by information when raisedBy is present in case record', () => {
+    const data = {
+      cases: [
+        {
+          caseNumber: '08111222',
+          title: 'Emergency call drop',
+          status: 'Open',
+          raisedBy: 'John Creator',
+          commentCount: 2,
+        },
+      ],
+      stats: { total: 1, byStatus: { Open: 1 } },
+    };
+    const output = renderCliTable(data);
+    assert.ok(output.includes('Raised by: John Creator'), 'Should contain Raised by: John Creator');
+  });
 });
 
 describe('cases_overview_render: CLI integration for HTML & dashboard', () => {
