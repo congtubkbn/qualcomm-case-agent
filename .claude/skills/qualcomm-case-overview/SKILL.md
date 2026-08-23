@@ -14,8 +14,8 @@ allowed-tools: Bash(node:*), Bash(npm:*), Read, Write, Glob
 
 ## Capabilities & Usage
 
-### 1. Terminal Case Summary (CLI Table)
-Shows all active cases, status breakdown, AI summaries, and latest comments directly in terminal:
+### 1. Terminal Case Summary & Auto-Launch Dashboard
+Shows all active cases, status breakdown, AI summaries, and latest comments directly in terminal, and automatically launches `data/cases/dashboard.html` in the user's browser:
 
 ```bash
 npm run cases:overview
@@ -27,8 +27,19 @@ node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --filter=i
 node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --filter=closed
 ```
 
+To run purely in terminal without automatically opening the browser:
+```bash
+node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --no-open
+```
+
 ### 2. Interactive Offline HTML Dashboard
-Opens a self-contained, responsive dashboard in the default browser with real-time search, status tabs, copyable case numbers, and recent comment accordions:
+Opens a self-contained, responsive dashboard in the default browser with:
+- **Direct Case Links**: Click on Case ID or title to open the case in Qualcomm Support Portal (`target="_blank"`).
+- **Hide / Unhide Cases**: Filter out completed/irrelevant cases into a dedicated "Hidden Cases" tab with 1-click restore.
+- **Configurable Auto-Refresh Timer**: Auto-reloads dashboard periodically (intervals: `Off`, `1m`, `2m`, `5m` [default], `10m`, `15m`) with live countdown ticker and manual "🔄 Refresh Now" button.
+- **State Persistence**: Active tab filters, search query, hidden cases, and auto-refresh settings survive page reloads via `localStorage`.
+- **Raised By Metadata**: Shows case opener/creator on cards.
+- **Comment Accordions & AI Summaries**: Expandable view for latest case updates.
 
 ```bash
 npm run cases:dashboard
@@ -74,6 +85,7 @@ node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --rebuild
 ## Reporting Guidance for Agents
 
 When the user asks for a case overview or list of cases:
-1. Run `node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs` (or filter with `--filter=<status>`).
+1. Run `node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs` (or filter with `--filter=<status>`). This will output the summary and automatically launch the interactive dashboard in the user's browser.
 2. Present the formatted output or summary statistics.
-3. Inform the user they can also run `npm run cases:dashboard` to explore cases interactively in their browser.
+3. Inform the user that the dashboard is now open in their browser with auto-refresh and interactive filters.
+

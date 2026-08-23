@@ -581,6 +581,63 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       font-weight: 700;
       letter-spacing: -0.02em;
     }
+    .header-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+    }
+    .refresh-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+    }
+    .refresh-label {
+      color: var(--text-secondary);
+      font-weight: 500;
+      font-size: 12px;
+    }
+    .refresh-select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      outline: none;
+    }
+    .refresh-select:focus {
+      border-color: var(--accent);
+    }
+    .countdown-ticker {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      color: var(--text-muted);
+      min-width: 145px;
+    }
+    .refresh-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .refresh-btn:hover {
+      background: var(--border-subtle);
+      color: var(--text-primary);
+      border-color: var(--accent);
+    }
     .theme-toggle-btn {
       background: var(--card-bg);
       border: 1px solid var(--border);
@@ -889,7 +946,22 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
           Last updated: ${escapeHtml(stats.lastUpdated || '')}
         </div>
       </div>
-      <button id="themeToggle" class="theme-toggle-btn" type="button">🌓 Theme</button>
+      <div class="header-actions">
+        <div class="refresh-controls">
+          <label for="refreshInterval" class="refresh-label">Auto-refresh:</label>
+          <select id="refreshInterval" class="refresh-select" title="Select auto-refresh interval">
+            <option value="0">Off</option>
+            <option value="60">1m</option>
+            <option value="120">2m</option>
+            <option value="300" selected>5m (default)</option>
+            <option value="600">10m</option>
+            <option value="900">15m</option>
+          </select>
+          <span id="countdownTicker" class="countdown-ticker" title="Time until next auto-refresh">Auto-refresh in: 05:00</span>
+          <button id="refreshNowBtn" class="refresh-btn" type="button" title="Refresh dashboard immediately">🔄 Refresh Now</button>
+        </div>
+        <button id="themeToggle" class="theme-toggle-btn" type="button">🌓 Theme</button>
+      </div>
     </header>
 
     <div class="stats-row">
@@ -931,11 +1003,34 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       const emptyState = document.getElementById('emptyState');
       const themeToggle = document.getElementById('themeToggle');
       const hiddenCountEl = document.getElementById('hiddenCount');
+      const refreshSelect = document.getElementById('refreshInterval');
+      const countdownTicker = document.getElementById('countdownTicker');
+      const refreshNowBtn = document.getElementById('refreshNowBtn');
 
       const STORAGE_KEY_HIDDEN = 'qc_dashboard_hidden_cases';
+      const STORAGE_KEY_THEME = 'qc_dashboard_theme';
+      const STORAGE_KEY_FILTER = 'qc_dashboard_active_filter';
+      const STORAGE_KEY_SEARCH = 'qc_dashboard_search_query';
+      const STORAGE_KEY_REFRESH = 'qc_dashboard_refresh_interval';
+
+      function safeStorageGet(key, fallback = null) {
+        try {
+          const val = localStorage.getItem(key);
+          return val !== null ? val : fallback;
+        } catch {
+          return fallback;
+        }
+      }
+
+      function safeStorageSet(key, value) {
+        try {
+          localStorage.setItem(key, value);
+        } catch {}
+      }
+
       let hiddenCases = new Set();
       try {
-        const stored = localStorage.getItem(STORAGE_KEY_HIDDEN);
+        const stored = safeStorageGet(STORAGE_KEY_HIDDEN);
         if (stored) {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed)) {
@@ -946,19 +1041,34 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         hiddenCases = new Set();
       }
 
-      let currentFilter = 'all';
-      let currentSearch = '';
-
       function saveHiddenCases() {
-        try {
-          localStorage.setItem(STORAGE_KEY_HIDDEN, JSON.stringify(Array.from(hiddenCases)));
-        } catch {}
+        safeStorageSet(STORAGE_KEY_HIDDEN, JSON.stringify(Array.from(hiddenCases)));
       }
 
       function updateHiddenCount() {
         if (hiddenCountEl) {
           hiddenCountEl.textContent = hiddenCases.size;
         }
+      }
+
+      // Restore active filter tab from localStorage
+      let currentFilter = safeStorageGet(STORAGE_KEY_FILTER, 'all');
+      const validFilter = Array.from(filterTabs).some(t => t.getAttribute('data-filter') === currentFilter);
+      if (!validFilter) {
+        currentFilter = 'all';
+      }
+      filterTabs.forEach(t => {
+        if (t.getAttribute('data-filter') === currentFilter) {
+          t.classList.add('active');
+        } else {
+          t.classList.remove('active');
+        }
+      });
+
+      // Restore search query from localStorage
+      let currentSearch = safeStorageGet(STORAGE_KEY_SEARCH, '');
+      if (searchInput && currentSearch) {
+        searchInput.value = currentSearch;
       }
 
       function applyFilters() {
@@ -1008,6 +1118,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       if (searchInput) {
         searchInput.addEventListener('input', (e) => {
           currentSearch = e.target.value;
+          safeStorageSet(STORAGE_KEY_SEARCH, currentSearch);
           applyFilters();
         });
       }
@@ -1017,6 +1128,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
           filterTabs.forEach(t => t.classList.remove('active'));
           tab.classList.add('active');
           currentFilter = tab.getAttribute('data-filter');
+          safeStorageSet(STORAGE_KEY_FILTER, currentFilter);
           applyFilters();
         });
       });
@@ -1083,7 +1195,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
 
       // Theme toggle
       if (themeToggle) {
-        const savedTheme = localStorage.getItem('qc_dashboard_theme');
+        const savedTheme = safeStorageGet(STORAGE_KEY_THEME);
         if (savedTheme) {
           document.documentElement.setAttribute('data-theme', savedTheme);
           themeToggle.textContent = savedTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
@@ -1101,10 +1213,75 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
             next = isDark ? 'light' : 'dark';
           }
           document.documentElement.setAttribute('data-theme', next);
-          localStorage.setItem('qc_dashboard_theme', next);
+          safeStorageSet(STORAGE_KEY_THEME, next);
           themeToggle.textContent = next === 'dark' ? '☀️ Light' : '🌙 Dark';
         });
       }
+
+      // Auto-refresh countdown timer (default 300s = 5m)
+      const savedRefreshInterval = safeStorageGet(STORAGE_KEY_REFRESH);
+      let refreshSeconds = savedRefreshInterval !== null ? parseInt(savedRefreshInterval, 10) : 300;
+      if (isNaN(refreshSeconds)) refreshSeconds = 300;
+
+      if (refreshSelect) {
+        refreshSelect.value = String(refreshSeconds);
+      }
+
+      let remainingSeconds = refreshSeconds;
+      let refreshTimer = null;
+
+      function formatTime(sec) {
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+      }
+
+      function updateTickerDisplay() {
+        if (!countdownTicker) return;
+        if (refreshSeconds <= 0) {
+          countdownTicker.textContent = 'Auto-refresh: Off';
+        } else {
+          countdownTicker.textContent = 'Auto-refresh in: ' + formatTime(remainingSeconds);
+        }
+      }
+
+      function startCountdown() {
+        if (refreshTimer) {
+          clearInterval(refreshTimer);
+          refreshTimer = null;
+        }
+        if (refreshSeconds <= 0) {
+          updateTickerDisplay();
+          return;
+        }
+        remainingSeconds = refreshSeconds;
+        updateTickerDisplay();
+        refreshTimer = setInterval(() => {
+          remainingSeconds--;
+          if (remainingSeconds <= 0) {
+            clearInterval(refreshTimer);
+            window.location.reload();
+          } else {
+            updateTickerDisplay();
+          }
+        }, 1000);
+      }
+
+      if (refreshSelect) {
+        refreshSelect.addEventListener('change', (e) => {
+          refreshSeconds = parseInt(e.target.value, 10) || 0;
+          safeStorageSet(STORAGE_KEY_REFRESH, String(refreshSeconds));
+          startCountdown();
+        });
+      }
+
+      if (refreshNowBtn) {
+        refreshNowBtn.addEventListener('click', () => {
+          window.location.reload();
+        });
+      }
+
+      startCountdown();
 
       // Initial filter & hidden count pass
       updateHiddenCount();
@@ -1186,6 +1363,9 @@ export function renderCliTable(overviewData, options = {}) {
  * @param {string} filePath
  */
 export function openInBrowser(filePath) {
+  if (process.env.NODE_ENV === 'test' || process.env.QUALCOMM_NO_BROWSER === '1' || process.env.CI) {
+    return;
+  }
   const platform = process.platform;
   if (platform === 'win32') {
     spawn('cmd', ['/c', 'start', '""', filePath], { detached: true, stdio: 'ignore', windowsVerbatimArguments: true }).unref();
@@ -1207,10 +1387,14 @@ export function parseArgs(args) {
     json: false,
     html: false,
     open: false,
+    noOpen: false,
     filter: null,
     casesDir: DEFAULT_CASES_DIR,
     help: false,
   };
+
+  let explicitOpen = false;
+  let explicitNoOpen = false;
 
   for (const arg of args) {
     if (arg === '--rebuild') {
@@ -1221,6 +1405,10 @@ export function parseArgs(args) {
       parsed.html = true;
     } else if (arg === '--open') {
       parsed.open = true;
+      explicitOpen = true;
+    } else if (arg === '--no-open') {
+      parsed.noOpen = true;
+      explicitNoOpen = true;
     } else if (arg === '--help' || arg === '-h') {
       parsed.help = true;
     } else if (arg.startsWith('--filter=')) {
@@ -1228,6 +1416,17 @@ export function parseArgs(args) {
     } else if (arg.startsWith('--cases-dir=')) {
       parsed.casesDir = resolve(arg.slice('--cases-dir='.length));
     }
+  }
+
+  if (explicitNoOpen) {
+    parsed.open = false;
+  } else if (explicitOpen) {
+    parsed.open = true;
+  } else if (parsed.json) {
+    parsed.open = false;
+  } else {
+    // Default CLI behavior: auto-open dashboard in browser
+    parsed.open = true;
   }
 
   return parsed;
@@ -1262,8 +1461,9 @@ Usage: node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs [op
 Options:
   --rebuild           Force full re-scan of case directories and update _overview.json and dashboard.html
   --html              Generate data/cases/dashboard.html
-  --open              Open data/cases/dashboard.html in default web browser
-  --json              Emit JSON output to stdout
+  --open              Explicitly open data/cases/dashboard.html in default web browser (default)
+  --no-open           Do not automatically open dashboard in browser
+  --json              Emit JSON output to stdout (disables auto-open)
   --filter=<status>   Filter output cases by status (e.g. --filter=open)
   --cases-dir=<dir>   Custom cases directory path
   --help, -h          Show this help message
@@ -1308,3 +1508,4 @@ Options:
     console.log(renderCliTable(displayData));
   }
 }
+

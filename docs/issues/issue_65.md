@@ -16,7 +16,8 @@ Implement configurable auto-refresh timer (default 5m) and auto-launch dashboard
 - Run full test suite (`npm test`) and verify 100% green.
 
 ## Acceptance criteria
-- [ ] Auto-refresh countdown works with 5m default and configurable intervals
-- [ ] Active tab filter and search query survive auto-reload
-- [ ] Skill instructions reflect auto-launching behavior
-- [ ] 100% tests pass in `npm test`
+- [x] Auto-refresh countdown works with 5m default and configurable intervals
+- [x] Active tab filter and search query survive auto-reload
+- [x] Skill instructions reflect auto-launching behavior
+- [x] 100% tests pass in `npm test`
+

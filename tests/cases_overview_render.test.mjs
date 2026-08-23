@@ -8,6 +8,7 @@ import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
   escapeHtml,
+  parseArgs,
   renderCliTable,
   renderDashboardHtml,
 } from '../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs';
@@ -183,6 +184,31 @@ describe('cases_overview_render: renderDashboardHtml', () => {
     assert.ok(html.includes('ai-summary'));
   });
 
+  it('renders auto-refresh timer controls, interval selector, and manual refresh button', () => {
+    const data = createSampleOverviewData();
+    const html = renderDashboardHtml(data);
+
+    // Auto-refresh interval dropdown & options
+    assert.ok(html.includes('id="refreshInterval"'), 'Must render refreshInterval select element');
+    assert.ok(html.includes('value="0">Off<'), 'Must have Off option');
+    assert.ok(html.includes('value="60">1m<'), 'Must have 1m option');
+    assert.ok(html.includes('value="120">2m<'), 'Must have 2m option');
+    assert.ok(html.includes('value="300" selected>5m (default)<'), 'Must have 5m (default) option');
+    assert.ok(html.includes('value="600">10m<'), 'Must have 10m option');
+    assert.ok(html.includes('value="900">15m<'), 'Must have 15m option');
+
+    // Live countdown ticker & refresh now button
+    assert.ok(html.includes('id="countdownTicker"'), 'Must render countdownTicker');
+    assert.ok(html.includes('Auto-refresh in: 05:00'), 'Must initialize default countdown ticker text');
+    assert.ok(html.includes('id="refreshNowBtn"'), 'Must render refreshNowBtn');
+    assert.ok(html.includes('🔄 Refresh Now'), 'Must include Refresh Now button text');
+
+    // LocalStorage persistence logic for active filter, search query, and refresh interval
+    assert.ok(html.includes('qc_dashboard_active_filter'), 'Must include active filter storage key');
+    assert.ok(html.includes('qc_dashboard_search_query'), 'Must include search query storage key');
+    assert.ok(html.includes('qc_dashboard_refresh_interval'), 'Must include refresh interval storage key');
+  });
+
   it('writes HTML to disk when outputPath is provided', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'qc-dash-test-'));
     const outputPath = join(tempDir, 'dashboard.html');
@@ -194,6 +220,29 @@ describe('cases_overview_render: renderDashboardHtml', () => {
     assert.equal(diskContent, html);
 
     rmSync(tempDir, { recursive: true, force: true });
+  });
+});
+
+describe('cases_overview_render: parseArgs auto-launch & CLI options', () => {
+  it('defaults open to true, and disables open when --json or --no-open is passed', () => {
+    const argsDefault = parseArgs([]);
+    assert.equal(argsDefault.open, true);
+
+    const argsJson = parseArgs(['--json']);
+    assert.equal(argsJson.json, true);
+    assert.equal(argsJson.open, false);
+
+    const argsNoOpen = parseArgs(['--no-open']);
+    assert.equal(argsNoOpen.open, false);
+    assert.equal(argsNoOpen.noOpen, true);
+  });
+
+  it('respects explicit --open flag even when --json is passed if --open is specified', () => {
+    const argsOpen = parseArgs(['--open']);
+    assert.equal(argsOpen.open, true);
+
+    const argsJsonOpen = parseArgs(['--json', '--open']);
+    assert.equal(argsJsonOpen.open, true);
   });
 });
 
