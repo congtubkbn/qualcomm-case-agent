@@ -16,6 +16,8 @@ import {
   sortCommentsChronological,
   classifyRole,
   isBlacklistedTs,
+  isRelativeTimestamp,
+  parseTimestamp,
   extractSummary,
   synthesizeDescriptionComment,
   hasDescriptionComment,
@@ -26,13 +28,22 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const RENDER_SCRIPT = join(__dirname, 'render_case.mjs');
 const DATA_CASES_DIR = join(__dirname, '../../../../data/cases');
 
-export { classifyRole, isBlacklistedTs, extractSummary, synthesizeDescriptionComment, hasDescriptionComment };
+export { classifyRole, isBlacklistedTs, isRelativeTimestamp, extractSummary, synthesizeDescriptionComment, hasDescriptionComment };
 
-export function sanitizeComment(comment) {
+export function sanitizeComment(comment, referenceDate = new Date()) {
   if (!comment || typeof comment !== 'object') return comment;
 
   const rawTs = comment.timestamp || '';
-  const timestamp = isBlacklistedTs(rawTs) ? '' : rawTs;
+  let timestamp = isBlacklistedTs(rawTs) ? '' : rawTs;
+  let rawTimestamp = comment.rawTimestamp;
+
+  if (timestamp && isRelativeTimestamp(timestamp)) {
+    const epoch = parseTimestamp(timestamp, referenceDate);
+    if (epoch > 0) {
+      rawTimestamp = rawTimestamp || timestamp;
+      timestamp = new Date(epoch).toISOString();
+    }
+  }
 
   const body = comment.body || '';
   // Always recomputed from body, never preserved: extractSummary is the
@@ -45,6 +56,7 @@ export function sanitizeComment(comment) {
   const sanitized = {
     ...comment,
     timestamp,
+    ...(rawTimestamp ? { rawTimestamp } : {}),
     summary,
   };
 
@@ -53,8 +65,12 @@ export function sanitizeComment(comment) {
   return sanitized;
 }
 
-export function migrateCaseData(caseData) {
+export function migrateCaseData(caseData, options = {}) {
   if (!caseData || typeof caseData !== 'object') return caseData;
+
+  const refDate = options.referenceDate
+    ? (options.referenceDate instanceof Date ? options.referenceDate : new Date(options.referenceDate))
+    : (caseData.extractedAt ? new Date(caseData.extractedAt) : (caseData.syncedAt ? new Date(caseData.syncedAt) : new Date()));
 
   let comments = Array.isArray(caseData.comments) ? [...caseData.comments] : [];
 
@@ -99,7 +115,7 @@ export function migrateCaseData(caseData) {
 
   // 2. Sanitize comments & update roles
   const sanitizedComments = comments.map(c => {
-    const sanitized = sanitizeComment(c);
+    const sanitized = sanitizeComment(c, refDate);
     return {
       ...sanitized,
       role: classifyRole(sanitized.author, sanitized.company, '', sanitized.body),
@@ -107,7 +123,7 @@ export function migrateCaseData(caseData) {
   });
 
   // 3. Re-sort chronologically with relative interpolation
-  const sortedComments = sortCommentsChronological(sanitizedComments);
+  const sortedComments = sortCommentsChronological(sanitizedComments, refDate);
 
   // 4. Form updated case object
   const updatedCase = {
@@ -127,8 +143,10 @@ export function migrateCaseJson(jsonPath, options = {}) {
   }
   const raw = readFileSync(jsonPath, 'utf8');
   const data = JSON.parse(raw.charCodeAt(0) === 0xFEFF ? raw.slice(1) : raw);
+  const oldHash = data.hash;
 
-  const updatedCase = migrateCaseData(data);
+  const updatedCase = migrateCaseData(data, options);
+  const rehashed = oldHash !== updatedCase.hash;
 
   // Write back to json
   writeFileSync(jsonPath, JSON.stringify(updatedCase, null, 2), 'utf8');
@@ -163,7 +181,15 @@ export function migrateCaseJson(jsonPath, options = {}) {
     }
   }
 
-  return { ok: true, jsonPath, caseNumber: caseCode, commentCount: updatedCase.comments.length, hash: updatedCase.hash };
+  return {
+    ok: true,
+    jsonPath,
+    caseNumber: caseCode,
+    commentCount: updatedCase.comments.length,
+    hash: updatedCase.hash,
+    oldHash,
+    rehashed,
+  };
 }
 
 export const migrateCase = migrateCaseJson;
@@ -193,7 +219,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   for (const t of targets) {
     try {
       const res = migrateCaseJson(t);
-      console.log(`Migrated ${res.caseNumber || res.jsonPath}: ${res.commentCount} comments, hash=${res.hash}`);
+      const rehashMsg = res.rehashed ? ` (re-hashed from ${res.oldHash})` : '';
+      console.log(`Migrated ${res.caseNumber || res.jsonPath}: ${res.commentCount} comments, hash=${res.hash}${rehashMsg}`);
     } catch (e) {
       console.error(`Error migrating ${t}: ${e.message}`);
       process.exit(1);

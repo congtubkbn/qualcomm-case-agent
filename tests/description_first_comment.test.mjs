@@ -121,7 +121,7 @@ describe('2. Ingestion & Ingestion Pipeline: scrape_case.mjs full capture', () =
       customer: 'Samsung Mobile',
       created: '2026-08-10T08:00:00.000Z',
       description: 'UE encounters panic during SA handover from cell A to cell B.',
-      displayedCommentCount: 2,
+      displayedCommentCount: 1, // portal's own count of genuine Chatter items only
       comments: [
         {
           author: 'QCOM Engineer',
@@ -175,6 +175,35 @@ describe('2. Ingestion & Ingestion Pipeline: scrape_case.mjs full capture', () =
     assert.equal(saved.comments.length, 1);
     assert.equal(saved.comments[0].author, 'QCOM Engineer');
   });
+
+  // Regression for #88: the synthesized description comment was counted toward
+  // the completeness gate, making it slack by exactly one — a capture missing
+  // one genuine Chatter comment passed anyway because the description comment
+  // padded the count back up to displayedCommentCount.
+  it('rejects a capture one genuine comment short of the portal total, even with a synthesized description comment present', () => {
+    const { root } = createTempEnv();
+    const raw = {
+      caseNumber: '08123456',
+      title: 'Modem Crash on SA Handover',
+      customer: 'Samsung Mobile',
+      created: '2026-08-10T08:00:00.000Z',
+      description: 'UE encounters panic during SA handover from cell A to cell B.',
+      displayedCommentCount: 2, // portal shows 2 genuine Chatter items
+      comments: [
+        {
+          author: 'QCOM Engineer',
+          timestamp: '2026-08-10T11:00:00.000Z',
+          body: 'Dear customer,\nPlease provide QXDM logs.',
+        },
+      ], // only 1 genuine comment actually captured
+    };
+
+    const res = runScrape(root, raw);
+    assert.equal(res.exit, EXIT.INCOMPLETE);
+    assert.equal(res.verdict.captured, 1, 'the synthesized description comment must not count');
+    assert.equal(res.verdict.displayed, 2);
+    assert.equal(existsSync(res.caseJsonPath), false, 'a short capture must not be persisted');
+  });
 });
 
 describe('3. Dedup & Idempotency: scrape_case.mjs --merge', () => {
@@ -186,7 +215,7 @@ describe('3. Dedup & Idempotency: scrape_case.mjs --merge', () => {
       customer: 'Google OEM',
       created: '2026-08-15T08:00:00.000Z',
       description: 'Call drops consistently during VoNR handover.',
-      displayedCommentCount: 2,
+      displayedCommentCount: 1, // portal's own count of genuine Chatter items only
       comments: [
         {
           author: 'QCOM Support',
@@ -208,7 +237,7 @@ describe('3. Dedup & Idempotency: scrape_case.mjs --merge', () => {
       customer: 'Google OEM',
       created: '2026-08-15T08:00:00.000Z',
       description: 'Call drops consistently during VoNR handover.',
-      displayedCommentCount: 3,
+      displayedCommentCount: 2, // 2 genuine Chatter items (description excluded)
       comments: [
         {
           author: 'Google Engineer',

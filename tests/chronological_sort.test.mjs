@@ -83,6 +83,53 @@ describe('parseTimestamp', () => {
   });
 });
 
+describe('isRelativeTimestamp & normalizeComment', () => {
+  const refDate1 = new Date('2026-08-22T12:00:00.000Z');
+  const refDate2 = new Date('2026-08-30T12:00:00.000Z');
+
+  it('detects relative timestamps correctly', () => {
+    assert.equal(m.isRelativeTimestamp('12 days ago'), true);
+    assert.equal(m.isRelativeTimestamp('1 hour ago'), true);
+    assert.equal(m.isRelativeTimestamp('Just now'), true);
+    assert.equal(m.isRelativeTimestamp('Yesterday'), true);
+    assert.equal(m.isRelativeTimestamp('August 20, 2026 at 3:45 PM'), false);
+    assert.equal(m.isRelativeTimestamp('2026-08-20T10:30:00.000Z'), false);
+    assert.equal(m.isRelativeTimestamp(''), false);
+    assert.equal(m.isRelativeTimestamp(null), false);
+  });
+
+  it('resolves relative timestamp to absolute ISO form and retains rawTimestamp', () => {
+    const raw = comment('Duc Hoang', 'log attached', '12 days ago');
+    const normalized = m.normalizeComment(raw, refDate1);
+
+    const expectedEpoch = refDate1.getTime() - 12 * 86400 * 1000;
+    assert.equal(normalized.timestamp, new Date(expectedEpoch).toISOString());
+    assert.equal(normalized.rawTimestamp, '12 days ago');
+    assert.equal(normalized.body, 'log attached');
+    assert.equal(normalized.author, 'Duc Hoang');
+  });
+
+  it('produces the same stored value when normalized against two different reference dates once absolute', () => {
+    const raw = comment('Duc Hoang', 'log attached', '12 days ago');
+    const normalizedAtT1 = m.normalizeComment(raw, refDate1);
+    const normalizedAgainAtT2 = m.normalizeComment(normalizedAtT1, refDate2);
+
+    assert.equal(normalizedAgainAtT2.timestamp, normalizedAtT1.timestamp);
+    assert.equal(normalizedAgainAtT2.rawTimestamp, '12 days ago');
+    assert.deepEqual(normalizedAgainAtT2, normalizedAtT1);
+  });
+
+  it('preserves already absolute timestamps without altering them', () => {
+    const absolute = comment('Alice', 'report', 'August 20, 2026 at 3:45 PM');
+    const res1 = m.normalizeComment(absolute, refDate1);
+    const res2 = m.normalizeComment(absolute, refDate2);
+
+    assert.equal(res1.timestamp, 'August 20, 2026 at 3:45 PM');
+    assert.equal(res2.timestamp, 'August 20, 2026 at 3:45 PM');
+    assert.deepEqual(res1, res2);
+  });
+});
+
 describe('sortCommentsChronological', () => {
   const refDate = new Date('2026-08-22T12:00:00.000Z');
 

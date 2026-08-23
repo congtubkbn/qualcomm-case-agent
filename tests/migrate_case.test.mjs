@@ -331,5 +331,65 @@ describe('tools/migrate_case.mjs - Integration tests (Slice 2)', () => {
     const realIndexAfter = existsSync(realIndexPath) ? readFileSync(realIndexPath, 'utf8') : null;
     assert.equal(realIndexAfter, realIndexBefore);
   });
+
+  it('migrates a cached case with relative timestamps, normalizes to extractedAt, re-stamps hash once, and reports rehashed outcome', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'qc-mig-rel-'));
+    const caseDir = join(dir, '08642051');
+    mkdirSync(caseDir, { recursive: true });
+
+    const extractedAt = '2026-08-23T14:58:07.164Z';
+    const legacyCase = {
+      caseNumber: '08642051',
+      title: 'Samsung Ecall test',
+      extractedAt,
+      comments: [
+        {
+          id: 'c1',
+          author: 'Duc Hoang',
+          role: 'Customer',
+          timestamp: '12 days ago',
+          body: 'FAILlog attached. Verbatim content with special chars: 04:39:48.820000 | 1 | NR5G NAS',
+        },
+        {
+          id: 'c2',
+          author: 'Sushmita Rao',
+          role: 'Qualcomm',
+          timestamp: 'August 11, 2026 at 9:44 AM',
+          body: 'Checking from NAS POV.',
+        },
+      ],
+      hash: 'old-stale-hash',
+    };
+
+    const jsonPath = join(caseDir, 'case.json');
+    writeFileSync(jsonPath, JSON.stringify(legacyCase, null, 2), 'utf8');
+
+    const res = migrateCaseJson(jsonPath);
+
+    assert.equal(res.ok, true);
+    assert.equal(res.rehashed, true);
+    assert.notEqual(res.hash, 'old-stale-hash');
+    assert.equal(res.oldHash, 'old-stale-hash');
+
+    const updated = JSON.parse(readFileSync(jsonPath, 'utf8'));
+
+    // Comment 0 should be Sushmita Rao (August 11, 2026 at 9:44 AM is earlier than 14:58)
+    assert.equal(updated.comments[0].author, 'Sushmita Rao');
+    assert.equal(updated.comments[0].timestamp, 'August 11, 2026 at 9:44 AM');
+    assert.equal(updated.comments[0].body, 'Checking from NAS POV.');
+
+    // Comment 1 should be Duc Hoang (12 days before 2026-08-23T14:58:07.164Z = 2026-08-11T14:58:07.164Z)
+    const expectedDucTs = new Date(Date.parse(extractedAt) - 12 * 86400 * 1000).toISOString();
+    assert.equal(updated.comments[1].author, 'Duc Hoang');
+    assert.equal(updated.comments[1].timestamp, expectedDucTs);
+    assert.equal(updated.comments[1].rawTimestamp, '12 days ago');
+    assert.equal(updated.comments[1].body, 'FAILlog attached. Verbatim content with special chars: 04:39:48.820000 | 1 | NR5G NAS', 'Verbatim body must be untouched');
+
+    // Idempotency: re-running migrate must not change hash or rehash again
+    const res2 = migrateCaseJson(jsonPath);
+    assert.equal(res2.rehashed, false);
+    assert.equal(res2.hash, res.hash);
+  });
 });
+
 

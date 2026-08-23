@@ -116,6 +116,20 @@ describe('countAssert', () => {
   });
 });
 
+describe('genuineCommentCount', () => {
+  it('excludes the synthesized description comment when present', () => {
+    const desc = 'UE panics during SA handover.';
+    const comments = [comment('Reporter', desc), comment('Alice', 'RRC reject on n78')];
+    assert.equal(m.genuineCommentCount(comments, desc), 1);
+  });
+
+  it('counts every comment when no synthesized description comment is present', () => {
+    const comments = [comment('Alice', 'RRC reject on n78'), comment('Bob', 'Initial report')];
+    assert.equal(m.genuineCommentCount(comments, 'Some description never injected'), 2);
+    assert.equal(m.genuineCommentCount(comments, ''), 2);
+  });
+});
+
 describe('parseHeaderFlags', () => {
   it('honours only the header keys, ignoring anything else on the line', () => {
     assert.deepEqual(
@@ -846,6 +860,93 @@ describe('finalize (child process)', () => {
       assert.equal(saved.description, 'VoNR call drops during 5G SA.');
     });
   });
+
+  describe('Chatter relative timestamp normalization (Issue #87)', () => {
+    it('resolves relative timestamps at capture time to absolute ISO strings and stores rawTimestamp', () => {
+      const root = fixture();
+      const captureTime = '2026-08-22T12:00:00.000Z';
+      const rawWithRelative = {
+        caseNumber: '08603854',
+        title: 'NR SA attach failure',
+        status: 'Open',
+        priority: 'P2',
+        displayedCommentCount: 2,
+        comments: [
+          comment('Carol', 'newer post', { timestamp: '1 hour ago' }),
+          comment('Bob', 'older post', { timestamp: '5 days ago' }),
+        ],
+      };
+
+      const { exit, verdict } = runFinalize(root, rawWithRelative, ['--ref-date', captureTime]);
+      assert.equal(exit, m.EXIT.OK);
+      assert.equal(verdict.commentCount, 2);
+
+      const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
+      assert.equal(saved.comments.length, 2);
+
+      // Comment 0 = Bob (5 days before 2026-08-22T12:00:00Z)
+      const expectedBobTs = new Date(Date.parse(captureTime) - 5 * 86400 * 1000).toISOString();
+      assert.equal(saved.comments[0].author, 'Bob');
+      assert.equal(saved.comments[0].timestamp, expectedBobTs);
+      assert.equal(saved.comments[0].rawTimestamp, '5 days ago');
+
+      // Comment 1 = Carol (1 hour before 2026-08-22T12:00:00Z)
+      const expectedCarolTs = new Date(Date.parse(captureTime) - 3600 * 1000).toISOString();
+      assert.equal(saved.comments[1].author, 'Carol');
+      assert.equal(saved.comments[1].timestamp, expectedCarolTs);
+      assert.equal(saved.comments[1].rawTimestamp, '1 hour ago');
+    });
+
+    it('unchanged Case re-captured after simulated passage of time yields identical comment order and reports no-update', () => {
+      const root = fixture();
+      const initialCaptureTime = '2026-08-10T12:00:00.000Z';
+      const initialRaw = {
+        caseNumber: '08603854',
+        title: 'NR SA attach failure',
+        status: 'Open',
+        priority: 'P2',
+        displayedCommentCount: 2,
+        comments: [
+          comment('Carol', 'investigating', { timestamp: '2 days ago' }),
+          comment('Bob', 'initial problem report', { timestamp: '6 days ago' }),
+        ],
+      };
+
+      // 1. Initial capture
+      const r1 = runFinalize(root, initialRaw, ['--ref-date', initialCaptureTime]);
+      assert.equal(r1.exit, m.EXIT.OK);
+
+      const initialSaved = JSON.parse(readFileSync(casePath(root), 'utf8'));
+      const initialOrder = initialSaved.comments.map(c => c.author);
+      const initialHash = initialSaved.hash;
+
+      // 2. Simulated passage of time (10 days later, portal now renders "12 days ago" and "16 days ago")
+      const laterCaptureTime = '2026-08-20T12:00:00.000Z';
+      const laterRaw = {
+        caseNumber: '08603854',
+        title: 'NR SA attach failure',
+        status: 'Open',
+        priority: 'P2',
+        displayedCommentCount: 2,
+        comments: [
+          comment('Carol', 'investigating', { timestamp: '12 days ago' }),
+          comment('Bob', 'initial problem report', { timestamp: '16 days ago' }),
+        ],
+      };
+
+      // Re-capture in full mode
+      const r2 = runFinalize(root, laterRaw, ['--ref-date', laterCaptureTime]);
+      assert.equal(r2.exit, m.EXIT.OK);
+      assert.equal(r2.verdict.changed, false, 'Hash must not change on unchanged case after time passage');
+      assert.equal(r2.verdict.newComments, 0, 'No new comments should be reported');
+      assert.deepEqual(r2.verdict.newCommentIds, []);
+
+      const laterSaved = JSON.parse(readFileSync(casePath(root), 'utf8'));
+      assert.equal(laterSaved.hash, initialHash);
+      assert.deepEqual(laterSaved.comments.map(c => c.author), initialOrder, 'Comment ordering must not drift');
+    });
+  });
 });
+
 
 

@@ -118,12 +118,17 @@ export const DETAIL_KEYS = [
 ];
 
 // Parse `--title "..."` style flags into an overrides object. Only HEADER_KEYS honored.
+// Also supports `--ref-date <date>` for test reference date injection.
 export function parseHeaderFlags(argv) {
   const out = {};
   for (let i = 0; i < argv.length; i++) {
-    const m = /^--([a-zA-Z]+)$/.exec(argv[i]);
-    if (m && HEADER_KEYS.includes(m[1]) && argv[i + 1] != null) {
-      out[m[1]] = argv[++i];
+    const m = /^--([a-zA-Z-]+)$/.exec(argv[i]);
+    if (m && argv[i + 1] != null) {
+      if (HEADER_KEYS.includes(m[1])) {
+        out[m[1]] = argv[++i];
+      } else if (m[1] === 'ref-date' || m[1] === 'reference-date') {
+        out.refDate = argv[++i];
+      }
     }
   }
   return out;
@@ -341,6 +346,14 @@ export function hasDescriptionComment(comments, description) {
   return comments.some(c => c && typeof c.body === 'string' && c.body.trim() === target);
 }
 
+// The synthesized description comment is a presentation convenience derived
+// from the Case's description field, not a captured Chatter feed item — the
+// completeness gate must compare against genuine portal comments only.
+export function genuineCommentCount(comments, description) {
+  const total = Array.isArray(comments) ? comments.length : 0;
+  return hasDescriptionComment(comments, description) ? total - 1 : total;
+}
+
 /**
  * Classifies author role into 'Qualcomm', 'Customer', or 'System' based on author name, company, and body clues.
  */
@@ -456,6 +469,58 @@ export function parseTimestamp(ts, referenceDate = new Date()) {
   }
 
   return 0;
+}
+
+/**
+ * Checks if a timestamp string is a relative Chatter format (e.g. "12 days ago", "Just now", "Yesterday").
+ */
+export function isRelativeTimestamp(ts) {
+  if (!ts || typeof ts !== 'string') return false;
+  const s = ts.trim();
+  if (!s) return false;
+  return (
+    /^(?:just\s+now|right\s+now|a\s+few\s+seconds?\s+ago|seconds?\s+ago)$/i.test(s) ||
+    /^(\d+)\s*s(?:ec(?:ond)?s?)?\s*ago$/i.test(s) ||
+    /^(\d+)\s*(?:m|min(?:ute)?s?)\s*ago$/i.test(s) ||
+    /^(\d+)\s*(?:h|hr|hours?|hrs?)\s*ago$/i.test(s) ||
+    /^(\d+)\s*(?:d|days?)\s*ago$/i.test(s) ||
+    /^(\d+)\s*(?:w|weeks?|wks?)\s*ago$/i.test(s) ||
+    /^(\d+)\s*(?:mo|month|months?|mos?)\s*ago$/i.test(s) ||
+    /^(\d+)\s*(?:y|yr|years?|yrs?)\s*ago$/i.test(s) ||
+    /^yesterday\b/i.test(s) ||
+    /^today\b/i.test(s)
+  );
+}
+
+/**
+ * Normalizes relative Chatter timestamp to absolute ISO-8601 string resolved
+ * against capture reference date, retaining raw portal string in `rawTimestamp`.
+ */
+export function normalizeComment(comment, referenceDate = new Date()) {
+  if (!comment || typeof comment !== 'object') return comment;
+  const rawTs = comment.timestamp || '';
+  if (isBlacklistedTs(rawTs)) {
+    return { ...comment, timestamp: '' };
+  }
+  if (isRelativeTimestamp(rawTs)) {
+    const epoch = parseTimestamp(rawTs, referenceDate);
+    if (epoch > 0) {
+      return {
+        ...comment,
+        timestamp: new Date(epoch).toISOString(),
+        rawTimestamp: comment.rawTimestamp || rawTs,
+      };
+    }
+  }
+  return comment;
+}
+
+/**
+ * Normalizes all comments in an array.
+ */
+export function normalizeComments(comments, referenceDate = new Date()) {
+  if (!Array.isArray(comments)) return [];
+  return comments.map(c => normalizeComment(c, referenceDate));
 }
 
 /**
@@ -593,7 +658,7 @@ export function mergeComments(cachedComments, rawComments, referenceDate = new D
 const INDEX_PATH = join(DATA_DIR, '_index.json');
 
 // ---- Main ----
-function finalize(caseCode, rawPath, header = {}, merge = false) {
+export function finalize(caseCode, rawPath, header = {}, merge = false, options = {}) {
   if (!existsSync(rawPath)) {
     emit({ code: EXIT.BAD_ARGS, reason: `raw JSON not found: ${rawPath}` });
     process.exit(EXIT.BAD_ARGS);
@@ -620,6 +685,12 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
     emit({ code: EXIT.INCOMPLETE, reason: 'extracted 0 comments — likely wrong page / failed capture; not persisting', caseCode });
     process.exit(EXIT.INCOMPLETE);
   }
+
+  // Reference date for resolving relative Chatter timestamps (e.g. "12 days ago")
+  // into absolute ISO strings at capture time. Injected via options or --ref-date for tests.
+  const refDate = options.referenceDate
+    ? (options.referenceDate instanceof Date ? options.referenceDate : new Date(options.referenceDate))
+    : (header.refDate ? new Date(header.refDate) : new Date());
 
   // Read the cache once — BOTH paths need it, to union comments rather than
   // letting a thinner fresh capture silently drop one already confirmed to exist.
@@ -652,9 +723,9 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
     created: String(raw.created || (cached && cached.created) || '').trim(),
   };
   const descComment = synthesizeDescriptionComment(descRaw);
-  let rawComments = [...raw.comments];
+  let rawComments = normalizeComments(raw.comments || [], refDate);
   if (descComment && !hasDescriptionComment(rawComments, descRaw.description)) {
-    rawComments.push(descComment);
+    rawComments.push(normalizeComment(descComment, refDate));
   }
 
   // Identity is assigned HERE, in code, for every comment we persist.
@@ -667,7 +738,7 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
   let newIds = [];
   let possibleEdits = [];
   if (merge) {
-    const merge0 = mergeComments(cached.comments || [], fresh.comments);
+    const merge0 = mergeComments(cached.comments || [], fresh.comments, refDate);
     newIds = merge0.newIds;
     possibleEdits = merge0.possibleEdits;
     // Start from the cache: every already-captured field survives.
@@ -692,7 +763,7 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
     // capture is not proof it is gone for good. This is the same dedup as
     // --merge; a full run can only grow the comment list, never shrink it.
     const cachedComments = cached ? (cached.comments || []) : [];
-    const merge0 = mergeComments(cachedComments, fresh.comments);
+    const merge0 = mergeComments(cachedComments, fresh.comments, refDate);
     newIds = merge0.newIds;
     possibleEdits = merge0.possibleEdits;
     out = { ...raw, comments: merge0.merged };
@@ -728,7 +799,9 @@ function finalize(caseCode, rawPath, header = {}, merge = false) {
   }
 
   // Completeness gate BEFORE any write — a short capture is not persisted.
-  const assertion = countAssert(out.comments.length, out.displayedCommentCount);
+  // Uses the genuine comment count: the synthesized description comment must
+  // not pad the count and mask one real Chatter comment missing.
+  const assertion = countAssert(genuineCommentCount(out.comments, out.description), out.displayedCommentCount);
   if (!assertion.ok) {
     emit({ code: EXIT.INCOMPLETE, ...assertion, caseCode });
     process.exit(EXIT.INCOMPLETE);
