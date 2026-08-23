@@ -62,6 +62,20 @@ export function anchorOf(cached) {
 }
 
 /**
+ * Detail tab is the only tab that actually renders `fields`; Feed-tab `raw` can still
+ * stumble onto a non-empty value for them (wrong DOM region), so detailRaw wins whenever
+ * present, and raw is the fallback only when detailRaw didn't capture the field.
+ * Mutates and returns `raw`.
+ */
+export function mergeDetailFields(raw, detailRaw, fields) {
+  if (!detailRaw) return raw;
+  for (const f of fields) {
+    if (detailRaw[f]) raw[f] = detailRaw[f];
+  }
+  return raw;
+}
+
+/**
  * Standardize single-line verdict output object.
  */
 export function formatVerdict(code, v = {}, started) {
@@ -405,32 +419,25 @@ export async function run(code, opts = {}) {
   }
 
   // Merge any metadata captured from Detail tab
-  if (detailRaw) {
-    const detailFields = [
-      'contactName',
-      'openedAt',
-      'closedAt',
-      'customerProject',
-      'accountName',
-      'relatedCRs',
-      'caseRecordType',
-      'description',
-      'title',
-      'status',
-      'priority',
-      'severity',
-      'product',
-      'customer',
-      'created',
-      'updated',
-      'raisedBy',
-    ];
-    for (const f of detailFields) {
-      if (detailRaw[f] && !raw[f]) {
-        raw[f] = detailRaw[f];
-      }
-    }
-  }
+  mergeDetailFields(raw, detailRaw, [
+    'contactName',
+    'openedAt',
+    'closedAt',
+    'customerProject',
+    'accountName',
+    'relatedCRs',
+    'caseRecordType',
+    'description',
+    'title',
+    'status',
+    'priority',
+    'severity',
+    'product',
+    'customer',
+    'created',
+    'updated',
+    'raisedBy',
+  ]);
 
   raw.capture = {
     pendingExpand: gateUnexpanded?.stillCollapsed || 0,

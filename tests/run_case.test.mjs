@@ -119,6 +119,44 @@ describe('anchorOf & isNoUpdate', () => {
   });
 });
 
+describe('mergeDetailFields', () => {
+  it('prefers detailRaw over a differing raw value (regression: case 08417053)', async () => {
+    const { mergeDetailFields } = await importRunCase();
+    const raw = { contactName: 'Sang Bui' };
+    const detailRaw = { contactName: 'Duc Hoang' };
+    const merged = mergeDetailFields(raw, detailRaw, ['contactName']);
+    assert.equal(merged.contactName, 'Duc Hoang');
+  });
+
+  it('keeps using detailRaw when raw is empty', async () => {
+    const { mergeDetailFields } = await importRunCase();
+    const merged = mergeDetailFields({ contactName: '' }, { contactName: 'Duc Hoang' }, ['contactName']);
+    assert.equal(merged.contactName, 'Duc Hoang');
+  });
+
+  it('falls back to raw when detailRaw is absent/empty for that field', async () => {
+    const { mergeDetailFields } = await importRunCase();
+    const merged = mergeDetailFields({ contactName: 'Sang Bui' }, { contactName: '' }, ['contactName']);
+    assert.equal(merged.contactName, 'Sang Bui');
+  });
+
+  it('returns raw unchanged when detailRaw itself is null/absent', async () => {
+    const { mergeDetailFields } = await importRunCase();
+    const raw = { contactName: 'Sang Bui' };
+    const merged = mergeDetailFields(raw, null, ['contactName']);
+    assert.equal(merged, raw);
+    assert.equal(merged.contactName, 'Sang Bui');
+  });
+
+  it('leaves fields outside the given list untouched regardless of either value', async () => {
+    const { mergeDetailFields } = await importRunCase();
+    const raw = { contactName: 'Sang Bui', unrelated: 'raw-value' };
+    const detailRaw = { contactName: 'Duc Hoang', unrelated: 'detail-value' };
+    const merged = mergeDetailFields(raw, detailRaw, ['contactName']);
+    assert.equal(merged.unrelated, 'raw-value');
+  });
+});
+
 describe('parseArgs minimal CLI contract', () => {
   it('defaults to mode: auto', async () => {
     const { parseArgs } = await importRunCase();
