@@ -222,13 +222,13 @@ export async function run(code, opts = {}) {
   // --- Detail tab extraction: capture Salesforce Lightning metadata
   let detailRaw = null;
   try {
-    const tabSwitch = evalFile(page('switch_tab.js'), { __TARGET_TAB: 'Detail' });
+    const tabSwitch = await evalFileViaCdp(cdp, page('switch_tab.js'), { __TARGET_TAB: 'Detail' });
     if (tabSwitch && (tabSwitch.ok || tabSwitch.alreadyActive)) {
       await sleep(1000);
       detailRaw = await evalFileViaCdp(cdp, page('extract_case.js'));
     }
     // Switch back to Feed tab for Chatter comments extraction
-    evalFile(page('switch_tab.js'), { __TARGET_TAB: 'Feed' });
+    await evalFileViaCdp(cdp, page('switch_tab.js'), { __TARGET_TAB: 'Feed' });
     await sleep(500);
   } catch (e) {
     // Non-fatal: continue with Feed extraction
@@ -236,11 +236,11 @@ export async function run(code, opts = {}) {
 
   // --- PHASE 1.5: probe first (fast no-update check), then expand in-page.
   const probeFeed = async () => {
-    let p = evalFile(page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
+    let p = await evalFileViaCdp(cdp, page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
     for (let i = 0; i < FEED_PROBE_ROUNDS; i++) {
       const prevArticles = p ? p.articles : 0;
       await sleep(2000);
-      p = evalFile(page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
+      p = await evalFileViaCdp(cdp, page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
       if (p && p.articles && p.articles === prevArticles) break;
     }
     return p;
@@ -285,7 +285,7 @@ export async function run(code, opts = {}) {
   let idleTicks = 0;
   const clicks = { expand: 0, viewMore: 0, moreComments: 0, description: 0 };
   for (; rounds < EXPAND_ROUNDS; rounds++) {
-    const r = evalFile(page('expand_step.js'), { __ANCHOR: anchor });
+    const r = await evalFileViaCdp(cdp, page('expand_step.js'), { __ANCHOR: anchor });
     clicks.expand += r.clickedExpand || 0;
     clicks.viewMore += r.clickedViewMore || 0;
     clicks.moreComments += r.clickedMoreComments || 0;
@@ -303,7 +303,7 @@ export async function run(code, opts = {}) {
   // Grace retries when round budget exhausted
   if (rounds >= EXPAND_ROUNDS && idleTicks < 2) {
     for (let grace = 0; grace < STUCK_RETRY_ROUNDS; grace++) {
-      const r = evalFile(page('expand_step.js'), { __ANCHOR: anchor });
+      const r = await evalFileViaCdp(cdp, page('expand_step.js'), { __ANCHOR: anchor });
       clicks.expand += r.clickedExpand || 0;
       clicks.viewMore += r.clickedViewMore || 0;
       clicks.moreComments += r.clickedMoreComments || 0;
@@ -320,14 +320,14 @@ export async function run(code, opts = {}) {
   let confirmedZero = 0;
   for (let s = 0; s < SETTLE_ROUNDS; s++) {
     await sleep(1000);
-    const unexpanded = evalFile(page('check_collapsed.js'), { __ANCHOR: anchor });
+    const unexpanded = await evalFileViaCdp(cdp, page('check_collapsed.js'), { __ANCHOR: anchor });
     const pending = (unexpanded?.stillCollapsed || 0) + (unexpanded?.stillHasMoreComments || 0);
     if (pending === 0) {
       confirmedZero++;
       if (confirmedZero >= 2) break;
     } else {
       confirmedZero = 0;
-      const r = evalFile(page('expand_step.js'), { __ANCHOR: anchor });
+      const r = await evalFileViaCdp(cdp, page('expand_step.js'), { __ANCHOR: anchor });
       clicks.expand += r.clickedExpand || 0;
       clicks.viewMore += r.clickedViewMore || 0;
       clicks.moreComments += r.clickedMoreComments || 0;
@@ -336,19 +336,19 @@ export async function run(code, opts = {}) {
   }
 
   // Trusted-click fallback for stubborn collapsed posts
-  let lastUnexpanded = evalFile(page('check_collapsed.js'), { __ANCHOR: anchor });
+  let lastUnexpanded = await evalFileViaCdp(cdp, page('check_collapsed.js'), { __ANCHOR: anchor });
   const stubbornCount = (lastUnexpanded?.stillCollapsed || 0) + (lastUnexpanded?.stillHasMoreComments || 0);
   if (stubbornCount > 0) {
     const settleBudget = Math.min(POST_EXPAND_SETTLE_ROUNDS, stubbornCount * 3 + 6);
     let consecutiveClean = 0;
     for (let s = 0; s < settleBudget; s++) {
-      const attempt = evalFile(page('expand_step.js'), { __ANCHOR: anchor, __TRUSTED: true });
+      const attempt = await evalFileViaCdp(cdp, page('expand_step.js'), { __ANCHOR: anchor, __TRUSTED: true });
       clicks.expand += attempt.clickedExpand || 0;
       clicks.viewMore += attempt.clickedViewMore || 0;
       clicks.moreComments += attempt.clickedMoreComments || 0;
       clicks.description += attempt.clickedDescription || 0;
       await sleep(2000);
-      lastUnexpanded = evalFile(page('check_collapsed.js'), { __ANCHOR: anchor });
+      lastUnexpanded = await evalFileViaCdp(cdp, page('check_collapsed.js'), { __ANCHOR: anchor });
       const remaining = (lastUnexpanded?.stillCollapsed || 0) + (lastUnexpanded?.stillHasMoreComments || 0);
       if (remaining === 0) {
         consecutiveClean++;
@@ -363,7 +363,7 @@ export async function run(code, opts = {}) {
   let prevCount = -1;
   let matches = 0;
   for (let s = 0; s < SETTLE_ROUNDS; s++) {
-    const probeNow = evalFile(page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
+    const probeNow = await evalFileViaCdp(cdp, page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
     const current = probeNow ? probeNow.articles : 0;
     if (current === prevCount && current > 0) {
       matches++;
@@ -371,13 +371,13 @@ export async function run(code, opts = {}) {
     } else {
       prevCount = current;
       matches = 1;
-      evalFile(page('expand_step.js'), { __ANCHOR: anchor });
+      await evalFileViaCdp(cdp, page('expand_step.js'), { __ANCHOR: anchor });
     }
     await sleep(2000);
   }
 
   // Final pre-extraction gate
-  const gateUnexpanded = evalFile(page('check_collapsed.js'), { __ANCHOR: anchor });
+  const gateUnexpanded = await evalFileViaCdp(cdp, page('check_collapsed.js'), { __ANCHOR: anchor });
   const pendingAfterSettle = (gateUnexpanded?.stillCollapsed || 0) + (gateUnexpanded?.stillHasMoreComments || 0);
   if (pendingAfterSettle > 0) {
     shoot(caseDir, 'capture.png');
