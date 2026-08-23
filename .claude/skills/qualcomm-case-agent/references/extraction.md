@@ -118,6 +118,9 @@ verified after login with a real Chrome session. These are the structures the `e
 | Priority | Detail tab / search-results table `cell` | 2026-06-22 | e.g. `"1 - Critical"` |
 | Chipset / Product / Customer Project / Account | Detail tab fields (`lightning-record-layout-item`) | 2026-08-23 | click "Detail" tab to read; field values wrapped in `lightning-formatted-text` / `lightning-formatted-lookup` |
 | Related CRs | Detail tab (`lightning-record-layout-item`) | 2026-08-23 | Label container carries `lightning-helptext` (`"Help Related CRs"`). If value is empty, assist text must not leak as value |
+| Affordance: Lookup Preview | Lookup fields & author links `a > span.slds-assistive-text` (`"Preview"`) | 2026-06-22 | Trailing `"Preview"` stripped from name/link text |
+| Affordance: Inline-edit trigger | Form element control `button.test-id__inline-edit-trigger` (`"Edit <Field>"`) | 2026-08-23 | Trailing `\nEdit <Field>` stripped from field values |
+| Affordance: Help tooltip prefix | Field label container `lightning-helptext` (`"Help <Field>"`) | 2026-08-23 | Leaked `"Help <Field>"` stripped / yields empty when field is empty |
 | Description | Detail tab / synthesized first comment | 2026-08-23 | Original problem description from Detail tab; synthesized into chronological first comment |
 | Top-level Feed post | `article.cuf-feedItem:not(.cuf-comment)` | 2026-08-23 | Top-level post container. Direct child of feed list, NOT inside `ul.cuf-replies` |
 | Nested Chatter reply | `ul.cuf-replies article.cuf-comment` | 2026-08-23 | Distinctly marked with `.cuf-comment` and nested inside `.cuf-replies` |

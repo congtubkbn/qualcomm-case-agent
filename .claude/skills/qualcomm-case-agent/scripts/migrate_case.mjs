@@ -65,6 +65,27 @@ export function sanitizeComment(comment, referenceDate = new Date()) {
   return sanitized;
 }
 
+export function stripFieldAffordances(s, label = '') {
+  if (!s || typeof s !== 'string') return s;
+  let val = s.trim();
+  // 1. Trailing "Preview" affordance
+  val = val.replace(/\s+Preview\s*$/, '').trim();
+  // 2. Trailing inline-edit affordance: e.g. "\nEdit Status", " Edit Priority", "Edit Case Status"
+  val = val.replace(/(?:\r?\n|\s+)Edit\s+[A-Za-z0-9_\-\s]+$/i, '').trim();
+  // 3. Help tooltip text (e.g. "Help Related CRs", "Help Case Record Type")
+  if (/^Help\s+/i.test(val)) {
+    const target = val.replace(/^Help\s+/i, '').trim().toLowerCase();
+    const lbl = (label || '').trim().toLowerCase();
+    if (lbl && (target === lbl || target.includes(lbl) || lbl.includes(target))) {
+      return '';
+    }
+    if (target === 'related crs' || target === 'related cr' || target === 'status' || target === 'priority' || target === 'case record type') {
+      return '';
+    }
+  }
+  return val;
+}
+
 export function migrateCaseData(caseData, options = {}) {
   if (!caseData || typeof caseData !== 'object') return caseData;
 
@@ -122,16 +143,38 @@ export function migrateCaseData(caseData, options = {}) {
     };
   });
 
-  // 3. Re-sort chronologically with relative interpolation
+  // 3. Clean metadata field affordances (e.g. "Closed-Customer Requested\nEdit Status" -> "Closed-Customer Requested")
+  const cleanFields = {};
+  const fieldKeys = [
+    ['status', 'Status'],
+    ['priority', 'Priority'],
+    ['severity', 'Severity'],
+    ['product', 'Product'],
+    ['component', 'Component'],
+    ['contactName', 'Contact Name'],
+    ['customerProject', 'Customer Project'],
+    ['customer', 'Customer'],
+    ['accountName', 'Account Name'],
+    ['caseRecordType', 'Case Record Type'],
+    ['relatedCRs', 'Related CRs'],
+  ];
+  for (const [k, lbl] of fieldKeys) {
+    if (typeof caseData[k] === 'string') {
+      cleanFields[k] = stripFieldAffordances(caseData[k], lbl);
+    }
+  }
+
+  // 4. Re-sort chronologically with relative interpolation
   const sortedComments = sortCommentsChronological(sanitizedComments, refDate);
 
-  // 4. Form updated case object
+  // 5. Form updated case object
   const updatedCase = {
     ...caseData,
+    ...cleanFields,
     comments: sortedComments,
   };
 
-  // 5. Re-calculate hash
+  // 6. Re-calculate hash
   updatedCase.hash = computeHash(updatedCase);
 
   return updatedCase;

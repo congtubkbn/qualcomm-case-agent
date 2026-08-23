@@ -433,7 +433,7 @@ describe('migrate_case: Issue #97 layout propagation and un-repairable body repo
     const saved = JSON.parse(readFileSync(jsonPath, 'utf8'));
     const targetComment = saved.comments.find(c => c.author === 'Duc Hoang' && c.timestamp === '2026-08-10T09:00:00.000Z');
     assert.equal(targetComment.body, complexBody);
-
+    
     // 2. case.md is re-rendered with new layout (Description section, roles, no summary line)
     const md = readFileSync(join(caseDir, 'case.md'), 'utf8');
     assert.match(md, /## Description\r?\n\r?\nProblem description on n78\./);
@@ -473,5 +473,47 @@ describe('migrate_case: Issue #97 layout propagation and un-repairable body repo
     assert.equal(res.hasFlattenedBodies, true);
     assert.equal(res.flattenedBodies.length, 1);
     assert.equal(res.remedy, 'delete-and-re-Capture');
+  });
+
+  it('Issue #90: cleans polluted Case Status and relatedCRs during migration without portal round-trip', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'qc-mig-affordance-'));
+    const caseDir = join(dir, '08642051');
+    mkdirSync(caseDir, { recursive: true });
+
+    const pollutedCase = {
+      caseNumber: '08642051',
+      title: 'Polluted status test',
+      status: 'Closed-Customer Requested\nEdit Status',
+      priority: '1 - Critical\nEdit Priority',
+      relatedCRs: 'Help Related CRs',
+      contactName: 'Duc Hoang Preview',
+      comments: [
+        {
+          id: 'c1',
+          author: 'Duc Hoang',
+          role: 'Customer',
+          timestamp: '2026-08-10T09:00:00.000Z',
+          body: 'Hello',
+        },
+      ],
+    };
+
+    const jsonPath = join(caseDir, 'case.json');
+    writeFileSync(jsonPath, JSON.stringify(pollutedCase, null, 2), 'utf8');
+
+    const res = migrateCaseJson(jsonPath);
+    assert.equal(res.ok, true);
+
+    const saved = JSON.parse(readFileSync(jsonPath, 'utf8'));
+    assert.equal(saved.status, 'Closed-Customer Requested');
+    assert.equal(saved.priority, '1 - Critical');
+    assert.equal(saved.relatedCRs, '');
+    assert.equal(saved.contactName, 'Duc Hoang');
+
+    const md = readFileSync(join(caseDir, 'case.md'), 'utf8');
+    assert.match(md, /\| Status \| Closed-Customer Requested \|/);
+    assert.match(md, /\| Priority \| 1 - Critical \|/);
+    assert.doesNotMatch(md, /Edit Status/);
+    assert.doesNotMatch(md, /Help Related CRs/);
   });
 });

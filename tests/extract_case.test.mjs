@@ -1174,8 +1174,8 @@ test('extract_case.js deep Shadow DOM metadata and Description extraction', asyn
       assert.equal(doc.querySelector('.slds-assistive-text').innerText, 'Edit Status');
 
       const result = runInMockContext(EXTRACT_SCRIPT, { doc });
-      // Documents current un-stripped extraction behavior until fix ticket
-      assert.ok(result.status.includes('Closed-Customer Requested'));
+      // Inline-edit affordance is stripped
+      assert.equal(result.status, 'Closed-Customer Requested');
     });
 
     await st.test('fixture 2: help/tooltip affordance on field label (Case 08642051)', () => {
@@ -1210,8 +1210,8 @@ test('extract_case.js deep Shadow DOM metadata and Description extraction', asyn
       assert.equal(helptext.querySelector('.slds-assistive-text').innerText, 'Help Related CRs');
 
       const result = runInMockContext(EXTRACT_SCRIPT, { doc });
-      // Documents current fallback extraction behavior on empty field until fix ticket
-      assert.ok(result.relatedCRs === 'Help Related CRs' || result.relatedCRs === '');
+      // Help tooltip text is never extracted as field value
+      assert.equal(result.relatedCRs, '');
     });
 
     await st.test('fixture 3: nested reply timestamp without title vs top-level post with title (Case 08642051)', () => {
@@ -1335,7 +1335,93 @@ test('extract_case.js deep Shadow DOM metadata and Description extraction', asyn
       assert.equal(nestedReplies[0].id, 'nested_reply');
     });
   });
+
+  await t.test('stripFieldAffordances and keyword preservation rules (Issue #90)', async (st) => {
+    await st.test('preserves legitimate values ending in stripped keywords (e.g. Status, Preview, Priority)', () => {
+      const doc = createMockDocument();
+      doc.title = 'Case: 08603854 - Test Legitimate Keywords';
+
+      function addField(label, value) {
+        const formEl = createMockElement('div', { className: 'slds-form-element record-layout-item' });
+        const labelEl = createMockElement('span', { className: 'slds-form-element__label test-id__field-label' }, label);
+        formEl.appendChild(labelEl);
+        const controlEl = createMockElement('div', { className: 'slds-form-element__control' });
+        const valSpan = createMockElement('span', { className: 'test-id__field-value' }, value);
+        controlEl.appendChild(valSpan);
+        formEl.appendChild(controlEl);
+        doc.body.appendChild(formEl);
+      }
+
+      addField('Status', 'Initial Status');
+      addField('Priority', 'High Priority');
+      addField('Product', 'Snapdragon X75 5G');
+      addField('Subject', 'Query on Modem Status');
+
+      const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+      assert.equal(result.status, 'Initial Status');
+      assert.equal(result.priority, 'High Priority');
+      assert.equal(result.product, 'Snapdragon X75 5G');
+      assert.equal(result.title, 'Query on Modem Status');
+    });
+
+    await st.test('preserves legitimate values starting with Help (e.g. Help needed, Helpdesk inquiry)', () => {
+      const doc = createMockDocument();
+      doc.title = 'Case: 08603854 - Help Request';
+
+      function addField(label, value) {
+        const formEl = createMockElement('div', { className: 'slds-form-element record-layout-item' });
+        const labelEl = createMockElement('span', { className: 'slds-form-element__label test-id__field-label' }, label);
+        formEl.appendChild(labelEl);
+        const controlEl = createMockElement('div', { className: 'slds-form-element__control' });
+        const valSpan = createMockElement('span', { className: 'test-id__field-value' }, value);
+        controlEl.appendChild(valSpan);
+        formEl.appendChild(controlEl);
+        doc.body.appendChild(formEl);
+      }
+
+      addField('Subject', 'Help needed with VoNR registration on band n78');
+      addField('Description', 'Help desk inquiry regarding modem crash on attach');
+
+      const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+      assert.equal(result.title, 'Help needed with VoNR registration on band n78');
+      assert.equal(result.description, 'Help desk inquiry regarding modem crash on attach');
+    });
+
+    await st.test('extracts non-empty field value cleanly even when label container has helptext', () => {
+      const doc = createMockDocument();
+      doc.title = 'Case: 08603854 - Field with Helptext and Value';
+
+      const formElement = createMockElement('div', { className: 'slds-form-element slds-hint-parent' });
+      const labelContainer = createMockElement('div', { className: 'slds-form-element__label-container slds-grow' });
+      const label = createMockElement('label', { className: 'slds-form-element__label' });
+      const labelSpan = createMockElement('span', {}, 'Related CRs');
+      label.appendChild(labelSpan);
+
+      const helptext = createMockElement('lightning-helptext', { className: 'slds-m-left_xx-small' });
+      const helpBtn = createMockElement('button', { className: 'slds-button slds-button_icon slds-button_icon-small' });
+      const assistText = createMockElement('span', { className: 'slds-assistive-text' }, 'Help Related CRs');
+      helpBtn.appendChild(assistText);
+      helptext.appendChild(helpBtn);
+
+      labelContainer.appendChild(label);
+      labelContainer.appendChild(helptext);
+
+      const control = createMockElement('div', { className: 'slds-form-element__control slds-grid itemBody' });
+      const valSpan = createMockElement('span', { className: 'test-id__field-value slds-form-element__static slds-grow is-read-only' });
+      const outputText = createMockElement('span', { className: 'uiOutputText' }, 'CR3891002, CR3891003');
+      valSpan.appendChild(outputText);
+      control.appendChild(valSpan);
+
+      formElement.appendChild(labelContainer);
+      formElement.appendChild(control);
+      doc.body.appendChild(formElement);
+
+      const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+      assert.equal(result.relatedCRs, 'CR3891002, CR3891003');
+    });
+  });
 });
+
 
 
 

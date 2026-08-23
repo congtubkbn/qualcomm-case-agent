@@ -44,13 +44,32 @@
       .trim();
   };
 
-  // Salesforce Lightning appends a hidden hover-preview affordance ("Preview")
-  // as a nested element inside Lookup-type field values (Contact Name,
-  // Customer Project, Customer) and inside a Chatter comment author's <a>.
-  // innerText swallows it as a trailing token. Stripped by exact trailing
-  // token match only (not a substring replace), so real content that happens
-  // to end in the word "Preview" is left alone.
-  const stripPreviewAffordance = s => (s ? s.replace(/\s+Preview\s*$/, "").trim() : s);
+  // Strips Salesforce Lightning UI affordances from extracted field values:
+  // 1. Hover-preview affordance: "Preview" inside Lookup fields and author links.
+  // 2. Inline-edit affordance: "Edit Status", "Edit Priority", etc. inside form element values.
+  // 3. Help tooltip affordance: "Help Related CRs" inside lightning-helptext when field is empty.
+  // Anchored and scoped so legitimate values ending in "Status" or starting with "Help" are preserved.
+  const stripFieldAffordances = (s, label = '') => {
+    if (!s || typeof s !== 'string') return s;
+    let val = s.trim();
+    // 1. Trailing "Preview" affordance (Salesforce lookup preview trigger)
+    val = val.replace(/\s+Preview\s*$/, '').trim();
+    // 2. Trailing inline-edit affordance: e.g. "\nEdit Status", " Edit Priority", "Edit Case Status"
+    val = val.replace(/(?:\r?\n|\s+)Edit\s+[A-Za-z0-9_\-\s]+$/i, '').trim();
+    // 3. Help tooltip text (e.g. "Help Related CRs", "Help Case Record Type")
+    if (/^Help\s+/i.test(val)) {
+      const target = val.replace(/^Help\s+/i, '').trim().toLowerCase();
+      const lbl = (label || '').trim().toLowerCase();
+      if (lbl && (target === lbl || target.includes(lbl) || lbl.includes(target))) {
+        return '';
+      }
+      if (target === 'related crs' || target === 'related cr' || target === 'status' || target === 'priority' || target === 'case record type') {
+        return '';
+      }
+    }
+    return val;
+  };
+  const stripPreviewAffordance = s => stripFieldAffordances(s);
 
   const deepQsa = (sel, root) => {
     const results = [];
@@ -151,10 +170,25 @@
     if (matchedLabel) {
       const parent = findContainer(matchedLabel);
       if (parent) {
-        const valEls = deepQsa(".slds-form-element__control, dd, lightning-formatted-text, lightning-formatted-name, lightning-formatted-date-time, lightning-formatted-lookup, p, a, span:not([class*='label']), .test-id__field-value", parent);
-        const valEl = valEls.find(el => el !== matchedLabel && !matchedLabel.contains(el) && !lowerLabels.includes(txt(el).toLowerCase()) && txt(el).length > 0);
+        // First check for dedicated field value element
+        const dedicatedVal = deepQsa(".test-id__field-value, lightning-formatted-text, lightning-formatted-name, lightning-formatted-date-time, lightning-formatted-lookup", parent);
+        const bestEl = dedicatedVal.find(el => el !== matchedLabel && !matchedLabel.contains(el) && !el.closest?.('lightning-helptext, button, .slds-assistive-text'));
+        if (bestEl) {
+          const val = stripFieldAffordances(txt(bestEl), lowerLabels[0]);
+          if (val) return val;
+        }
+
+        const isAffordanceEl = el => {
+          if (!el) return true;
+          if (el.closest && el.closest('lightning-helptext, .slds-form-element__label-container, button.test-id__inline-edit-trigger, button.slds-button_icon')) return true;
+          if (el.classList && (el.classList.contains('slds-assistive-text') || el.classList.contains('test-id__inline-edit-trigger'))) return true;
+          return false;
+        };
+
+        const valEls = deepQsa(".slds-form-element__control, dd, p, a, span:not([class*='label'])", parent);
+        const valEl = valEls.find(el => el !== matchedLabel && !matchedLabel.contains(el) && !isAffordanceEl(el) && !lowerLabels.includes(txt(el).toLowerCase()) && txt(el).length > 0);
         if (valEl) {
-          const val = stripPreviewAffordance(txt(valEl));
+          const val = stripFieldAffordances(txt(valEl), lowerLabels[0]);
           if (val) return val;
         }
       }
@@ -164,7 +198,7 @@
     for (const lbl of lowerLabels) {
       const els = deepQsa(`[data-field="${lbl}"], [data-field-name="${lbl}"], [data-name="${lbl}"], [data-target-selection-name*="${lbl}"]`);
       if (els && els.length > 0) {
-        const val = stripPreviewAffordance(txt(els[0]));
+        const val = stripFieldAffordances(txt(els[0]), lbl);
         if (val) return val;
       }
     }
@@ -242,7 +276,7 @@
   // author/timestamp header and the Like/Comment/views footer, so we don't have
   // to string-surgery them off the whole-article innerText.
   const comments = qsa("article").map((a, i) => {
-    const named = Array.from(a.querySelectorAll("a")).map(txt).map(stripPreviewAffordance).filter(Boolean);
+    const named = Array.from(a.querySelectorAll("a")).map(txt).map(s => stripFieldAffordances(s, 'author')).filter(Boolean);
     const author = named[0] || "";
     const bodyEl = a.querySelector(".feedBodyInner, .cuf-feedBodyText, [class*='feedBody']");
     // Read innerText from the ATTACHED bodyEl, not a cloneNode(true) detached
