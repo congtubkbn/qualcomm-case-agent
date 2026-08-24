@@ -38,13 +38,12 @@ npm run uninstall:protocol        # unregister qc:// protocol handler
 npm test                          # unit tests
 ```
 
-## Interactive Dashboard & Dual-Mode Links
+## Interactive Dashboard
 
 Running `npm run cases:dashboard` launches the standalone, offline HTML dashboard (`data/cases/dashboard.html`):
 
 - **`qc://` Protocol Links** (Click `#CaseNumber` or Title): Directly opens and focuses the case inside the dedicated authenticated Chrome session (`data/chrome-profile/` on port 9222/9773). Seamlessly bypasses login gates and Okta SSO prompts.
-- **`🔗 Web Link` Fallback**: Opens the canonical Salesforce support URL (`https://support.qualcomm.com/s/case/...` or search fallback) in a standard browser tab. Ideal for quick reference or sharing links.
-- **`⚙️ Protocol Help` Modal**: In-dashboard guide explaining dual-mode navigation and 1-click registration command copying for troubleshooting.
+- **`⚙️ Protocol Help` Modal**: In-dashboard guide explaining `qc://` navigation and 1-click registration command copying for troubleshooting.
 
 ## Zero-Config Protocol Onboarding (`qc://`)
 
