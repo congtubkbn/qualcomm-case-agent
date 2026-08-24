@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync,
 import { spawn } from 'node:child_process';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ensureProtocolRegistered } from '../../../../scripts/ensure_protocol.mjs';
 
 // Discover project data directory
 const __filename = fileURLToPath(import.meta.url);
@@ -1500,6 +1501,9 @@ export function applyFilter(overviewData, filter) {
 
 // CLI Execution entrypoint
 if (process.argv[1] && resolve(process.argv[1]) === __filename) {
+  try {
+    ensureProtocolRegistered({ silent: true });
+  } catch {}
   const options = parseArgs(process.argv.slice(2));
 
   if (options.help) {

@@ -35,6 +35,7 @@ import { acquireLockOrWaitForSameCode, releaseLock } from './lock.mjs';
 import { BrowserError, CDP_PORT, PortConflictError, ensureChrome, evalFile, evalFileViaCdp, getCdpClient, open, screenshot, sleep } from './browser.mjs';
 import { fastLandOnCase } from './fast_landing.mjs';
 import { verifyCase } from './verify_case.mjs';
+import { ensureProtocolRegistered } from '../../../../scripts/ensure_protocol.mjs';
 
 const SCRIPTS = fileURLToPath(new URL('.', import.meta.url));
 const PORTAL = 'https://support.qualcomm.com';
@@ -563,6 +564,9 @@ export function parseArgs(argv) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  try {
+    ensureProtocolRegistered({ silent: true });
+  } catch {}
   const started = Date.now();
   let code = null;
   try {
