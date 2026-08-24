@@ -103,6 +103,21 @@ describe('ensure_protocol.mjs — Core Self-Healing Protocol Engine', () => {
       assert.equal(secondResult.changed, false);
     });
 
+    it('handles missing registration script gracefully and returns ok: false', () => {
+      cleanupTestKey();
+      const nonExistentScript = join(PROJECT_ROOT, 'scripts', 'non_existent_register_script.ps1');
+      const result = ensureProtocolRegistered({
+        keyPath: TEST_REG_KEY,
+        scriptPath: nonExistentScript,
+        silent: true,
+      });
+
+      assert.equal(result.ok, false);
+      assert.equal(result.registered, false);
+      assert.equal(result.changed, false);
+      assert.match(result.error, /Registration script not found/i);
+    });
+
     it('can be run directly via CLI node scripts/ensure_protocol.mjs', () => {
       const res = spawnSync(process.execPath, [ENSURE_SCRIPT], {
         cwd: PROJECT_ROOT,
@@ -110,5 +125,13 @@ describe('ensure_protocol.mjs — Core Self-Healing Protocol Engine', () => {
       });
       assert.equal(res.status, 0, `CLI execution failed: ${res.stderr}\n${res.stdout}`);
     });
+
+    it('restores default qc:// protocol handler if missing', () => {
+      const result = ensureProtocolRegistered({ silent: true });
+      assert.equal(result.ok, true);
+      assert.equal(result.registered, true);
+      assert.equal(isProtocolRegistered(), true);
+    });
   });
 });
+

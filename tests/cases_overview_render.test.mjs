@@ -184,12 +184,18 @@ describe('cases_overview_render: renderDashboardHtml', () => {
     assert.ok(html.includes('id="protocolHelpBtn"'));
     assert.ok(html.includes('⚙️ Protocol Help'));
 
-    // Modal dialog
+    // Modal dialog and contents
     assert.ok(html.includes('id="protocolModal"'));
+    assert.ok(html.includes('class="modal-overlay"'));
     assert.ok(html.includes('powershell -ExecutionPolicy Bypass -File scripts/register_protocol.ps1'));
     assert.ok(html.includes('id="copyProtocolCmdBtn"'));
     assert.ok(html.includes('id="closeModalBtn"'));
     assert.ok(html.includes('qc:// Protocol'));
+    assert.ok(html.includes('Dual-Mode Links Explained'));
+
+    // Modal interactive scripts (Escape key handler and click-outside backdrop dismiss)
+    assert.ok(html.includes('protocolModal.classList.remove(\'active\')'));
+    assert.ok(html.includes('e.key === \'Escape\''));
   });
 
   it('renders a Delete button per case card that copies a safe chat instruction, never a raw CLI command', () => {

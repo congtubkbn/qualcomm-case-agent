@@ -33,8 +33,29 @@ so it travels with the repo. One case per run.
 npm run case -- 08603854          # capture one case
 npm run cases:overview            # terminal summary table of all cases
 npm run cases:dashboard           # open interactive HTML dashboard in browser
+npm run setup:protocol            # manually register qc:// protocol handler
+npm run uninstall:protocol        # unregister qc:// protocol handler
 npm test                          # unit tests
 ```
+
+## Interactive Dashboard & Dual-Mode Links
+
+Running `npm run cases:dashboard` launches the standalone, offline HTML dashboard (`data/cases/dashboard.html`):
+
+- **`qc://` Protocol Links** (Click `#CaseNumber` or Title): Directly opens and focuses the case inside the dedicated authenticated Chrome session (`data/chrome-profile/` on port 9222/9773). Seamlessly bypasses login gates and Okta SSO prompts.
+- **`🔗 Web Link` Fallback**: Opens the canonical Salesforce support URL (`https://support.qualcomm.com/s/case/...` or search fallback) in a standard browser tab. Ideal for quick reference or sharing links.
+- **`⚙️ Protocol Help` Modal**: In-dashboard guide explaining dual-mode navigation and 1-click registration command copying for troubleshooting.
+
+## Zero-Config Protocol Onboarding (`qc://`)
+
+The custom URI scheme `qc://case/<case-number>` is automatically registered into the Windows user-space registry (`HKCU:\Software\Classes\qc`) without requiring Administrator privileges:
+
+1. **Auto-Install**: The `npm postinstall` lifecycle hook runs `scripts/ensure_protocol.mjs`, registering `qc://` automatically on `npm install`.
+2. **Self-Healing**: Dashboard builds and CLI runs check registry status and silently self-heal missing protocol associations.
+3. **Manual Control**:
+   - Register: `npm run setup:protocol` (or `powershell -ExecutionPolicy Bypass -File scripts/register_protocol.ps1`)
+   - Unregister: `npm run uninstall:protocol` (or `powershell -ExecutionPolicy Bypass -File scripts/unregister_protocol.ps1`)
+   - Platform Safety: Non-Windows environments cleanly skip registration as a harmless no-op.
 
 ## Agents (Claude Code + Cline / VS Code)
 

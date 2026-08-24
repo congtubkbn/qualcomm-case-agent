@@ -14,7 +14,7 @@ Create comprehensive unit/integration test suites verifying `ensure_protocol.mjs
 
 **Status:** ready-for-agent
 
-- [ ] Write `tests/ensure_protocol.test.mjs` testing registry detection and auto-registration logic.
-- [ ] Extend `tests/cases_overview_render.test.mjs` to assert `🔗 Web Link` and `⚙️ Protocol Help` DOM presence.
-- [ ] Run full test suite `npm test` verifying 100% pass without regressions.
-- [ ] Update `README.md` with protocol handler details and zero-config onboarding.
+- [x] Write `tests/ensure_protocol.test.mjs` testing registry detection and auto-registration logic.
+- [x] Extend `tests/cases_overview_render.test.mjs` to assert `🔗 Web Link` and `⚙️ Protocol Help` DOM presence.
+- [x] Run full test suite `npm test` verifying 100% pass without regressions.
+- [x] Update `README.md` with protocol handler details and zero-config onboarding.
