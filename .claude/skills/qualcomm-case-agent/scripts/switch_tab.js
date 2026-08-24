@@ -11,9 +11,42 @@
   var txt = function (el) {
     return ((el && (el.innerText || el.textContent)) || '').replace(/\s+/g, ' ').trim();
   };
-  var qsa = function (sel, root) {
-    return Array.prototype.slice.call((root || document).querySelectorAll(sel));
+
+  var deepQsa = function (sel, root) {
+    var results = [];
+    var seen = new Set();
+    var add = function (el) {
+      if (el && !seen.has(el)) {
+        seen.add(el);
+        results.push(el);
+      }
+    };
+    var scan = function (node) {
+      if (!node) return;
+      if (node.querySelectorAll) {
+        try {
+          var matched = node.querySelectorAll(sel);
+          for (var i = 0; i < matched.length; i++) {
+            add(matched[i]);
+          }
+        } catch (e) {}
+        try {
+          var all = node.querySelectorAll('*');
+          for (var i = 0; i < all.length; i++) {
+            if (all[i] && all[i].shadowRoot) {
+              scan(all[i].shadowRoot);
+            }
+          }
+        } catch (e) {}
+      }
+      if (node.shadowRoot) {
+        scan(node.shadowRoot);
+      }
+    };
+    scan(root || document);
+    return results;
   };
+
   var fire = function (el) {
     ['pointerdown', 'mousedown', 'pointerup', 'mouseup'].forEach(function (type) {
       try {
@@ -24,37 +57,42 @@
     el.click();
   };
 
+  var matchesTarget = function (s) {
+    if (!s) return false;
+    var str = s.toLowerCase().trim();
+    if (str === target) return true;
+    if (target === 'detail' || target === 'details') {
+      return str === 'detail' || str === 'details' || str === 'case detail' || str === 'case details';
+    }
+    if (target === 'feed' || target === 'feeds' || target === 'chatter') {
+      return str === 'feed' || str === 'feeds' || str === 'chatter' || str === 'case feed' || str === 'collaborate';
+    }
+    return false;
+  };
+
   // 1. Check if target is already active
-  var activeTabs = qsa('[role="tab"][aria-selected="true"], .slds-is-active [role="tab"], .slds-tabs_default__item.slds-is-active a, [role="tab"].active');
+  var activeTabs = deepQsa('[role="tab"][aria-selected="true"], .slds-is-active [role="tab"], .slds-tabs_default__item.slds-is-active a, [role="tab"].active, .slds-tabs_default__item.slds-is-active button');
   for (var i = 0; i < activeTabs.length; i++) {
-    var t = txt(activeTabs[i]).toLowerCase();
-    var titleAttr = (activeTabs[i].getAttribute('title') || '').toLowerCase();
-    if (
-      t === target ||
-      titleAttr === target ||
-      (target === 'detail' && (t === 'details' || titleAttr === 'details')) ||
-      (target === 'details' && (t === 'detail' || titleAttr === 'detail'))
-    ) {
+    var t = txt(activeTabs[i]);
+    var titleAttr = activeTabs[i].getAttribute('title') || '';
+    var ariaLabel = activeTabs[i].getAttribute('aria-label') || '';
+    var dataVal = activeTabs[i].getAttribute('data-tab-value') || activeTabs[i].getAttribute('data-tab-name') || '';
+    if (matchesTarget(t) || matchesTarget(titleAttr) || matchesTarget(ariaLabel) || matchesTarget(dataVal)) {
       return { ok: true, alreadyActive: true, tab: target };
     }
   }
 
   // 2. Search for matching tab element
-  var candidates = qsa('[role="tab"], [role="presentation"] a, .slds-tabs_default__item a, [data-tab-value], [data-tab-name], button, a');
+  var candidates = deepQsa('[role="tab"], [role="presentation"] a, .slds-tabs_default__item a, .slds-tabs_default__item button, [data-tab-value], [data-tab-name], lightning-tab-bar button, button, a');
   var match = null;
   for (var j = 0; j < candidates.length; j++) {
     var el = candidates[j];
-    var elText = txt(el).toLowerCase();
-    var elTitle = (el.getAttribute('title') || '').toLowerCase();
-    var dataVal = (el.getAttribute('data-tab-value') || el.getAttribute('data-tab-name') || '').toLowerCase();
+    var elText = txt(el);
+    var elTitle = el.getAttribute('title') || '';
+    var elAriaLabel = el.getAttribute('aria-label') || '';
+    var dataVal = el.getAttribute('data-tab-value') || el.getAttribute('data-tab-name') || '';
 
-    if (
-      elText === target ||
-      elTitle === target ||
-      dataVal === target ||
-      (target === 'detail' && (elText === 'details' || elTitle === 'details' || dataVal === 'details')) ||
-      (target === 'details' && (elText === 'detail' || elTitle === 'detail' || dataVal === 'detail'))
-    ) {
+    if (matchesTarget(elText) || matchesTarget(elTitle) || matchesTarget(elAriaLabel) || matchesTarget(dataVal)) {
       match = el;
       break;
     }

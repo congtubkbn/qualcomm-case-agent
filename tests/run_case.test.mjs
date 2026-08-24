@@ -67,7 +67,10 @@ function mockBrowser(t, handlerOrQueue, cdpOverride = null) {
         const file = path.split(/[\\/]/).pop();
         evalFileCalls.push({ path: file, vars });
         if (typeof handlerOrQueue === 'function') {
-          return handlerOrQueue(file, vars);
+          const res = handlerOrQueue(file, vars);
+          if (res !== undefined) return res;
+          if (file === 'switch_tab.js') return { ok: true, clicked: true };
+          return res;
         }
         const next = handlerOrQueue.shift();
         if (next === undefined) throw new Error(`mockBrowser: evalFileViaCdp queue exhausted on ${file}`);
@@ -547,5 +550,134 @@ describe('run() fast landing & verdict integration', () => {
     assert.equal(caseData.relatedCRs, 'CR3798678');
     assert.equal(caseData.caseRecordType, 'Customer Support');
     assert.equal(caseData.description, 'VoNR call drops during 5G SA.');
+    assert.equal(v.detailTabExtracted, true);
+  });
+
+  it('retries Detail tab switch when it fails on first attempt and succeeds on retry', async (t) => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603855';
+    const mockCdp = {
+      isConnected: () => true,
+      navigate: async () => {},
+      eval: async () => ({
+        state: 'ON_CASE',
+        href: targetUrl,
+        fields: { title: 'Retry Case Issue' },
+      }),
+      click: async () => true,
+      close: async () => {},
+    };
+
+    let switchAttempts = 0;
+    let extractCallCount = 0;
+    mockBrowser(t, (file, vars) => {
+      if (file === 'switch_tab.js') {
+        if (vars?.__TARGET_TAB === 'Detail') {
+          switchAttempts++;
+          if (switchAttempts === 1) return { ok: false, reason: 'tab rendering delayed' };
+          return { ok: true, clicked: true, tab: 'Detail' };
+        }
+        return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
+      }
+      if (file === 'expand_step.js') {
+        if (vars?.__PROBE) return { articles: 1, displayed: 1, anchorIdx: -1, top: { author: 'Engineer', bodyStart: 'Initial' } };
+        return { clickedExpand: 0, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
+      }
+      if (file === 'check_collapsed.js') {
+        return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      }
+      if (file === 'extract_case.js') {
+        extractCallCount++;
+        if (extractCallCount === 1) {
+          return {
+            caseNumber: '08603855',
+            title: 'Retry Case Issue',
+            contactName: 'Retried Contact',
+            openedAt: 'August 12, 2026',
+            status: 'Closed',
+            priority: '2 - High',
+            url: targetUrl,
+            comments: [],
+          };
+        }
+        return {
+          caseNumber: '08603855',
+          title: 'Retry Case Issue',
+          url: targetUrl,
+          comments: [
+            { author: 'Engineer', body: 'Comment body after retry', timestamp: 'August 12, 2026' },
+          ],
+        };
+      }
+      throw new Error(`Unexpected evalFile: ${file}`);
+    }, mockCdp);
+
+    mkdirSync(join(process.env.QUALCOMM_ROOT, 'data', 'cases', '08603855'), { recursive: true });
+    const { run } = await importRunCase();
+    const v = await run('08603855', { mode: 'auto', cdp: mockCdp });
+
+    assert.equal(v.status, 'created');
+    assert.equal(v.verified, true);
+    assert.equal(v.detailTabExtracted, true);
+    assert.equal(switchAttempts >= 2, true);
+
+    const caseData = JSON.parse(readFileSync(v.casePath, 'utf8'));
+    assert.equal(caseData.contactName, 'Retried Contact');
+  });
+
+  it('records detailTabExtracted: false and surfaces warning when Detail tab switch fails permanently', async (t) => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603856';
+    const mockCdp = {
+      isConnected: () => true,
+      navigate: async () => {},
+      eval: async () => ({
+        state: 'ON_CASE',
+        href: targetUrl,
+        fields: { title: 'Detail Tab Failed Case', status: 'Open' },
+      }),
+      click: async () => true,
+      close: async () => {},
+    };
+
+    mockBrowser(t, (file, vars) => {
+      if (file === 'switch_tab.js') {
+        if (vars?.__TARGET_TAB === 'Detail') {
+          return { ok: false, reason: 'Detail tab not found in DOM' };
+        }
+        return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
+      }
+      if (file === 'expand_step.js') {
+        if (vars?.__PROBE) return { articles: 1, displayed: 1, anchorIdx: -1, top: { author: 'Engineer', bodyStart: 'Initial' } };
+        return { clickedExpand: 0, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
+      }
+      if (file === 'check_collapsed.js') {
+        return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      }
+      if (file === 'extract_case.js') {
+        return {
+          caseNumber: '08603856',
+          title: 'Detail Tab Failed Case',
+          url: targetUrl,
+          comments: [
+            { author: 'Engineer', body: 'Comment body when detail tab failed', timestamp: 'August 12, 2026' },
+          ],
+        };
+      }
+      throw new Error(`Unexpected evalFile: ${file}`);
+    }, mockCdp);
+
+    mkdirSync(join(process.env.QUALCOMM_ROOT, 'data', 'cases', '08603856'), { recursive: true });
+    const { run } = await importRunCase();
+    const v = await run('08603856', { mode: 'auto', cdp: mockCdp });
+
+    assert.equal(v.status, 'created');
+    assert.equal(v.verified, true);
+    assert.equal(v.detailTabExtracted, false);
+    assert.match(v.detailSwitchError, /Detail tab not found/i);
+    assert.equal(v.evidence.detailTabExtracted, false);
+    assert.match(v.evidence.detailSwitchError, /Detail tab not found/i);
+    assert.ok(v.verifyWarnings.some(w => /Detail tab extraction was not completed/i.test(w)));
+
+    const caseData = JSON.parse(readFileSync(v.casePath, 'utf8'));
+    assert.equal(caseData.comments.length, 1);
   });
 });

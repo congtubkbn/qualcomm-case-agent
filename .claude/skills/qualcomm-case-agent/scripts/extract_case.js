@@ -396,8 +396,12 @@
   const title = sectionValue(["Subject", "Case Subject"]);
   const status = sectionValue(["Status", "Case Status"]);
   const priority = sectionValue(["Priority", "Case Priority"]);
-  const severity = sectionValue(["Severity", "Case Severity"]);
-  const product = sectionValue(["Chipset", "Product", "Product Name"]);
+  // Note on severity / product / updated (Issue #111):
+  // Across cached cases (08623349, 08633581, 08639518, 08642051), these fields may be
+  // unpopulated for standard wireless device cases or gated by Salesforce role/team.
+  // We provide broad alias lists below to match any variant if populated in the DOM.
+  const severity = sectionValue(["Severity", "Case Severity", "Severity Level", "Severity:"]);
+  const product = sectionValue(["Chipset", "Product", "Product Name", "Product Family", "Product Line", "Product:"]);
   const accountName = sectionValue(["Account Name", "Account", "Customer", "Customer Name"]);
   const contactName = sectionValue(["Contact Name", "Contact", "Case Contact", "Contact:"]);
   const customerProject = sectionValue(["Customer Project", "Customer Project Name", "Project", "Project Name"]);
@@ -407,7 +411,7 @@
   const caseRecordType = sectionValue(["Case Record Type Name", "Case Record Type", "Record Type", "Record Type Name"]);
   const openedAt = sectionValue(["Date/Time Opened", "Date Opened", "Created Date", "Created At", "Opened Date", "Opened"]);
   const closedAt = sectionValue(["Date/Time Closed", "Date Closed", "Closed Date", "Closed At", "Closed"]);
-  const updated = sectionValue(["Last Modified Date", "Modified Date", "Last Modified"]);
+  const updated = sectionValue(["Last Modified Date", "Modified Date", "Last Modified", "Last Modified By", "Date/Time Modified", "Modified At", "Modified"]);
   const description = sectionValue(["Description", "Description Information", "Case Description", "Problem Description", "Subject Description"]);
 
   return {

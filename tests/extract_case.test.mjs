@@ -763,6 +763,56 @@ test('switch_tab.js tab switching engine', async (t) => {
     assert.equal(res.ok, true);
     assert.equal(res.alreadyActive, true);
   });
+
+  await t.test('pierces shadow DOM to find and click target tab', () => {
+    if (!SWITCH_TAB_SCRIPT) return;
+    const doc = createMockDocument();
+
+    const hostElem = createMockElement('lightning-tab-bar');
+    const shadow = hostElem.attachShadow();
+    const tabList = createMockElement('ul', { role: 'tablist' });
+    
+    let clicked = false;
+    const detailTab = createMockElement('button', { role: 'tab', 'aria-selected': 'false' }, 'Case Details');
+    detailTab.onclick = () => { clicked = true; };
+    tabList.appendChild(detailTab);
+    shadow.appendChild(tabList);
+    doc.body.appendChild(hostElem);
+
+    const ctx = vm.createContext({
+      document: doc,
+      window: { PointerEvent: function () {}, MouseEvent: function () {} },
+      __TARGET_TAB: 'Detail',
+    });
+    const res = vm.runInContext(SWITCH_TAB_SCRIPT, ctx);
+
+    assert.equal(res.ok, true);
+    assert.equal(res.clicked, true);
+    assert.equal(clicked, true);
+  });
+
+  await t.test('switches back to Feed tab using aliases like Chatter or Collaborate', () => {
+    if (!SWITCH_TAB_SCRIPT) return;
+    const doc = createMockDocument();
+
+    const tabList = createMockElement('ul', { role: 'tablist' });
+    let feedClicked = false;
+    const feedTab = createMockElement('a', { role: 'tab', title: 'Chatter', 'aria-selected': 'false' }, 'Chatter');
+    feedTab.onclick = () => { feedClicked = true; };
+    tabList.appendChild(feedTab);
+    doc.body.appendChild(tabList);
+
+    const ctx = vm.createContext({
+      document: doc,
+      window: { PointerEvent: function () {}, MouseEvent: function () {} },
+      __TARGET_TAB: 'Feed',
+    });
+    const res = vm.runInContext(SWITCH_TAB_SCRIPT, ctx);
+
+    assert.equal(res.ok, true);
+    assert.equal(res.clicked, true);
+    assert.equal(feedClicked, true);
+  });
 });
 
 test('expand_step.js DOM expansion engine', async (t) => {
@@ -1569,8 +1619,37 @@ test('extract_case.js deep Shadow DOM metadata and Description extraction', asyn
       assert.equal(result.comments[0].attachments.length, 0);
     });
   });
+
+  await t.test('Detail metadata field extraction with alias tolerance (Issue #111)', async (st) => {
+    await st.test('extracts severity, product, updated, and other standard fields when present', () => {
+      const doc = createMockDocument();
+      doc.title = 'Case: 08642051';
+
+      function addField(label, value) {
+        const formEl = createMockElement('div', { className: 'slds-form-element' });
+        const labelEl = createMockElement('span', { className: 'slds-form-element__label' }, label);
+        const controlEl = createMockElement('div', { className: 'slds-form-element__control' });
+        const valEl = createMockElement('span', { className: 'test-id__field-value' }, value);
+        controlEl.appendChild(valEl);
+        formEl.appendChild(labelEl);
+        formEl.appendChild(controlEl);
+        doc.body.appendChild(formEl);
+      }
+
+      addField('Case Severity', 'S1 - Critical Outage');
+      addField('Product Name', 'Snapdragon 8 Gen 4 (SM8750)');
+      addField('Last Modified Date', 'August 24, 2026 at 10:00 PM');
+      addField('Case Contact', 'Nguyen Van A');
+      addField('Customer Project', 'Project Venus');
+      addField('Account Name', 'OEM Tech Corp');
+
+      const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+      assert.equal(result.severity, 'S1 - Critical Outage');
+      assert.equal(result.product, 'Snapdragon 8 Gen 4 (SM8750)');
+      assert.equal(result.updated, 'August 24, 2026 at 10:00 PM');
+      assert.equal(result.contactName, 'Nguyen Van A');
+      assert.equal(result.customerProject, 'Project Venus');
+      assert.equal(result.accountName, 'OEM Tech Corp');
+    });
+  });
 });
-
-
-
-

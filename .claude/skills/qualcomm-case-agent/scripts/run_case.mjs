@@ -237,18 +237,47 @@ export async function run(code, opts = {}) {
 
   // --- Detail tab extraction: capture Salesforce Lightning metadata
   let detailRaw = null;
-  try {
-    const tabSwitch = await evalFileViaCdp(cdp, page('switch_tab.js'), { __TARGET_TAB: 'Detail' });
-    if (tabSwitch && (tabSwitch.ok || tabSwitch.alreadyActive)) {
-      await sleep(1000);
-      detailRaw = await evalFileViaCdp(cdp, page('extract_case.js'));
+  let detailExtracted = false;
+  let detailSwitchError = null;
+  const DETAIL_SWITCH_RETRIES = 3;
+
+  for (let attempt = 0; attempt < DETAIL_SWITCH_RETRIES; attempt++) {
+    try {
+      const tabSwitch = await evalFileViaCdp(cdp, page('switch_tab.js'), { __TARGET_TAB: 'Detail' });
+      if (tabSwitch && (tabSwitch.ok || tabSwitch.alreadyActive)) {
+        await sleep(1000);
+        detailRaw = await evalFileViaCdp(cdp, page('extract_case.js'));
+        if (detailRaw) {
+          detailExtracted = true;
+          detailSwitchError = null;
+          break;
+        } else {
+          detailSwitchError = 'extract_case.js returned null or empty on Detail tab';
+        }
+      } else {
+        detailSwitchError = tabSwitch?.reason || 'switch_tab failed to switch to Detail tab';
+      }
+    } catch (e) {
+      detailSwitchError = e?.message || String(e);
     }
-    // Switch back to Feed tab for Chatter comments extraction
-    await evalFileViaCdp(cdp, page('switch_tab.js'), { __TARGET_TAB: 'Feed' });
-    await sleep(500);
-  } catch (e) {
-    // Non-fatal: continue with Feed extraction
+    if (attempt < DETAIL_SWITCH_RETRIES - 1) {
+      await sleep(1000);
+    }
   }
+
+  // Switch back to Feed tab for Chatter comments extraction (with retry)
+  for (let attempt = 0; attempt < DETAIL_SWITCH_RETRIES; attempt++) {
+    try {
+      const switchBack = await evalFileViaCdp(cdp, page('switch_tab.js'), { __TARGET_TAB: 'Feed' });
+      if (switchBack && (switchBack.ok || switchBack.alreadyActive)) {
+        break;
+      }
+    } catch (e) {}
+    if (attempt < DETAIL_SWITCH_RETRIES - 1) {
+      await sleep(500);
+    }
+  }
+  await sleep(500);
 
   // --- PHASE 1.5: probe first (fast no-update check), then expand in-page.
   const probeFeed = async () => {
@@ -439,10 +468,13 @@ export async function run(code, opts = {}) {
     'updated',
   ]);
 
+  raw.detailExtracted = detailExtracted;
   raw.capture = {
     pendingExpand: gateUnexpanded?.stillCollapsed || 0,
     pendingMoreComments: gateUnexpanded?.stillHasMoreComments || 0,
     clicks,
+    detailTabExtracted: detailExtracted,
+    ...(detailSwitchError ? { detailSwitchError } : {}),
     screenshot: shoot(caseDir, 'capture.png'),
   };
 
@@ -504,6 +536,8 @@ export async function run(code, opts = {}) {
     status: cached ? 'updated' : 'created',
     commentCount: v.commentCount,
     verified: true,
+    detailTabExtracted: detailExtracted,
+    ...(detailSwitchError ? { detailSwitchError } : {}),
     ...(verified.warnings.length ? { verifyWarnings: verified.warnings } : {}),
     evidence: raw.capture,
     newComments,

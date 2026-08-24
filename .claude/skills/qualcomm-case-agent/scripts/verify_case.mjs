@@ -90,7 +90,10 @@ export function verifyCase(code, dir = join(DATA_DIR, code)) {
   if (!c.capture) {
     warnings.push('no capture evidence block (cache written before run_case.mjs recorded it)');
   } else {
-    const { pendingExpand, pendingMoreComments, screenshot } = c.capture;
+    const { pendingExpand, pendingMoreComments, screenshot, detailTabExtracted, detailSwitchError } = c.capture;
+    if (typeof detailTabExtracted === 'boolean' && !detailTabExtracted) {
+      warnings.push(`Detail tab extraction was not completed (${detailSwitchError || 'tab switch failed'})`);
+    }
     if (pendingExpand > 0) {
       errors.push(`capture left ${pendingExpand} post(s) still showing "Expand Post" — content is missing from this case`);
     }
