@@ -411,6 +411,11 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       .join(' ');
     const escapedSearchIndex = escapeHtml(searchTokens);
 
+    const webUrl = (typeof c.url === 'string' && c.url.trim())
+      ? c.url.trim()
+      : `https://support.qualcomm.com/s/global-search/${escapedCaseNum}`;
+    const escapedWebUrl = escapeHtml(webUrl);
+
     let priorityBadge = '';
     if (escapedPriority) {
       priorityBadge = `<span class="badge badge-priority">${escapedPriority}</span>`;
@@ -469,6 +474,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         <div class="card-top">
           <div class="case-id-group">
             ${caseNumElement}
+            <a href="${escapedWebUrl}" target="_blank" rel="noopener noreferrer" class="action-btn weblink-btn" title="Open Qualcomm Web Link in new tab">🔗 Web Link</a>
             <button class="action-btn copy-btn" data-case-id="${escapedCaseNum}" title="Copy Case ID" type="button">Copy ID</button>
             <button class="action-btn hide-btn" data-case-id="${escapedCaseNum}" title="Hide Case from active views" type="button">🚫 Hide</button>
             <button class="action-btn unhide-btn" data-case-id="${escapedCaseNum}" title="Unhide Case to active views" type="button">👁️ Unhide</button>
@@ -800,7 +806,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       text-decoration: underline;
       color: var(--accent-hover);
     }
-    .action-btn, .copy-btn, .hide-btn, .unhide-btn {
+    .action-btn, .copy-btn, .hide-btn, .unhide-btn, .weblink-btn {
       background: transparent;
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
@@ -812,10 +818,12 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       align-items: center;
       gap: 4px;
       transition: all 0.15s ease;
+      text-decoration: none;
     }
-    .action-btn:hover, .copy-btn:hover {
+    .action-btn:hover, .copy-btn:hover, .weblink-btn:hover {
       background: var(--border-subtle);
       color: var(--text-primary);
+      text-decoration: none;
     }
     .copy-btn.copied, .delete-btn.copied {
       background: var(--summary-bg);
@@ -843,6 +851,222 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     }
     body:not([data-active-filter="hidden"]) .unhide-btn {
       display: none !important;
+    }
+    .protocol-help-btn {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      padding: 8px 14px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .protocol-help-btn:hover {
+      border-color: var(--accent);
+      background: var(--border-subtle);
+    }
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+    .modal-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .modal-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      max-width: 640px;
+      width: calc(100% - 32px);
+      max-height: 85vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.25), 0 8px 10px -6px rgb(0 0 0 / 0.25);
+      transform: translateY(16px) scale(0.98);
+      transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .modal-overlay.active .modal-card {
+      transform: translateY(0) scale(1);
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .modal-title {
+      font-size: 18px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .modal-close-btn {
+      background: transparent;
+      border: none;
+      font-size: 24px;
+      line-height: 1;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      transition: color 0.15s ease, background 0.15s ease;
+    }
+    .modal-close-btn:hover {
+      color: var(--text-primary);
+      background: var(--border-subtle);
+    }
+    .modal-body {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .modal-section-title {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-secondary);
+      margin-bottom: 10px;
+    }
+    .modal-desc {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      margin-bottom: 8px;
+    }
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+    @media (min-width: 580px) {
+      .comparison-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    .comparison-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px;
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--text-secondary);
+    }
+    .comparison-header {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+    .comparison-header strong {
+      color: var(--text-primary);
+      font-size: 13px;
+    }
+    .mode-tag {
+      display: inline-block;
+      align-self: flex-start;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .mode-qc {
+      background: var(--badge-open-bg);
+      color: var(--badge-open-text);
+    }
+    .mode-web {
+      background: var(--summary-bg);
+      color: var(--summary-text);
+    }
+    .cmd-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .cmd-text {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      color: var(--text-primary);
+      word-break: break-all;
+    }
+    .copy-cmd-btn, .copy-cmd-btn-sm {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+    }
+    .copy-cmd-btn-sm {
+      padding: 3px 8px;
+      font-size: 11px;
+    }
+    .copy-cmd-btn:hover, .copy-cmd-btn-sm:hover {
+      background: var(--accent);
+      color: #ffffff;
+      border-color: var(--accent);
+    }
+    .copy-cmd-btn.copied, .copy-cmd-btn-sm.copied {
+      background: var(--summary-bg) !important;
+      color: var(--summary-text) !important;
+      border-color: var(--summary-border) !important;
+    }
+    .cmd-box-alt {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .cmd-text-inline {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+    }
+    .code-inline {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.9em;
+      background: var(--border-subtle);
+      padding: 1px 5px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
     }
     .card-badges {
       display: flex;
@@ -991,6 +1215,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
           <span id="countdownTicker" class="countdown-ticker" title="Time until next auto-refresh">Auto-refresh in: 05:00</span>
           <button id="refreshNowBtn" class="refresh-btn" type="button" title="Refresh dashboard immediately">🔄 Refresh Now</button>
         </div>
+        <button id="protocolHelpBtn" class="protocol-help-btn" type="button" title="View qc:// protocol help and status">⚙️ Protocol Help</button>
         <button id="themeToggle" class="theme-toggle-btn" type="button">🌓 Theme</button>
       </div>
     </header>
@@ -1024,6 +1249,56 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     <div id="emptyState" class="empty-state">
       No Qualcomm cases match the selected filter and search criteria.
     </div>
+
+    <!-- Protocol Help Modal -->
+    <div id="protocolModal" class="modal-overlay" aria-hidden="true">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal-header">
+          <h2 id="modalTitle" class="modal-title">⚙️ Qualcomm Protocol Handler (<code class="code-inline">qc://</code>)</h2>
+          <button id="closeModalBtn" class="modal-close-btn" type="button" aria-label="Close modal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-section">
+            <h3 class="modal-section-title">Dual-Mode Links Explained</h3>
+            <div class="comparison-grid">
+              <div class="comparison-card qc-card">
+                <div class="comparison-header">
+                  <span class="mode-tag mode-qc">qc:// Protocol</span>
+                  <strong>Open in Qualcomm Profile</strong>
+                </div>
+                <p>Launches or focuses the dedicated authenticated Chrome profile (<code class="code-inline">data/chrome-profile</code>) on port 9222. Keeps your Okta SSO session and cookies active so you never face login gates or OTP prompts.</p>
+              </div>
+              <div class="comparison-card web-card">
+                <div class="comparison-header">
+                  <span class="mode-tag mode-web">🔗 Web Link</span>
+                  <strong>Standard Browser Link</strong>
+                </div>
+                <p>Opens the standard <code class="code-inline">support.qualcomm.com</code> Salesforce URL in a new browser tab. Perfect for sharing links with colleagues or opening in your standard browser.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-section">
+            <h3 class="modal-section-title">Windows Protocol Registration</h3>
+            <p class="modal-desc">The <code class="code-inline">qc://</code> scheme is registered in Windows user-space registry (<code class="code-inline">HKCU:\Software\Classes\qc</code>). No Administrator privileges required.</p>
+            <div class="cmd-box">
+              <code id="protocolCmdText" class="cmd-text">powershell -ExecutionPolicy Bypass -File scripts/register_protocol.ps1</code>
+              <button id="copyProtocolCmdBtn" class="copy-cmd-btn" type="button" title="Copy PowerShell registration command">Copy Command</button>
+            </div>
+            <div class="cmd-box-alt">
+              <span>Or via npm:</span>
+              <code id="npmCmdText" class="cmd-text-inline">npm run setup:protocol</code>
+              <button id="copyNpmCmdBtn" class="copy-cmd-btn-sm" type="button" title="Copy npm command">Copy</button>
+            </div>
+          </div>
+
+          <div class="modal-section">
+            <h3 class="modal-section-title">How to Test</h3>
+            <p class="modal-desc">Click any <code class="code-inline">#CaseNumber</code> or Case Title on this dashboard to test opening in the authenticated session.</p>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -1037,6 +1312,11 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       const refreshSelect = document.getElementById('refreshInterval');
       const countdownTicker = document.getElementById('countdownTicker');
       const refreshNowBtn = document.getElementById('refreshNowBtn');
+      const protocolHelpBtn = document.getElementById('protocolHelpBtn');
+      const protocolModal = document.getElementById('protocolModal');
+      const closeModalBtn = document.getElementById('closeModalBtn');
+      const copyProtocolCmdBtn = document.getElementById('copyProtocolCmdBtn');
+      const copyNpmCmdBtn = document.getElementById('copyNpmCmdBtn');
 
       const STORAGE_KEY_HIDDEN = 'qc_dashboard_hidden_cases';
       const STORAGE_KEY_THEME = 'qc_dashboard_theme';
@@ -1192,7 +1472,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         });
       });
 
-      // Shared clipboard-copy path (Copy ID, Delete instruction).
+      // Shared clipboard-copy path (Copy ID, Delete instruction, Protocol Cmds).
       async function copyTextToClipboard(text) {
         try {
           await navigator.clipboard.writeText(text);
@@ -1239,6 +1519,61 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
           }
         });
       });
+
+      // Protocol Help Modal
+      function openModal() {
+        if (protocolModal) {
+          protocolModal.classList.add('active');
+          protocolModal.setAttribute('aria-hidden', 'false');
+          document.body.style.overflow = 'hidden';
+        }
+      }
+
+      function closeModal() {
+        if (protocolModal) {
+          protocolModal.classList.remove('active');
+          protocolModal.setAttribute('aria-hidden', 'true');
+          document.body.style.overflow = '';
+        }
+      }
+
+      if (protocolHelpBtn) {
+        protocolHelpBtn.addEventListener('click', openModal);
+      }
+
+      if (closeModalBtn) {
+        closeModalBtn.addEventListener('click', closeModal);
+      }
+
+      if (protocolModal) {
+        protocolModal.addEventListener('click', (e) => {
+          if (e.target === protocolModal) {
+            closeModal();
+          }
+        });
+      }
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && protocolModal && protocolModal.classList.contains('active')) {
+          closeModal();
+        }
+      });
+
+      if (copyProtocolCmdBtn) {
+        copyProtocolCmdBtn.addEventListener('click', async () => {
+          const cmd = 'powershell -ExecutionPolicy Bypass -File scripts/register_protocol.ps1';
+          await copyTextToClipboard(cmd);
+          flashCopied(copyProtocolCmdBtn, 'Copy Command');
+        });
+      }
+
+      if (copyNpmCmdBtn) {
+        copyNpmCmdBtn.addEventListener('click', async () => {
+          const cmd = 'npm run setup:protocol';
+          await copyTextToClipboard(cmd);
+          flashCopied(copyNpmCmdBtn, 'Copy');
+        });
+      }
 
       // Theme toggle
       if (themeToggle) {

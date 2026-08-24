@@ -159,6 +159,39 @@ describe('cases_overview_render: renderDashboardHtml', () => {
     assert.ok(html.includes('<a href="qc://case/08603854" title="Open in Qualcomm Profile (qc://)">'));
   });
 
+  it('renders Web Link action button on every case card with fallback to global search', () => {
+    const data = createSampleOverviewData();
+    // Clear URL for case 2 to test fallback
+    data.cases[1].url = '';
+    const html = renderDashboardHtml(data);
+
+    // Case 1 has specific url
+    assert.ok(html.includes('href="https://support.qualcomm.com/s/case/500dK00000Njp7aQAB/test-case"'));
+    assert.ok(html.includes('class="action-btn weblink-btn"'));
+    assert.ok(html.includes('target="_blank"'));
+    assert.ok(html.includes('rel="noopener noreferrer"'));
+    assert.ok(html.includes('🔗 Web Link'));
+
+    // Case 2 has empty url -> fallback to global-search
+    assert.ok(html.includes('href="https://support.qualcomm.com/s/global-search/08642051"'));
+  });
+
+  it('renders Protocol Help button in header and modal dialog with 1-click copy command', () => {
+    const data = createSampleOverviewData();
+    const html = renderDashboardHtml(data);
+
+    // Header button
+    assert.ok(html.includes('id="protocolHelpBtn"'));
+    assert.ok(html.includes('⚙️ Protocol Help'));
+
+    // Modal dialog
+    assert.ok(html.includes('id="protocolModal"'));
+    assert.ok(html.includes('powershell -ExecutionPolicy Bypass -File scripts/register_protocol.ps1'));
+    assert.ok(html.includes('id="copyProtocolCmdBtn"'));
+    assert.ok(html.includes('id="closeModalBtn"'));
+    assert.ok(html.includes('qc:// Protocol'));
+  });
+
   it('renders a Delete button per case card that copies a safe chat instruction, never a raw CLI command', () => {
     const data = createSampleOverviewData();
     const html = renderDashboardHtml(data);
