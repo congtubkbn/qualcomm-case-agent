@@ -22,6 +22,20 @@ writes it verbatim to `case.json`/`case.md`. Comments are always stored Oldest �
 order is load-bearing for the pipeline's own merge/dedup logic, not just display.
 _Avoid_: sync, scrape
 
+**Comment**:
+One entry in `case.json`'s `comments` array — a verbatim Chatter feed item (Salesforce `<article>`).
+Covers both top-level posts and replies; which one a given comment is is carried by `parentId`, not
+by a separate concept. Stored flat (not nested) — see Reply.
+_Avoid_: post (ambiguous — a top-level Comment reads as a Chatter "Post" in the portal UI, but the
+field name and array stay `comments`/`comment` everywhere in code)
+
+**Reply**:
+A Comment whose `parentId` is set to the id of the Comment it's nested under in the portal's
+Chatter feed (a Salesforce `<article>` inside `ul.cuf-replies`/`li.cuf-reply`). A top-level Comment
+(a Post) has `parentId: null`. Still stored in the same flat `comments` array, sorted
+Oldest → Newest across ALL comments regardless of nesting — `parentId` is metadata for rendering a
+thread, not a second storage structure.
+
 **Comment Summary**:
 A short, technical, per-comment digest (issue / status / next-action, applied as it fits the
 comment) produced by `qualcomm-case-summary`. Distinct from the comment's own verbatim body.
