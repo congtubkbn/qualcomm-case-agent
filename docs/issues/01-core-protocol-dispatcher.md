@@ -12,7 +12,7 @@ Build the core `qc://` protocol dispatcher script (`scripts/open_qc_case.mjs`).
 When invoked with a URI like `qc://case/08603854` or `qc://08603854` or `qc://open?url=...`:
 1. Parses and validates the URI.
 2. Resolves the target Qualcomm Case URL (reads local `data/cases/<caseNumber>/case.json` for the exact Salesforce URL, or falls back to `https://support.qualcomm.com/s/global-search/<caseNumber>`).
-3. Connects to CDP port 9222 on `127.0.0.1`:
+3. Connects to CDP port 9773 on `127.0.0.1`:
    - If active, creates/navigates a tab directly via CDP.
    - If not active, launches Chrome via `connect_chrome.ps1` with the target URL and `--user-data-dir="data/chrome-profile"`.
 4. Comprehensive test suite in `tests/open_qc_case.test.mjs` with mocked CDP HTTP and process invocation.

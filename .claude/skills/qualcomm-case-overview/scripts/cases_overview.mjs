@@ -1256,7 +1256,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         <div class="modal-body">
           <div class="modal-section">
             <h3 class="modal-section-title">qc:// Protocol</h3>
-            <p class="modal-desc">Clicking any <code class="code-inline">#CaseNumber</code> or Case Title launches the dedicated authenticated Chrome profile (<code class="code-inline">data/chrome-profile</code>) on port 9222. Your Okta SSO session and cookies stay active — no login gates or OTP prompts.</p>
+            <p class="modal-desc">Clicking any <code class="code-inline">#CaseNumber</code> or Case Title launches the dedicated authenticated Chrome profile (<code class="code-inline">data/chrome-profile</code>) on port 9773. Your Okta SSO session and cookies stay active — no login gates or OTP prompts.</p>
           </div>
 
           <div class="modal-section">
