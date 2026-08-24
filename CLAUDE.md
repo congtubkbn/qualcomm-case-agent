@@ -130,9 +130,12 @@ non-success statuses are deliberate, expected outcomes, not crashes. Full contra
 scrape → render.
 
 **Session/auth:** Okta OAuth with email OTP, persisted in `data/chrome-profile/` (a real Chrome
-`--user-data-dir` attached over CDP 9222, not bundled Chromium). A lapsed session surfaces as
+`--user-data-dir` attached over CDP 9773, not bundled Chromium). A lapsed session surfaces as
 `auth-required` and must be re-authenticated by a human in the browser window — this cannot be
-automated.
+automated. The port is deliberately off the well-known 9222-9230 range, and `ensureChrome()`
+verifies the owning process's `--user-data-dir` before trusting/reusing a connection — an external
+tool scanning that range once attached to our Chrome and corrupted the session (issue #104); a
+mismatch surfaces as `port-conflict` instead of silently misusing the wrong browser.
 
 **Tests** (`tests/*.test.mjs`, run via `node --experimental-test-module-mocks --test`) mock
 `browser.mjs` at the module level rather than driving a real browser — see

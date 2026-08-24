@@ -16,12 +16,12 @@ export class CdpClient {
    * @param {Object} options
    * @param {string} options.wsUrl
    * @param {string} [options.host='127.0.0.1']
-   * @param {number} [options.port=9222]
+   * @param {number} [options.port=9773]
    * @param {string} [options.targetId]
    */
   constructor(options = {}) {
     this.host = options.host || '127.0.0.1';
-    this.port = Number(options.port || 9222);
+    this.port = Number(options.port || 9773);
     this.wsUrl = options.wsUrl || null;
     this.targetId = options.targetId || null;
     this.targetFilter = options.targetFilter || null;
@@ -79,7 +79,7 @@ export class CdpClient {
    */
   static async connect(options = {}) {
     const host = options.host || '127.0.0.1';
-    const port = Number(options.port || 9222);
+    const port = Number(options.port || 9773);
     const timeout = options.timeout || 10000;
 
     let wsUrl = options.wsUrl;

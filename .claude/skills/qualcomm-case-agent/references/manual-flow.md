@@ -1,6 +1,6 @@
 # Qualcomm Case Management Agent — Troubleshooting & Recovery Guide
 
-Authoritative runbook for resolving pipeline blockers when `scripts/run_case.mjs` returns a non-zero exit or non-success verdict (`auth-required`, `blocked`, `not-found`, `busy`).
+Authoritative runbook for resolving pipeline blockers when `scripts/run_case.mjs` returns a non-zero exit or non-success verdict (`auth-required`, `blocked`, `not-found`, `busy`, `port-conflict`).
 
 ---
 
@@ -12,21 +12,22 @@ Authoritative runbook for resolving pipeline blockers when `scripts/run_case.mjs
 | 4 | `not-found` | Case does not exist or account lacks access | → **Recovery 2 (Case Not Found / Authorization)** |
 | 5 | `blocked` | Feed expansion stuck / DOM unrendered | → **Recovery 3 (Stuck Page / DOM Recovery)** |
 | 6 | `busy` | Lock file `data/.capture.lock` is held | → **Recovery 4 (Lock Contention)** |
-| 1 | `error` / CDP Refused | Chrome crashed or port 9222 unreachable | → **Recovery 0 (Chrome / CDP Port Reset)** |
+| 7 | `port-conflict` | CDP port held by a process that isn't our Chrome | → **Recovery 5 (Port Conflict)** |
+| 1 | `error` / CDP Refused | Chrome crashed or port 9773 unreachable | → **Recovery 0 (Chrome / CDP Port Reset)** |
 
 ---
 
-## Recovery 0: Chrome & CDP Port 9222 Reset
+## Recovery 0: Chrome & CDP Port 9773 Reset
 
-Triggered when CDP connection is refused (`ECONNREFUSED` on port 9222) or Chrome processes become unresponsive.
+Triggered when CDP connection is refused (`ECONNREFUSED` on port 9773) or Chrome processes become unresponsive.
 
-1. **Kill stale Chrome instances and reset port 9222**:
+1. **Kill stale Chrome instances and reset port 9773**:
    ```bash
    powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/recover_chrome.ps1"
    ```
 2. **Verify CDP readiness**:
    ```bash
-   curl -s http://127.0.0.1:9222/json/version
+   curl -s http://127.0.0.1:9773/json/version
    ```
    *Expected result*: HTTP 200 with JSON payload containing `webSocketDebuggerUrl`.
 3. **Retry capture**:
@@ -41,7 +42,7 @@ Triggered when CDP connection is refused (`ECONNREFUSED` on port 9222) or Chrome
 Triggered when the saved session in `data/chrome-profile/` has lapsed and Qualcomm redirects to `account.qualcomm.com`.
 
 1. **User manual login in visible Chrome**:
-   - Switch to the Chrome window opened on port 9222.
+   - Switch to the Chrome window opened on port 9773.
    - Enter credentials on `account.qualcomm.com`.
    - Retrieve 6-digit MFA OTP from Samsung email (expires in ~5 min) and submit.
    - Confirm navigation lands on `support.qualcomm.com`.
@@ -84,3 +85,28 @@ Triggered when another process holds `data/.capture.lock`.
 2. If a previous run crashed or terminated uncleanly leaving a stale lock:
    - Check if the process recorded in `data/.capture.lock` is still active.
    - Delete `data/.capture.lock` if stale and re-run.
+
+---
+
+## Recovery 5: Port Conflict (`port-conflict`)
+
+Triggered when the CDP port answers, but the process behind it is NOT this project's Chrome — an
+unrelated tool (e.g. one that scans CDP debug ports looking for something to attach to) got there
+first. `ensureChrome()` refuses to reuse or drive that connection; it never auto-kills the foreign
+process, since it could be an unrelated, legitimate one.
+
+1. **Diagnose** (read-only):
+   ```bash
+   powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/recover_chrome.ps1"
+   ```
+   This prints the PID and command line of whatever holds the port.
+2. **Free the port manually**, once you've confirmed it's safe:
+   ```powershell
+   Stop-Process -Id <PID> -Force
+   ```
+3. **Retry capture**:
+   ```bash
+   node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE>
+   ```
+   If the Okta session was lost in the process, this surfaces as `auth-required` — follow
+   **Recovery 1** to sign in again.

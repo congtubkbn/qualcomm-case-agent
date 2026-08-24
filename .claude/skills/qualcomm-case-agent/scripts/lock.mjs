@@ -1,7 +1,7 @@
 // lock.mjs — one capture at a time, machine-wide.
 //
 // Every capture path funnels through run_case.mjs (interactive run, resident
-// sweep, dashboard "Sync now"), and they all drive the SAME Chrome on CDP 9222
+// sweep, dashboard "Sync now"), and they all drive the SAME Chrome on CDP 9773
 // — two at once interleave navigation and corrupt each other's extraction.
 // This lock makes the second one report `busy` instead.
 //

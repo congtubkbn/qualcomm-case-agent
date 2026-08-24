@@ -43,7 +43,9 @@ function mockBrowser(t, handlerOrQueue, cdpOverride = null) {
       screenshot: (path) => { screenshotCalls.push(path); },
       getCdpClient: async () => cdpOverride || defaultMockCdp,
       closeCdpClient: async () => {},
+      CDP_PORT: 9773,
       BrowserError: class BrowserError extends Error {},
+      PortConflictError: class PortConflictError extends Error {},
       evalFile: (path, vars) => {
         const file = path.split(/[\\/]/).pop();
         evalFileCalls.push({ path: file, vars });
@@ -188,6 +190,7 @@ describe('STATUS_EXIT & formatVerdict', () => {
     assert.equal(STATUS_EXIT['not-found'], 4);
     assert.equal(STATUS_EXIT.blocked, 5);
     assert.equal(STATUS_EXIT.busy, 6);
+    assert.equal(STATUS_EXIT['port-conflict'], 7);
     assert.equal(STATUS_EXIT.error, 1);
   });
 

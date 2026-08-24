@@ -9,9 +9,13 @@
 // It also owns the two things every caller needs:
 //   - evalFile(): base64 (`eval -b`) execution of a page script, with comment
 //     lines stripped first so the command line stays far below cmd.exe's 8191.
-//   - ensureChrome(): attach to the persistent-profile Chrome on CDP 9222,
-//     using the ws:// URL from /json/version (bare `connect 9222` hits the
-//     IPv6 ::1 mismatch → os error 10060).
+//   - ensureChrome(): attach to the persistent-profile Chrome on CDP 9773,
+//     using the ws:// URL from /json/version (bare `connect 9773` hits the
+//     IPv6 ::1 mismatch → os error 10060). Before trusting/reusing whatever
+//     answers on that port, it verifies the owning process is actually OUR
+//     Chrome (see PortConflictError) — an external tool that scans CDP ports
+//     looking for something to attach to has hijacked this profile before
+//     (issue #104).
 
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -21,7 +25,7 @@ import { CdpClient } from './cdp_client.mjs';
 
 const WIN = process.platform === 'win32';
 const BIN = process.env.AGENT_BROWSER_BIN || 'agent-browser';
-const CDP_PORT = Number(process.env.QUALCOMM_CDP_PORT || 9222);
+export const CDP_PORT = Number(process.env.QUALCOMM_CDP_PORT || 9773);
 const CDP_BASE = `http://127.0.0.1:${CDP_PORT}`;
 
 let _activeCdp = null;
@@ -56,6 +60,17 @@ export class BrowserError extends Error {
     super(message);
     this.name = 'BrowserError';
     this.detail = detail;
+  }
+}
+
+/** Thrown by ensureChrome() when the CDP port answers, but the process behind
+ *  it is not this project's persistent-profile Chrome — a different tool got
+ *  there first. Deliberately NOT auto-recovered (killing an unrelated process
+ *  is unsafe); see recover_chrome.ps1 for the manual diagnostic. */
+export class PortConflictError extends BrowserError {
+  constructor(message, detail) {
+    super(message, detail);
+    this.name = 'PortConflictError';
   }
 }
 
@@ -176,6 +191,24 @@ async function cdpVersion() {
   } catch { return null; }
 }
 
+/** Windows-only: ask the OS which process owns the listening CDP port and
+ *  return its full command line (null if none/unavailable). Read-only — never
+ *  kills or alters anything; that decision is left to a human (recover_chrome.ps1). */
+export function getPortOwnerCommandLine(port) {
+  if (!WIN) return null;
+  const ps = `$c = Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if ($c) { (Get-CimInstance Win32_Process -Filter "ProcessId=$($c.OwningProcess)" -ErrorAction SilentlyContinue).CommandLine }`;
+  const r = spawnSync('powershell', ['-NoProfile', '-Command', ps], { encoding: 'utf8', timeout: 10000 });
+  const out = (r.stdout || '').trim();
+  return out || null;
+}
+
+/** True only when a command line launched Chrome with THIS project's
+ *  persistent profile dir as --user-data-dir — the one signal that says a CDP
+ *  port is actually ours, not some unrelated tool that happened to grab it. */
+export function ownsProfile(commandLine, profileDir = PROFILE_DIR) {
+  return !!commandLine && commandLine.includes(profileDir);
+}
+
 /**
  * PHASE 0 as code: make sure agent-browser is driving the persistent-profile
  * Chrome. Launches it if the port is dead, then attaches to the ws:// URL.
@@ -198,6 +231,18 @@ export async function ensureChrome({ launch = true } = {}) {
       `no Chrome on CDP ${CDP_PORT} (profile ${PROFILE_DIR}) — start it, then retry`,
     );
   }
+  if (WIN) {
+    const ownerCmd = getPortOwnerCommandLine(CDP_PORT);
+    if (!ownsProfile(ownerCmd)) {
+      throw new PortConflictError(
+        `CDP port ${CDP_PORT} is held by a process that is not this project's Chrome ` +
+        `(expected --user-data-dir under ${PROFILE_DIR}). Another tool likely attached to it ` +
+        `first. Run recover_chrome.ps1 to see which process and free the port manually — do not ` +
+        `assume it's safe to kill automatically.`,
+        { port: CDP_PORT, commandLine: ownerCmd },
+      );
+    }
+  }
   ab(['connect', info.webSocketDebuggerUrl], { timeout: 60000, allowFail: true });
   return { launched, wsUrl: info.webSocketDebuggerUrl };
 }
@@ -210,7 +255,7 @@ function launchChrome() {
     ], { encoding: 'utf8', timeout: 120000 });
     return;
   }
-  // POSIX (dev/CI): same contract — real Chrome, persistent profile, CDP 9222.
+  // POSIX (dev/CI): same contract — real Chrome, persistent profile, CDP 9773.
   const chrome = process.env.CHROME_BIN || 'google-chrome';
   spawnSync(chrome, [
     `--remote-debugging-port=${CDP_PORT}`,

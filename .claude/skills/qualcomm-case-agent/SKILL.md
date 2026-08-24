@@ -29,7 +29,7 @@ Scripts and references live under `.claude/skills/qualcomm-case-agent/`.
 | SSO | `https://account.qualcomm.com/...` (Okta — identifier-first two-step) |
 | Qualcomm ID | `the.thoi@samsung.com` |
 | MFA | **Email OTP** — 6-digit code to Samsung mailbox, expires ~5 min. |
-| Browser | **real Google Chrome** on CDP `9222` via `scripts/connect_chrome.ps1` |
+| Browser | **real Google Chrome** on CDP `9773` via `scripts/connect_chrome.ps1` |
 | Session store | `data/chrome-profile/` — persistent `--user-data-dir`; git-ignored |
 | Case cache | per-case folder `data/cases/<CODE>/`: `case.json` · `case.md` |
 | Sync index | `data/cases/_index.json` |
@@ -76,9 +76,10 @@ Optional: `--mode full|update` (override the auto choice).
 | `not-found` | 4 | search returned nothing for this code | STOP — wrong code, or the account cannot see it |
 | `blocked` | 5 | page never rendered / capture short | load `references/manual-flow.md` and finish by hand; `reason` says where it stopped |
 | `busy` | 6 | another capture holds the lock for a **different** case, or a same-case collision's ~60s wait budget ran out | wait ~30s, re-run **once**; still `busy` after 2 retries → report and STOP |
+| `port-conflict` | 7 | CDP port is held by a process that is NOT this project's Chrome — an unrelated tool attached first | run `recover_chrome.ps1` to see the PID/command line and free the port manually; never auto-killed |
 | `error` | 1 | bad invocation or script failure | fix per `reason`; do not retry blindly |
 
-> **A non-zero exit here is BY DESIGN for `auth-required`/`not-found`/`blocked`/`busy` — it is not a crash.** Whatever ran the command (Bash tool, Cline `execute_command`, a background-task wrapper) may still surface it as a generic "failed" result. **Ignore that label — always branch on the `status` field inside stdout's JSON line, never on the shell exit-status label alone.**
+> **A non-zero exit here is BY DESIGN for `auth-required`/`not-found`/`blocked`/`busy`/`port-conflict` — it is not a crash.** Whatever ran the command (Bash tool, Cline `execute_command`, a background-task wrapper) may still surface it as a generic "failed" result. **Ignore that label — always branch on the `status` field inside stdout's JSON line, never on the shell exit-status label alone.**
 
 > `blocked` is never "no update". A tool failure means inconclusive — reporting an unchanged case on a failed probe is the one wrong answer here.
 

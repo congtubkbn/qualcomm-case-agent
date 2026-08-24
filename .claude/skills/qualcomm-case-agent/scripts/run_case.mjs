@@ -15,6 +15,8 @@
 //   not-found                       -> exit 4  (wrong code, or no access)
 //   blocked                         -> exit 5  (page never rendered / capture short)
 //   busy                            -> exit 6  (another capture holds the lock — retry later)
+//   port-conflict                   -> exit 7  (CDP port held by a process that isn't our
+//                                                Chrome — see recover_chrome.ps1, issue #104)
 //   error                           -> exit 1
 //
 // "blocked" is never downgraded to "no-update": a tool failure means
@@ -30,7 +32,7 @@ import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
 import { intake } from './intake.mjs';
 import { acquireLockOrWaitForSameCode, releaseLock } from './lock.mjs';
-import { BrowserError, ensureChrome, evalFile, evalFileViaCdp, getCdpClient, open, screenshot, sleep } from './browser.mjs';
+import { BrowserError, CDP_PORT, PortConflictError, ensureChrome, evalFile, evalFileViaCdp, getCdpClient, open, screenshot, sleep } from './browser.mjs';
 import { fastLandOnCase } from './fast_landing.mjs';
 import { verifyCase } from './verify_case.mjs';
 
@@ -49,7 +51,7 @@ const POST_EXPAND_SETTLE_ROUNDS = 15; // x2s ceiling — see article-count settl
 
 export const STATUS_EXIT = {
   created: 0, updated: 0, 'no-update': 0,
-  'auth-required': 3, 'not-found': 4, blocked: 5, busy: 6, error: 1,
+  'auth-required': 3, 'not-found': 4, blocked: 5, busy: 6, 'port-conflict': 7, error: 1,
 };
 
 const norm = s => String(s || '').replace(/\s+/g, ' ').trim();
@@ -174,7 +176,7 @@ export async function run(code, opts = {}) {
   if (!cdp || (typeof cdp.isConnected === 'function' && !cdp.isConnected())) {
     return {
       status: 'blocked',
-      reason: 'CDP client connection unavailable on port 9222 (check Chrome instance)',
+      reason: `CDP client connection unavailable on port ${CDP_PORT} (check Chrome instance)`,
     };
   }
 
@@ -567,7 +569,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
   run(code, opts)
     .catch(e => ({
-      status: e instanceof BrowserError ? 'blocked' : 'error',
+      status: e instanceof PortConflictError ? 'port-conflict' : (e instanceof BrowserError ? 'blocked' : 'error'),
       reason: e.message,
       detail: e.detail,
     }))

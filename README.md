@@ -82,7 +82,7 @@ when it is stale.
 
 - Windows (the auth helpers are PowerShell + DPAPI), Node.js ≥18
 - `agent-browser` CLI (`npm i -g agent-browser`) + **real Google Chrome** — the pipeline attaches
-  to system Chrome over CDP 9222, not the bundled Chromium (a broken bundled build caused
+  to system Chrome over CDP 9773, not the bundled Chromium (a broken bundled build caused
   `os error 10060`). Launch helper: `scripts/connect_chrome.ps1`, or let `run_case.mjs` do it.
 
 ## New machine

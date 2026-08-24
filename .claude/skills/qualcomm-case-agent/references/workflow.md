@@ -13,7 +13,7 @@ new-vs-update on its own; the model only sees the verdict line.
 flowchart TD
   IN(["Input — 1 Qualcomm case code"]) --> VALID{"8 digits?<br/>(CASE- prefix stripped)"}
   VALID -->|no| S0(["ask user, STOP"])
-  VALID -->|yes| RUN["run_case.mjs &lt;CODE&gt;<br/>attach persistent Chrome (CDP 9222) · open global-search<br/>resolve + open case · expand feed (full new / incremental update)<br/>extract · finalize (hash + index) · verify_case.mjs · render"]
+  VALID -->|yes| RUN["run_case.mjs &lt;CODE&gt;<br/>attach persistent Chrome (CDP 9773) · open global-search<br/>resolve + open case · expand feed (full new / incremental update)<br/>extract · finalize (hash + index) · verify_case.mjs · render"]
   RUN --> V{"verdict (one JSON line on stdout)"}
   V -->|created| REPORT["report to user"]
   V -->|updated| REPORT

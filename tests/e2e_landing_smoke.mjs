@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // tests/e2e_landing_smoke.mjs — E2E Smoke Test for Fast CDP Landing Engine.
-// Verifies direct CDP connectivity and fastLandOnCase resolution against Chrome 9222 or mock server.
+// Verifies direct CDP connectivity and fastLandOnCase resolution against Chrome 9773 or mock server.
 //
 // Usage:
-//   node tests/e2e_landing_smoke.mjs [CODE] [--port 9222] [--mock]
+//   node tests/e2e_landing_smoke.mjs [CODE] [--port 9773] [--mock]
 //
 // Exit Codes:
 //   0: Landing successful (state: 'OK')
@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 export async function runSmokeTest(code = '08603854', options = {}) {
   const isMock = options.mock || process.argv.includes('--mock');
-  const port = options.port || Number(process.env.QUALCOMM_CDP_PORT || 9222);
+  const port = options.port || Number(process.env.QUALCOMM_CDP_PORT || 9773);
   const host = options.host || '127.0.0.1';
 
   let mockServer = null;
@@ -121,7 +121,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const code = args[0] || '08603854';
   const isMock = process.argv.includes('--mock');
   const portIdx = process.argv.indexOf('--port');
-  const port = portIdx !== -1 ? Number(process.argv[portIdx + 1]) : 9222;
+  const port = portIdx !== -1 ? Number(process.argv[portIdx + 1]) : 9773;
 
   runSmokeTest(code, { mock: isMock, port })
     .then(({ exitCode }) => {

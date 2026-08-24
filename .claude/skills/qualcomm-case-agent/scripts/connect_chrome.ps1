@@ -16,16 +16,17 @@
 
   Usage (run from anywhere - paths resolve from the script's own location):
      powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/connect_chrome.ps1"
-     agent-browser connect 9222
+     agent-browser connect 9773
   Optional args:
-     -Port 9222            CDP/remote-debugging port (default 9222)
+     -Port 9773            CDP/remote-debugging port (default 9773 - chosen to sit
+                            outside the 9222-9230 range some external tools scan)
      -Profile <dir>        user-data-dir (default: <project-root>\data\chrome-profile)
 
   NOTE: keep this file ASCII-only. PowerShell 5.1 reads a BOM-less file as the
   ANSI codepage, so non-ASCII chars (em-dashes, curly quotes) corrupt parsing.
 #>
 param(
-  [int]$Port = 9222,
+  [int]$Port = 9773,
   [string]$Profile = "",   # default resolved below via _paths.ps1 (project-root, NOT CWD)
   [string]$ChromePath = "",
   [string]$Url = ""
@@ -75,6 +76,18 @@ function Test-Cdp([int]$p) {
   return [bool](Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue)
 }
 
+# Read-only: which process owns the port, if any. Never used to kill anything
+# here - only to tell a real reuse apart from an unrelated tool that grabbed
+# the port first (issue #104: an external CDP port-scanner attached to this
+# profile's Chrome and corrupted its Okta session).
+function Get-PortOwnerCommandLine([int]$p) {
+  $conn = Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $conn) { return $null }
+  $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$($conn.OwningProcess)" -ErrorAction SilentlyContinue
+  if ($proc) { return $proc.CommandLine }
+  return $null
+}
+
 # Return the IPv4 webSocketDebuggerUrl from the CDP /json/version endpoint.
 # Why 127.0.0.1 (not localhost): 'agent-browser connect <port>' connects to
 # http://localhost:<port>. On Windows 'localhost' resolves to IPv6 ::1 FIRST,
@@ -97,6 +110,16 @@ function Get-WsUrl([int]$p) {
 if (Test-Cdp $Port) {
   $ws = Get-WsUrl $Port
   if ($ws) {
+    $ownerCmd = Get-PortOwnerCommandLine $Port
+    if (-not $ownerCmd -or $ownerCmd -notlike "*$Profile*") {
+      Write-Error @"
+Port $Port answers CDP but is NOT this project's Chrome (expected --user-data-dir under $Profile).
+Owning process command line: $ownerCmd
+Another tool likely scanned for and attached to this port first. Run recover_chrome.ps1 to see
+the PID and decide whether to close it manually - this script will NOT reuse or kill it for you.
+"@
+      exit 5
+    }
     Write-Host "Chrome CDP already listening on $Port - reusing it. Profile: $Profile"
     Write-Host "Next: agent-browser connect `"$ws`""
     exit 0

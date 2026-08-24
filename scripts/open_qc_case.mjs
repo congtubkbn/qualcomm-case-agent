@@ -47,7 +47,7 @@ function findProjectRoot(startDir = HERE) {
 export const PROJECT_ROOT = findProjectRoot();
 export const DEFAULT_CASES_DIR = join(PROJECT_ROOT, 'data', 'cases');
 export const DEFAULT_PROFILE_DIR = join(PROJECT_ROOT, 'data', 'chrome-profile');
-export const DEFAULT_CDP_PORT = Number(process.env.QUALCOMM_CDP_PORT || 9222);
+export const DEFAULT_CDP_PORT = Number(process.env.QUALCOMM_CDP_PORT || 9773);
 
 /**
  * Validate that a URL domain belongs to Qualcomm support.
