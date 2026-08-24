@@ -411,10 +411,6 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       .join(' ');
     const escapedSearchIndex = escapeHtml(searchTokens);
 
-    const webUrl = (typeof c.url === 'string' && c.url.trim())
-      ? c.url.trim()
-      : `https://support.qualcomm.com/s/global-search/${escapedCaseNum}`;
-    const escapedWebUrl = escapeHtml(webUrl);
 
     let priorityBadge = '';
     if (escapedPriority) {
@@ -474,7 +470,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         <div class="card-top">
           <div class="case-id-group">
             ${caseNumElement}
-            <a href="${escapedWebUrl}" target="_blank" rel="noopener noreferrer" class="action-btn weblink-btn" title="Open Qualcomm Web Link in new tab">🔗 Web Link</a>
+
             <button class="action-btn copy-btn" data-case-id="${escapedCaseNum}" title="Copy Case ID" type="button">Copy ID</button>
             <button class="action-btn hide-btn" data-case-id="${escapedCaseNum}" title="Hide Case from active views" type="button">🚫 Hide</button>
             <button class="action-btn unhide-btn" data-case-id="${escapedCaseNum}" title="Unhide Case to active views" type="button">👁️ Unhide</button>
@@ -806,7 +802,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       text-decoration: underline;
       color: var(--accent-hover);
     }
-    .action-btn, .copy-btn, .hide-btn, .unhide-btn, .weblink-btn {
+    .action-btn, .copy-btn, .hide-btn, .unhide-btn {
       background: transparent;
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
@@ -820,7 +816,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       transition: all 0.15s ease;
       text-decoration: none;
     }
-    .action-btn:hover, .copy-btn:hover, .weblink-btn:hover {
+    .action-btn:hover, .copy-btn:hover {
       background: var(--border-subtle);
       color: var(--text-primary);
       text-decoration: none;
@@ -1259,23 +1255,8 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         </div>
         <div class="modal-body">
           <div class="modal-section">
-            <h3 class="modal-section-title">Dual-Mode Links Explained</h3>
-            <div class="comparison-grid">
-              <div class="comparison-card qc-card">
-                <div class="comparison-header">
-                  <span class="mode-tag mode-qc">qc:// Protocol</span>
-                  <strong>Open in Qualcomm Profile</strong>
-                </div>
-                <p>Launches or focuses the dedicated authenticated Chrome profile (<code class="code-inline">data/chrome-profile</code>) on port 9222. Keeps your Okta SSO session and cookies active so you never face login gates or OTP prompts.</p>
-              </div>
-              <div class="comparison-card web-card">
-                <div class="comparison-header">
-                  <span class="mode-tag mode-web">🔗 Web Link</span>
-                  <strong>Standard Browser Link</strong>
-                </div>
-                <p>Opens the standard <code class="code-inline">support.qualcomm.com</code> Salesforce URL in a new browser tab. Perfect for sharing links with colleagues or opening in your standard browser.</p>
-              </div>
-            </div>
+            <h3 class="modal-section-title">qc:// Protocol</h3>
+            <p class="modal-desc">Clicking any <code class="code-inline">#CaseNumber</code> or Case Title launches the dedicated authenticated Chrome profile (<code class="code-inline">data/chrome-profile</code>) on port 9222. Your Okta SSO session and cookies stay active — no login gates or OTP prompts.</p>
           </div>
 
           <div class="modal-section">
