@@ -91,8 +91,8 @@ describe('cases_overview: End-to-End Pipeline & Auto-Sync Hooks', () => {
         product: 'SM7635',
         url: 'https://support.qualcomm.com/s/case/500dK00000HZeVSQA1',
         description: 'EPS fallback fails intermittently when VoNR is disabled in network profile.',
-        customer: 'Samsung Electronics',
-        created: 'July 15, 2026 at 2:30 AM',
+        accountName: 'Samsung Electronics',
+        openedAt: 'July 15, 2026 at 2:30 AM',
         comments: [
           {
             id: 'c1',
@@ -186,8 +186,8 @@ describe('cases_overview: End-to-End Pipeline & Auto-Sync Hooks', () => {
         product: 'SDX75',
         url: 'https://support.qualcomm.com/s/case/500dK00000HZeXYZ',
         description: 'Network rejects registration with cause #58.',
-        customer: 'Samsung Electronics',
-        created: 'August 1, 2026 at 1:00 PM',
+        accountName: 'Samsung Electronics',
+        openedAt: 'August 1, 2026 at 1:00 PM',
         comments: [
           {
             id: 'c1',

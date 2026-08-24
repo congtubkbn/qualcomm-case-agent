@@ -121,7 +121,7 @@
   const sectionValue = labelOrLabels => {
     const labelsList = Array.isArray(labelOrLabels) ? labelOrLabels : [labelOrLabels];
     const lowerLabels = labelsList.map(l => (l || "").toLowerCase().trim()).filter(Boolean);
-    if (!lowerLabels.length) return "";
+    if (!lowerLabels.length) return null;
 
     const findContainer = el => {
       let cur = el;
@@ -203,7 +203,7 @@
       }
     }
 
-    return "";
+    return null;
   };
 
   const isBlacklistedTs = s => {
@@ -328,7 +328,10 @@
   // <article>). Clean body comes from .feedBodyInner — that element excludes the
   // author/timestamp header and the Like/Comment/views footer, so we don't have
   // to string-surgery them off the whole-article innerText.
-  const comments = qsa("article").map((a, i) => {
+  let lastTopLevelIndex = null;
+  const rawArticles = qsa("article");
+  const extractedComments = [];
+  for (const a of rawArticles) {
     const named = Array.from(a.querySelectorAll("a")).map(txt).map(s => stripFieldAffordances(s, 'author')).filter(Boolean);
     const author = named[0] || "";
     const bodyEl = a.querySelector(".feedBodyInner, .cuf-feedBodyText, [class*='feedBody']");
@@ -340,8 +343,9 @@
     // the cloned node is instead cut by cleanBody's trailing regex below.
     const rawBodyText = bodyEl ? txt(bodyEl) : txt(a);
     const body = cleanBody(rawBodyText);
-    const timestamp = extractTimestamp(a, named, author);
+    if (!body || body.length === 0) continue;
 
+    const timestamp = extractTimestamp(a, named, author);
     const attachments = extractAttachments(a);
     const isReply = a.classList.contains('cuf-comment') || Boolean(a.closest && a.closest('ul.cuf-replies, .cuf-replies, li.cuf-reply'));
 
@@ -352,16 +356,26 @@
     const rect = a.getBoundingClientRect && a.getBoundingClientRect();
     const displayPosition = rect ? rect.top : null;
 
-    return {
-      id: a.id || ("c" + (i + 1)),
+    const currentIndex = extractedComments.length;
+    let parentIndex = null;
+    if (isReply) {
+      parentIndex = lastTopLevelIndex;
+    } else {
+      lastTopLevelIndex = currentIndex;
+    }
+
+    extractedComments.push({
+      id: a.id || ("c" + (currentIndex + 1)),
       timestamp,
       author,
       body,
       attachments,
       isReply,
+      parentIndex,
       displayPosition,
-    };
-  }).filter(c => c.body.length > 0);
+    });
+  }
+  const comments = extractedComments;
 
   // Displayed total: the "N Chatter Feed Items" status badge in the Feed region.
   // The count MUST precede the phrase. Chatter also renders a per-item status
@@ -385,17 +399,16 @@
   const severity = sectionValue(["Severity", "Case Severity"]);
   const product = sectionValue(["Chipset", "Product", "Product Name"]);
   const accountName = sectionValue(["Account Name", "Account", "Customer", "Customer Name"]);
-  const customer = accountName || sectionValue(["Customer", "Account Name", "Account"]);
   const contactName = sectionValue(["Contact Name", "Contact", "Case Contact", "Contact:"]);
   const customerProject = sectionValue(["Customer Project", "Customer Project Name", "Project", "Project Name"]);
+  // TBD: verify customerTracking label list against a live case
+  const customerTracking = sectionValue(["Customer Tracking", "Customer Tracking Number", "Customer Tracking#"]);
   const relatedCRs = sectionValue(["Related CRs", "Related CR", "Related Change Requests", "Change Requests", "CRs"]);
   const caseRecordType = sectionValue(["Case Record Type Name", "Case Record Type", "Record Type", "Record Type Name"]);
   const openedAt = sectionValue(["Date/Time Opened", "Date Opened", "Created Date", "Created At", "Opened Date", "Opened"]);
   const closedAt = sectionValue(["Date/Time Closed", "Date Closed", "Closed Date", "Closed At", "Closed"]);
-  const created = sectionValue(["Created Date", "Date/Time Opened", "Date Opened", "Created"]) || openedAt;
   const updated = sectionValue(["Last Modified Date", "Modified Date", "Last Modified"]);
   const description = sectionValue(["Description", "Description Information", "Case Description", "Problem Description", "Subject Description"]);
-  const raisedBy = contactName || customer || "";
 
   return {
     caseNumber,
@@ -404,18 +417,16 @@
     priority,
     severity,
     product,
-    customer,
     accountName,
     contactName,
     customerProject,
+    customerTracking,
     relatedCRs,
     caseRecordType,
     openedAt,
     closedAt,
-    created,
     updated,
     description,
-    raisedBy,
     url: location.href,
     displayedCommentCount,
     comments,

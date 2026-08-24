@@ -107,13 +107,12 @@ export function generateMarkdown(data, stem = 'case') {
     ['Component', data?.component],
     ['Contact Name', data?.contactName],
     ['Customer Project', data?.customerProject],
-    ['Customer', data?.customer],
-    ['Account Name', data?.accountName && data?.accountName !== data?.customer ? data?.accountName : null],
+    ['Customer Tracking', data?.customerTracking],
+    ['Account Name', data?.accountName],
     ['Case Record Type', data?.caseRecordType],
     ['Related CRs', data?.relatedCRs],
     ['Date Opened', data?.openedAt],
     ['Date Closed', data?.closedAt],
-    ['Created', data?.created],
     ['Updated', data?.updated],
     ['Comments', timelineComments.length],
     ['Synced', data?.extractedAt],
@@ -142,8 +141,17 @@ export function generateMarkdown(data, stem = 'case') {
     const role = c?.role || classifyRole(c?.author, c?.company, '', c?.body);
     const authorStr = S(c?.author) ? (role ? `${S(c.author)} (${role})` : S(c.author)) : (role ? `(${role})` : '');
     const head = [S(c?.timestamp), authorStr].filter(Boolean).join(' · ');
-    L.push(`### ${i + 1}. ${head || 'Comment'}`, '');
-    if (S(c?.body)) L.push(formatBody(c.body), '');
+    const isReply = c?.parentId != null;
+    const marker = isReply ? '↳ ' : '';
+    L.push(`### ${i + 1}. ${marker}${head || 'Comment'}`, '');
+    if (S(c?.body)) {
+      const body = formatBody(c.body);
+      if (isReply) {
+        L.push(...body.split('\n').map(line => (line ? `> ${line}` : '>')), '');
+      } else {
+        L.push(body, '');
+      }
+    }
     const rawAtts = arr(c?.attachments);
     const validAtts = rawAtts.filter(a => {
       if (!a) return false;

@@ -100,8 +100,8 @@ export function migrateCaseData(caseData, options = {}) {
   if (desc && !hasDescriptionComment(comments, desc)) {
     const descComment = synthesizeDescriptionComment({
       description: caseData.description,
-      customer: caseData.customer,
-      created: caseData.created,
+      contactName: caseData.contactName || caseData.customer || caseData.accountName,
+      openedAt: caseData.openedAt || caseData.created,
     });
     if (descComment) {
       comments.push(descComment);

@@ -64,8 +64,8 @@ function runScrape(root, rawObj, flags = [], caseCode = '08123456') {
 describe('1. Extraction & Ingestion: synthesizeDescriptionComment & hasDescriptionComment', () => {
   it('synthesizes structured comment from valid description', () => {
     const raw = {
-      customer: 'Samsung Mobile',
-      created: '2026-08-20T09:30:00.000Z',
+      contactName: 'Samsung Mobile',
+      openedAt: '2026-08-20T09:30:00.000Z',
       description: 'Device crashes during 5G handover on n78 band.\n\nReproduction logs attached.\n\nThanks,\nKim',
     };
     const c = synthesizeDescriptionComment(raw);
@@ -118,8 +118,8 @@ describe('2. Ingestion & Ingestion Pipeline: scrape_case.mjs full capture', () =
     const raw = {
       caseNumber: '08123456',
       title: 'Modem Crash on SA Handover',
-      customer: 'Samsung Mobile',
-      created: '2026-08-10T08:00:00.000Z',
+      contactName: 'Samsung Mobile',
+      openedAt: '2026-08-10T08:00:00.000Z',
       description: 'UE encounters panic during SA handover from cell A to cell B.',
       displayedCommentCount: 1, // portal's own count of genuine Chatter items only
       comments: [
@@ -185,8 +185,8 @@ describe('2. Ingestion & Ingestion Pipeline: scrape_case.mjs full capture', () =
     const raw = {
       caseNumber: '08123456',
       title: 'Modem Crash on SA Handover',
-      customer: 'Samsung Mobile',
-      created: '2026-08-10T08:00:00.000Z',
+      contactName: 'Samsung Mobile',
+      openedAt: '2026-08-10T08:00:00.000Z',
       description: 'UE encounters panic during SA handover from cell A to cell B.',
       displayedCommentCount: 2, // portal shows 2 genuine Chatter items
       comments: [
@@ -212,8 +212,8 @@ describe('3. Dedup & Idempotency: scrape_case.mjs --merge', () => {
     const initialRaw = {
       caseNumber: '08123456',
       title: 'VoNR Handover Drop',
-      customer: 'Google OEM',
-      created: '2026-08-15T08:00:00.000Z',
+      contactName: 'Google OEM',
+      openedAt: '2026-08-15T08:00:00.000Z',
       description: 'Call drops consistently during VoNR handover.',
       displayedCommentCount: 1, // portal's own count of genuine Chatter items only
       comments: [
@@ -234,8 +234,8 @@ describe('3. Dedup & Idempotency: scrape_case.mjs --merge', () => {
     const updateRaw = {
       caseNumber: '08123456',
       title: 'VoNR Handover Drop',
-      customer: 'Google OEM',
-      created: '2026-08-15T08:00:00.000Z',
+      contactName: 'Google OEM',
+      openedAt: '2026-08-15T08:00:00.000Z',
       description: 'Call drops consistently during VoNR handover.',
       displayedCommentCount: 2, // 2 genuine Chatter items (description excluded)
       comments: [
@@ -276,8 +276,8 @@ describe('4. Markdown Rendering: render_case.mjs', () => {
       title: '5G Attach Issue on Band n78',
       status: 'In Progress',
       priority: 'High',
-      customer: 'Xiaomi Mobile',
-      created: '2026-08-12T07:00:00.000Z',
+      accountName: 'Xiaomi Mobile',
+      openedAt: '2026-08-12T07:00:00.000Z',
       updated: '2026-08-12T15:00:00.000Z',
       description: 'Initial problem statement: attach reject received from network.',
       comments: [

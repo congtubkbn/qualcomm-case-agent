@@ -426,6 +426,7 @@ export async function run(code, opts = {}) {
     'openedAt',
     'closedAt',
     'customerProject',
+    'customerTracking',
     'accountName',
     'relatedCRs',
     'caseRecordType',
@@ -435,10 +436,7 @@ export async function run(code, opts = {}) {
     'priority',
     'severity',
     'product',
-    'customer',
-    'created',
     'updated',
-    'raisedBy',
   ]);
 
   raw.capture = {

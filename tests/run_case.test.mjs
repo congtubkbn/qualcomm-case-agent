@@ -508,7 +508,6 @@ describe('run() fast landing & verdict integration', () => {
             openedAt: 'August 10, 2026 at 09:30 AM',
             closedAt: 'August 20, 2026 at 04:15 PM',
             accountName: 'VinFast Auto LLC',
-            customer: 'VinFast Auto LLC',
             relatedCRs: 'CR3798678',
             caseRecordType: 'Customer Support',
             description: 'VoNR call drops during 5G SA.',
@@ -541,7 +540,6 @@ describe('run() fast landing & verdict integration', () => {
 
     const caseData = JSON.parse(readFileSync(v.casePath, 'utf8'));
     assert.equal(caseData.contactName, 'Mai Ngoc');
-    assert.equal(caseData.raisedBy, 'Mai Ngoc');
     assert.equal(caseData.customerProject, 'VinFast VF9 MY26');
     assert.equal(caseData.openedAt, 'August 10, 2026 at 09:30 AM');
     assert.equal(caseData.closedAt, 'August 20, 2026 at 04:15 PM');

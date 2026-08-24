@@ -117,7 +117,7 @@ export function countAssert(capturedCount, displayedCount) {
 // Header fields the agent already holds in-context from the PHASE 1 search row.
 // Passing them as flags lets the script backfill the big raw file in CODE — the
 // agent never re-Reads case.raw.json just to add a title (O(1) tokens, not O(case size)).
-export const HEADER_KEYS = ['title', 'status', 'priority', 'severity', 'customer'];
+export const HEADER_KEYS = ['title', 'status', 'priority', 'severity'];
 
 // Salesforce Lightning Detail tab metadata fields persisted to canonical case.json.
 export const DETAIL_KEYS = [
@@ -125,10 +125,10 @@ export const DETAIL_KEYS = [
   'openedAt',
   'closedAt',
   'customerProject',
+  'customerTracking',
   'accountName',
   'relatedCRs',
   'caseRecordType',
-  'raisedBy',
 ];
 
 // Parse `--title "..."` style flags into an overrides object. Only HEADER_KEYS honored.
@@ -336,11 +336,11 @@ export function synthesizeDescriptionComment(raw) {
 
   const author = (typeof raw.contactName === 'string' && raw.contactName.trim())
     ? raw.contactName.trim()
-    : (typeof raw.customer === 'string' && raw.customer.trim()) ? raw.customer.trim() : 'Reporter';
+    : 'Reporter';
 
   const timestamp = (typeof raw.openedAt === 'string' && raw.openedAt.trim())
     ? raw.openedAt.trim()
-    : (typeof raw.created === 'string' && raw.created.trim()) ? raw.created.trim() : '';
+    : '';
 
   return {
     author,
@@ -729,12 +729,11 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
   }
 
   // Inject description as initial comment if non-empty and not already present.
+  // Inject description as initial comment if non-empty and not already present.
   const descRaw = {
     description: String(raw.description || (cached && cached.description) || '').trim(),
     contactName: String(raw.contactName || (cached && cached.contactName) || '').trim(),
-    customer: String(header.customer || raw.customer || (cached && cached.customer) || '').trim(),
     openedAt: String(raw.openedAt || (cached && cached.openedAt) || '').trim(),
-    created: String(raw.created || (cached && cached.created) || '').trim(),
   };
   const descComment = synthesizeDescriptionComment(descRaw);
   let rawComments = normalizeComments(raw.comments || [], refDate);
@@ -744,6 +743,17 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
 
   // Identity is assigned HERE, in code, for every comment we persist.
   const fresh = assignIds(rawComments);
+
+  // Resolve parentId from parentIndex while fresh.comments is still in DOM order
+  for (const c of fresh.comments) {
+    if (c.parentId === undefined) {
+      if (c.parentIndex != null && fresh.comments[c.parentIndex]) {
+        c.parentId = fresh.comments[c.parentIndex].id;
+      } else {
+        c.parentId = null;
+      }
+    }
+  }
 
   // `out` is the object that gets persisted. Full capture: the raw itself.
   // Update run (--merge): the cached case with only the NEW comments prepended.
@@ -764,7 +774,7 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
     if (String(raw.url || '').trim()) out.url = raw.url;
     // Everything else from the partial capture only FILLS BLANKS — a collapsed
     // Description/Detail panel must never clobber a good cached value.
-    for (const k of ['description', 'product', 'created', 'updated', ...DETAIL_KEYS, ...HEADER_KEYS]) {
+    for (const k of ['description', 'product', 'updated', ...DETAIL_KEYS, ...HEADER_KEYS]) {
       if (!String(out[k] || '').trim() && String(raw[k] || '').trim()) out[k] = raw[k];
     }
     mergeInfo = { newIds, oldHash: cached.hash, cached };
@@ -782,20 +792,12 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
     possibleEdits = merge0.possibleEdits;
     out = { ...raw, comments: merge0.merged };
     if (cached) {
-      for (const k of ['description', 'product', 'created', 'updated', ...DETAIL_KEYS]) {
+      for (const k of ['description', 'product', 'updated', ...DETAIL_KEYS]) {
         if (!String(out[k] || '').trim() && String(cached[k] || '').trim()) out[k] = cached[k];
       }
       mergeInfo = { newIds, oldHash: cached.hash, cached };
     }
   }
-
-  // Cross-field normalizations
-  if (out.contactName && !out.raisedBy) out.raisedBy = out.contactName;
-  if (!out.raisedBy) out.raisedBy = out.customer || '';
-  if (out.accountName && !out.customer) out.customer = out.accountName;
-  if (out.customer && !out.accountName) out.accountName = out.customer;
-  if (out.openedAt && !out.created) out.created = out.openedAt;
-  if (out.created && !out.openedAt) out.openedAt = out.created;
 
   // Hard gate: a genuinely NEW comment that still carries the "Expand Post"
   // control label is a half-captured post, whatever the cause. Reject rather
@@ -846,7 +848,7 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
 
   // Soft signal for the remaining header fields — sometimes legitimately empty
   // (old/closed/draft cases), so warn but do NOT block.
-  const thinHeader = ['status', 'priority', 'customer'].filter(k => !String(out[k] || '').trim());
+  const thinHeader = ['status', 'priority'].filter(k => !String(out[k] || '').trim());
 
   // Comments must never carry role/company — scrub them here so an --merge or
   // full re-capture of a case cached before this field was dropped gets
@@ -859,8 +861,9 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
   // Preview is generated HERE, for every persisted comment — fresh, cached,
   // and the synthesized description comment alike — so this is the single
   // place a comment's preview is ever derived (see extractSummary above).
-  out.comments = out.comments.map(({ role, company, displayPosition, isReply, ...rest }) => ({
+  out.comments = out.comments.map(({ role, company, displayPosition, isReply, parentIndex, ...rest }) => ({
     ...rest,
+    parentId: rest.parentId ?? null,
     summary: extractSummary(rest.body),
   }));
 

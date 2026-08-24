@@ -21,7 +21,7 @@ import { DATA_DIR } from './_paths.mjs';
 const COLLAPSED_BODY_RE = /\bExpand Post\s*$/i;
 const MOJIBAKE_RE = /â”¬Ã¡|Â(?=[\s\n]|$)/;
 const REQUIRED_CORE_FIELDS = ['caseNumber', 'title', 'status', 'url', 'hash', 'extractedAt'];
-const OPTIONAL_FIELDS_WARN_IF_EMPTY = ['created', 'updated', 'product', 'description', 'priority', 'customer'];
+const OPTIONAL_FIELDS_WARN_IF_EMPTY = ['updated', 'product', 'description', 'priority'];
 const RENDERED_FILES = ['case.md'];
 
 function readJsonLoose(path) {

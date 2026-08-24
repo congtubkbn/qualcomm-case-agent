@@ -359,7 +359,7 @@ test('extract_case.js DOM extraction engine', async (t) => {
     assert.equal(result.caseNumber, '08603854');
     assert.equal(result.title, 'QXDM log analysis for NR SA');
     assert.equal(result.product, 'SDX75');
-    assert.equal(result.customer, 'VinFast Auto');
+    assert.equal(result.accountName, 'VinFast Auto');
     assert.equal(result.description, 'Device failed to register to 5G Standalone network.');
     assert.equal(result.displayedCommentCount, 2);
     assert.equal(result.comments.length, 2);
@@ -398,7 +398,7 @@ test('extract_case.js DOM extraction engine', async (t) => {
     assert.equal(result.comments.length, 1);
     assert.deepEqual(
       Object.keys(result.comments[0]).sort(),
-      ['attachments', 'author', 'body', 'displayPosition', 'id', 'isReply', 'timestamp'].sort()
+      ['attachments', 'author', 'body', 'displayPosition', 'id', 'isReply', 'parentIndex', 'timestamp'].sort()
     );
   });
 
@@ -423,7 +423,7 @@ test('extract_case.js DOM extraction engine', async (t) => {
     assert.equal(result.caseNumber, '08603854');
     assert.equal(result.comments.length, 1);
     assert.equal(result.comments[0].body, 'Case severity escalated to Level 1.');
-    assert.equal(result.title, '');
+    assert.equal(result.title, null);
   });
 
   await t.test('extracts timestamps from span.cuf-timestamp, time, and uiOutputDateTime elements', () => {
@@ -635,12 +635,10 @@ test('extract_case.js DOM extraction engine', async (t) => {
 
     assert.equal(result.caseNumber, '08603854');
     assert.equal(result.contactName, 'Mai Ngoc');
-    assert.equal(result.raisedBy, 'Mai Ngoc');
     assert.equal(result.openedAt, '08/10/2026, 09:30 AM');
     assert.equal(result.closedAt, '08/20/2026, 04:15 PM');
     assert.equal(result.customerProject, 'VinFast VF9 MY26');
     assert.equal(result.accountName, 'VinFast Auto LLC');
-    assert.equal(result.customer, 'VinFast Auto LLC');
     assert.equal(result.relatedCRs, 'CR3798678, CR3801234');
     assert.equal(result.caseRecordType, 'Customer Support');
     assert.equal(result.description, 'VoNR call drops during 5G SA to EPS Fallback transition.');
@@ -1211,7 +1209,7 @@ test('extract_case.js deep Shadow DOM metadata and Description extraction', asyn
 
       const result = runInMockContext(EXTRACT_SCRIPT, { doc });
       // Help tooltip text is never extracted as field value
-      assert.equal(result.relatedCRs, '');
+      assert.equal(result.relatedCRs, null);
     });
 
     await st.test('fixture 3: nested reply timestamp without title vs top-level post with title (Case 08642051)', () => {

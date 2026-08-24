@@ -282,13 +282,13 @@ describe('extractSummary', () => {
 describe('synthesizeDescriptionComment', () => {
   it('synthesizes a structured initial comment when description is non-empty', () => {
     const raw = {
-      customer: 'Test OEM',
-      created: '2026-08-20T10:00:00Z',
+      contactName: 'Test Contact',
+      openedAt: '2026-08-20T10:00:00Z',
       description: 'Dear Qualcomm team,\n\nDevice encounters modem crash during VoNR call setup. Reproduction logs are attached.',
     };
     const c = m.synthesizeDescriptionComment(raw);
     assert.ok(c);
-    assert.equal(c.author, 'Test OEM');
+    assert.equal(c.author, 'Test Contact');
     assert.equal(c.timestamp, '2026-08-20T10:00:00Z');
     assert.equal(c.body, raw.description);
     // No summary here: extractSummary is the single owner of preview
@@ -309,12 +309,10 @@ describe('synthesizeDescriptionComment', () => {
     assert.equal(c.body, 'Simple issue report text.');
   });
 
-  it('prioritizes contactName and openedAt over generic customer and created fields', () => {
+  it('uses contactName and openedAt when present', () => {
     const raw = {
       contactName: 'Mai Ngoc',
-      customer: 'VinFast Auto LLC',
       openedAt: 'August 20, 2026 at 10:00 AM',
-      created: 'August 19, 2026',
       description: 'VoNR registration failure on n78.',
     };
     const c = m.synthesizeDescriptionComment(raw);
@@ -711,8 +709,8 @@ describe('finalize (child process)', () => {
       const root = fixture();
       const rawWithDesc = {
         ...RAW,
-        customer: 'Acme Corp',
-        created: 'August 15, 2026 at 9:00 AM',
+        contactName: 'Acme Corp',
+        openedAt: 'August 15, 2026 at 9:00 AM',
         description: 'Device crashes during 5G SA handover. Please find attached reproduction logs.',
       };
       const { exit, verdict } = runFinalize(root, rawWithDesc);
@@ -731,12 +729,12 @@ describe('finalize (child process)', () => {
       assert.equal(saved.description, rawWithDesc.description, 'retains root description for backward compatibility');
     });
 
-    it('falls back to "Reporter" and empty timestamp when customer and created are absent', () => {
+    it('falls back to "Reporter" and empty timestamp when contactName and openedAt are absent', () => {
       const root = fixture();
       const rawWithDesc = {
         ...RAW,
-        customer: '',
-        created: '',
+        contactName: '',
+        openedAt: '',
         description: 'Simple problem description without metadata.',
       };
       const { exit } = runFinalize(root, rawWithDesc);
@@ -768,8 +766,8 @@ describe('finalize (child process)', () => {
       const root = fixture();
       const initialRaw = {
         ...RAW,
-        customer: 'Acme Corp',
-        created: 'August 18, 2026 at 9:00 AM',
+        contactName: 'Acme Corp',
+        openedAt: 'August 18, 2026 at 9:00 AM',
         description: 'UE fails to attach to cell.',
       };
       const r1 = runFinalize(root, initialRaw);
@@ -803,10 +801,10 @@ describe('finalize (child process)', () => {
         ...RAW,
         contactName: 'Mai Ngoc',
         customerProject: 'VinFast VF9 MY26',
+        customerTracking: 'CT-9988',
         openedAt: 'August 10, 2026 at 09:30 AM',
         closedAt: 'August 20, 2026 at 04:15 PM',
         accountName: 'VinFast Auto LLC',
-        customer: 'VinFast Auto LLC',
         relatedCRs: 'CR3798678, CR3801234',
         caseRecordType: 'Customer Support',
         description: 'VoNR call drops during 5G SA to EPS Fallback transition.',
@@ -816,12 +814,11 @@ describe('finalize (child process)', () => {
 
       const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
       assert.equal(saved.contactName, 'Mai Ngoc');
-      assert.equal(saved.raisedBy, 'Mai Ngoc');
       assert.equal(saved.customerProject, 'VinFast VF9 MY26');
+      assert.equal(saved.customerTracking, 'CT-9988');
       assert.equal(saved.openedAt, 'August 10, 2026 at 09:30 AM');
       assert.equal(saved.closedAt, 'August 20, 2026 at 04:15 PM');
       assert.equal(saved.accountName, 'VinFast Auto LLC');
-      assert.equal(saved.customer, 'VinFast Auto LLC');
       assert.equal(saved.relatedCRs, 'CR3798678, CR3801234');
       assert.equal(saved.caseRecordType, 'Customer Support');
       assert.equal(saved.description, 'VoNR call drops during 5G SA to EPS Fallback transition.');
@@ -837,6 +834,7 @@ describe('finalize (child process)', () => {
         ...RAW,
         contactName: 'Mai Ngoc',
         customerProject: 'VinFast VF9 MY26',
+        customerTracking: 'CT-9988',
         openedAt: 'August 10, 2026 at 09:30 AM',
         closedAt: 'August 20, 2026 at 04:15 PM',
         accountName: 'VinFast Auto LLC',
@@ -862,14 +860,71 @@ describe('finalize (child process)', () => {
 
       const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
       assert.equal(saved.contactName, 'Mai Ngoc');
-      assert.equal(saved.raisedBy, 'Mai Ngoc');
       assert.equal(saved.customerProject, 'VinFast VF9 MY26');
+      assert.equal(saved.customerTracking, 'CT-9988');
       assert.equal(saved.openedAt, 'August 10, 2026 at 09:30 AM');
       assert.equal(saved.closedAt, 'August 20, 2026 at 04:15 PM');
       assert.equal(saved.accountName, 'VinFast Auto LLC');
       assert.equal(saved.relatedCRs, 'CR3798678');
       assert.equal(saved.caseRecordType, 'Customer Support');
       assert.equal(saved.description, 'VoNR call drops during 5G SA.');
+    });
+
+    it('derives parentId correctly for 1 post and 3 replies', () => {
+      const root = fixture();
+      const rawThread = {
+        caseNumber: '08633581',
+        title: 'Crash during handover',
+        comments: [
+          { author: 'Alice', body: 'Post 1', timestamp: '2026-08-10T10:00:00Z', parentIndex: null },
+          { author: 'Bob', body: 'Reply 1a', timestamp: '2026-08-10T11:00:00Z', parentIndex: 0 },
+          { author: 'Charlie', body: 'Reply 1b', timestamp: '2026-08-10T12:00:00Z', parentIndex: 0 },
+          { author: 'Alice', body: 'Reply 1c', timestamp: '2026-08-10T13:00:00Z', parentIndex: 0 },
+        ],
+      };
+      const { exit } = runFinalize(root, rawThread);
+      assert.equal(exit, m.EXIT.OK);
+
+      const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
+      assert.equal(saved.comments.length, 4);
+      assert.equal(saved.comments[0].parentId, null);
+      const post1Id = saved.comments[0].id;
+      assert.equal(saved.comments[1].parentId, post1Id);
+      assert.equal(saved.comments[2].parentId, post1Id);
+      assert.equal(saved.comments[3].parentId, post1Id);
+      assert.equal('parentIndex' in saved.comments[1], false);
+      assert.equal('isReply' in saved.comments[1], false);
+    });
+
+    it('resolves parentId on a 2-phase capture (--merge)', () => {
+      const root = fixture();
+      const initialCapture = {
+        caseNumber: '08633581',
+        title: 'Crash during handover',
+        comments: [
+          { author: 'Alice', body: 'Post 1', timestamp: '2026-08-10T10:00:00Z', parentIndex: null },
+        ],
+      };
+      const r1 = runFinalize(root, initialCapture);
+      assert.equal(r1.exit, m.EXIT.OK);
+
+      const updateCapture = {
+        caseNumber: '08633581',
+        title: 'Crash during handover',
+        comments: [
+          { author: 'Alice', body: 'Post 1', timestamp: '2026-08-10T10:00:00Z', parentIndex: null },
+          { author: 'Bob', body: 'Reply 1a', timestamp: '2026-08-10T11:00:00Z', parentIndex: 0 },
+        ],
+      };
+      const r2 = runFinalize(root, updateCapture, ['--merge']);
+      assert.equal(r2.exit, m.EXIT.OK);
+
+      const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
+      assert.equal(saved.comments.length, 2);
+      const post1 = saved.comments.find(c => c.body === 'Post 1');
+      const reply1a = saved.comments.find(c => c.body === 'Reply 1a');
+      assert.equal(post1.parentId, null);
+      assert.equal(reply1a.parentId, post1.id);
     });
   });
 

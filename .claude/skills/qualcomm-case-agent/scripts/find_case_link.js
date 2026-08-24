@@ -53,7 +53,6 @@
       else if (/status/.test(key)) { if (!fields.status) fields.status = val; }
       else if (/priority/.test(key)) { if (!fields.priority) fields.priority = val; }
       else if (/severity/.test(key)) { if (!fields.severity) fields.severity = val; }
-      else if (/account|customer/.test(key)) { if (!fields.customer) fields.customer = val; }
     }
   }
 

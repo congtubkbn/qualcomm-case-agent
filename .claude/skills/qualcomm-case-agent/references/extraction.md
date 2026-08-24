@@ -300,9 +300,10 @@ edit it in place when the live DOM differs rather than writing a throwaway extra
 every future run. Key shape it returns:
 
 ```js
-{ caseNumber, title, status, priority, severity, product, customer, created, updated,
+{ caseNumber, title, status, priority, severity, product, accountName, contactName, customerProject,
+  customerTracking, relatedCRs, caseRecordType, openedAt, closedAt, updated,
   description, url, displayedCommentCount,
-  comments: [ { id, timestamp, company, author, role, body, analysisLog, attachments } ] }
+  comments: [ { id, timestamp, author, body, isReply, parentIndex, displayPosition, attachments } ] }
 ```
 
 ## Completeness cross-check (the strongest "got everything" signal)

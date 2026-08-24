@@ -60,9 +60,9 @@ describe('render_case: case.md content structure', () => {
       severity: 'S1',
       product: 'Snapdragon X75',
       component: 'Modem RF',
-      customer: 'OEM-Alpha',
+      accountName: 'OEM-Alpha',
       url: 'https://support.qualcomm.com/case/08460319',
-      created: '2026-08-18T08:00:00.000Z',
+      openedAt: '2026-08-18T08:00:00.000Z',
       updated: '2026-08-20T14:30:00.000Z',
       extractedAt: '2026-08-22T00:00:00.000Z',
       description: 'UE fails registration on n78 standalone cell during initial attach.',
@@ -105,8 +105,8 @@ describe('render_case: case.md content structure', () => {
     assert.match(md, /\| Severity \| S1 \|/);
     assert.match(md, /\| Product \| Snapdragon X75 \|/);
     assert.match(md, /\| Component \| Modem RF \|/);
-    assert.match(md, /\| Customer \| OEM-Alpha \|/);
-    assert.match(md, /\| Created \| 2026-08-18T08:00:00\.000Z \|/);
+    assert.match(md, /\| Account Name \| OEM-Alpha \|/);
+    assert.match(md, /\| Date Opened \| 2026-08-18T08:00:00\.000Z \|/);
     assert.match(md, /\| Updated \| 2026-08-20T14:30:00\.000Z \|/);
     assert.match(md, /\| Comments \| 2 \|/);
     assert.match(md, /\| Synced \| 2026-08-22T00:00:00\.000Z \|/);
@@ -128,7 +128,7 @@ describe('render_case: case.md content structure', () => {
     assert.match(md, /\*\*Attachments:\*\*\r?\n- \[mask_config\.cfg\]\(https:\/\/support\.qualcomm\.com\/f\/cfg123\)\r?\n- \[readme\.txt\]\(https:\/\/support\.qualcomm\.com\/f\/txt123\)/);
   });
 
-  it('renders Salesforce Detail tab metadata (Contact Name, Customer Project, Date Opened, Date Closed, Related CRs, Case Record Type)', () => {
+  it('renders Salesforce Detail tab metadata (Contact Name, Customer Project, Customer Tracking, Account Name, Date Opened, Date Closed, Related CRs, Case Record Type)', () => {
     const detailCase = {
       caseNumber: '08550063',
       title: '5G NR throughput drop on SA network',
@@ -137,13 +137,12 @@ describe('render_case: case.md content structure', () => {
       product: 'SM7635',
       contactName: 'Mai Ngoc',
       customerProject: 'Titan-5G',
+      customerTracking: 'CT-999',
       accountName: 'OEM-Alpha',
-      customer: 'OEM-Alpha',
       caseRecordType: 'External Case',
       relatedCRs: 'CR3798678, CR3801234',
       openedAt: '2026-08-18 10:00',
       closedAt: '2026-08-20 15:30',
-      created: '2026-08-18 10:00',
       updated: '2026-08-20 15:30',
       comments: [
         comment('Mai Ngoc', 'Initial issue description with logs.'),
@@ -156,10 +155,56 @@ describe('render_case: case.md content structure', () => {
 
     assert.match(md, /\| Contact Name \| Mai Ngoc \|/);
     assert.match(md, /\| Customer Project \| Titan-5G \|/);
+    assert.match(md, /\| Customer Tracking \| CT-999 \|/);
+    assert.match(md, /\| Account Name \| OEM-Alpha \|/);
     assert.match(md, /\| Date Opened \| 2026-08-18 10:00 \|/);
     assert.match(md, /\| Date Closed \| 2026-08-20 15:30 \|/);
     assert.match(md, /\| Case Record Type \| External Case \|/);
     assert.match(md, /\| Related CRs \| CR3798678, CR3801234 \|/);
+  });
+
+  it('renders threaded replies with ↳ prefix and blockquoted body (Variant A)', () => {
+    const threadedCase = {
+      caseNumber: '08633581',
+      title: 'Modem crash during handover',
+      status: 'Open',
+      comments: [
+        {
+          id: 'c1',
+          author: 'Alice',
+          timestamp: '2026-08-18T08:00:00.000Z',
+          body: 'Top-level post describing the handover crash.',
+          parentId: null,
+        },
+        {
+          id: 'c2',
+          author: 'Bob (Qualcomm)',
+          timestamp: '2026-08-18T09:00:00.000Z',
+          body: 'First reply asking for logs.\nLine two of reply.',
+          parentId: 'c1',
+        },
+        {
+          id: 'c3',
+          author: 'Alice',
+          timestamp: '2026-08-18T10:00:00.000Z',
+          body: 'Second reply with logs attached.',
+          parentId: 'c1',
+        },
+      ],
+    };
+
+    const r = renderFixture(threadedCase);
+    assert.equal(r.exit, 0);
+    const md = r.md();
+
+    assert.match(md, /### 1\. 2026-08-18T08:00:00\.000Z · Alice/);
+    assert.match(md, /Top-level post describing the handover crash\./);
+
+    assert.match(md, /### 2\. ↳ 2026-08-18T09:00:00\.000Z · Bob \(Qualcomm\)/);
+    assert.match(md, /> First reply asking for logs\.\s*\r?\n> Line two of reply\./);
+
+    assert.match(md, /### 3\. ↳ 2026-08-18T10:00:00\.000Z · Alice/);
+    assert.match(md, /> Second reply with logs attached\./);
   });
 
   it('does not render obsolete enrichment / LLM sections', () => {
