@@ -29,7 +29,8 @@ describe('renderSummaryMd — case metadata header + executive summary', () => {
     assert.match(md, /^- \*\*Status\*\*: Closed-Customer Requested$/m);
     assert.match(md, /^- \*\*Priority\*\*: 1 - Critical$/m);
     assert.match(md, /^- \*\*Product\*\*: SDX75$/m);
-    assert.match(md, /^- \*\*Portal\*\*: \[Open in Qualcomm Profile \(qc:\/\/\)\]\(qc:\/\/case\/08642051\) · \[Web Link\]\(https:\/\/support\.qualcomm\.com\/s\/case\/500dK00000OU6BqQAL\/p26080302707\)$/m);
+    assert.match(md, /^- \*\*Portal\*\*: \[Open in Qualcomm Profile \(qc:\/\/\)\]\(qc:\/\/case\/08642051\)$/m);
+    assert.doesNotMatch(md, /Web Link/);
 
     assert.match(md, /^## Executive Summary$/m);
     assert.match(md, /^- \*\*Ball in Court\*\*: Closed$/m);
@@ -50,7 +51,8 @@ describe('renderSummaryMd — case metadata header + executive summary', () => {
       flow: 'flow text',
     });
 
-    assert.match(md, /^- \*\*Portal\*\*: \[Open in Qualcomm Profile \(qc:\/\/\)\]\(qc:\/\/case\/08550063\) · \[Web Link\]\(https:\/\/support\.qualcomm\.com\/s\/global-search\/08550063\)$/m);
+    assert.match(md, /^- \*\*Portal\*\*: \[Open in Qualcomm Profile \(qc:\/\/\)\]\(qc:\/\/case\/08550063\)$/m);
+    assert.doesNotMatch(md, /Web Link/);
   });
 
   it('minimal summary (missing title/priority/executive) renders gracefully matching legacy output format', () => {

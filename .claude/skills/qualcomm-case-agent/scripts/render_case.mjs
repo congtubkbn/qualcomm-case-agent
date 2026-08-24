@@ -123,11 +123,8 @@ export function generateMarkdown(data, stem = 'case') {
     for (const [k, v] of meta) L.push(`| ${k} | ${mdCell(v)} |`);
   }
   const caseNum = S(data?.caseNumber) || (stem !== 'case' ? stem : '');
-  const webUrl = S(data?.url) || (caseNum ? `https://support.qualcomm.com/s/global-search/${encodeURIComponent(caseNum)}` : '');
-  if (caseNum && webUrl) {
-    L.push(`- **Portal:** [Open in Qualcomm Profile (qc://)](qc://case/${caseNum}) · [Web Link](${webUrl})`);
-  } else if (webUrl) {
-    L.push(`- **Portal:** [Web Link](${webUrl})`);
+  if (caseNum) {
+    L.push(`- **Portal:** [Open in Qualcomm Profile (qc://)](qc://case/${caseNum})`);
   }
   L.push('');
 

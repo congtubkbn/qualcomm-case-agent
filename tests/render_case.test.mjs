@@ -110,7 +110,7 @@ describe('render_case: case.md content structure', () => {
     assert.match(md, /\| Updated \| 2026-08-20T14:30:00\.000Z \|/);
     assert.match(md, /\| Comments \| 2 \|/);
     assert.match(md, /\| Synced \| 2026-08-22T00:00:00\.000Z \|/);
-    assert.match(md, /- \*\*Portal:\*\* \[Open in Qualcomm Profile \(qc:\/\/\)\]\(qc:\/\/case\/08460319\) · \[Web Link\]\(https:\/\/support\.qualcomm\.com\/case\/08460319\)/);
+    assert.match(md, /- \*\*Portal:\*\* \[Open in Qualcomm Profile \(qc:\/\/\)\]\(qc:\/\/case\/08460319\)/);
 
     // 2. Description section is rendered before timeline
     assert.match(md, /## Description\r?\n\r?\nUE fails registration on n78 standalone cell during initial attach\./);
@@ -655,8 +655,8 @@ describe('render_case: issue #95 portal structure, Description section, role lab
   });
 });
 
-describe('render_case: issue #102 smart dual links', () => {
-  it('renders dual links (qc:// and Web Link) when url is explicitly provided in case.json', () => {
+describe('render_case: issue #122 portal line — no Web Link', () => {
+  it('renders only qc:// link when url is explicitly provided in case.json', () => {
     const caseData = {
       caseNumber: '08603854',
       title: 'Modem Crash on Handover',
@@ -670,11 +670,12 @@ describe('render_case: issue #102 smart dual links', () => {
 
     assert.match(
       md,
-      /- \*\*Portal:\*\* \[Open in Qualcomm Profile \(qc:\/\/\)\]\(qc:\/\/case\/08603854\) · \[Web Link\]\(https:\/\/support\.qualcomm\.com\/s\/case\/500dK00000OU6BqQAL\/p26080302707\)/
+      /- \*\*Portal:\*\* \[Open in Qualcomm Profile \(qc:\/\/\)\]\(qc:\/\/case\/08603854\)/
     );
+    assert.doesNotMatch(md, /Web Link/);
   });
 
-  it('renders dual links falling back to Qualcomm global search URL when url is absent in case.json', () => {
+  it('renders only qc:// link when url is absent in case.json (no fallback web link)', () => {
     const caseData = {
       caseNumber: '08550063',
       title: '5G NR throughput drop on SA network',
@@ -687,11 +688,12 @@ describe('render_case: issue #102 smart dual links', () => {
 
     assert.match(
       md,
-      /- \*\*Portal:\*\* \[Open in Qualcomm Profile \(qc:\/\/\)\]\(qc:\/\/case\/08550063\) · \[Web Link\]\(https:\/\/support\.qualcomm\.com\/s\/global-search\/08550063\)/
+      /- \*\*Portal:\*\* \[Open in Qualcomm Profile \(qc:\/\/\)\]\(qc:\/\/case\/08550063\)/
     );
+    assert.doesNotMatch(md, /Web Link/);
   });
 
-  it('handles missing caseNumber gracefully while preserving web link', () => {
+  it('omits Portal line entirely when caseNumber is missing', () => {
     const caseData = {
       title: 'Case without number',
       url: 'https://support.qualcomm.com/s/case/500dK00000OU6BqQAL',
@@ -702,10 +704,8 @@ describe('render_case: issue #102 smart dual links', () => {
     assert.equal(r.exit, 0);
     const md = r.md();
 
-    assert.match(
-      md,
-      /- \*\*Portal:\*\* \[Web Link\]\(https:\/\/support\.qualcomm\.com\/s\/case\/500dK00000OU6BqQAL\)/
-    );
+    assert.doesNotMatch(md, /\*\*Portal:\*\*/);
+    assert.doesNotMatch(md, /Web Link/);
   });
 });
 
