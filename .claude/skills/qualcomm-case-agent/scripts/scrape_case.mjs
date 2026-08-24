@@ -799,6 +799,11 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
     }
   }
 
+  // Normalize URL to always point to Communication tab (tabset-XXXX=1)
+  if (typeof out.url === 'string' && out.url.trim()) {
+    out.url = out.url.replace(/tabset-([a-zA-Z0-9_-]+)=\d+/gi, 'tabset-$1=1');
+  }
+
   // Hard gate: a genuinely NEW comment that still carries the "Expand Post"
   // control label is a half-captured post, whatever the cause. Reject rather
   // than persist it — a truncated body silently baked into the cache is worse

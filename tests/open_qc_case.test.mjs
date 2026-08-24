@@ -14,6 +14,7 @@ const {
   resolveTargetUrl,
   dispatchQcTarget,
   openQcCase,
+  ensureCommunicationTabUrl,
 } = await import(new URL('../scripts/open_qc_case.mjs', import.meta.url));
 
 describe('qc:// Protocol Dispatcher (open_qc_case.mjs)', () => {
@@ -113,18 +114,40 @@ describe('qc:// Protocol Dispatcher (open_qc_case.mjs)', () => {
     });
   });
 
-  describe('resolveTargetUrl', () => {
-    it('returns direct URL when type is url', () => {
-      const directUrl = 'https://support.qualcomm.com/s/case/5002000000abcde';
-      const url = resolveTargetUrl({ type: 'url', url: directUrl });
-      assert.equal(url, directUrl);
+  describe('ensureCommunicationTabUrl', () => {
+    it('rewrites tabset-XXXX=2 parameter to tabset-XXXX=1', () => {
+      const url = 'https://support.qualcomm.com/s/case/500dK00000O6MRRQA3/foo?tabset-8baba=2';
+      assert.equal(ensureCommunicationTabUrl(url), 'https://support.qualcomm.com/s/case/500dK00000O6MRRQA3/foo?tabset-8baba=1');
     });
 
-    it('reads URL from cached case.json if available', () => {
+    it('rewrites tabset-XXXX=3 parameter to tabset-XXXX=1', () => {
+      const url = 'https://support.qualcomm.com/s/case/500dK00000O6MRRQA3/foo?tabset-7b221=3';
+      assert.equal(ensureCommunicationTabUrl(url), 'https://support.qualcomm.com/s/case/500dK00000O6MRRQA3/foo?tabset-7b221=1');
+    });
+
+    it('leaves URL unchanged if it already uses tabset-XXXX=1', () => {
+      const url = 'https://support.qualcomm.com/s/case/500dK00000O6MRRQA3/foo?tabset-8baba=1';
+      assert.equal(ensureCommunicationTabUrl(url), url);
+    });
+
+    it('leaves non-tabset URLs unchanged', () => {
+      const url = 'https://support.qualcomm.com/s/case/500dK00000O6MRRQA3/foo';
+      assert.equal(ensureCommunicationTabUrl(url), url);
+    });
+  });
+
+  describe('resolveTargetUrl', () => {
+    it('returns direct URL when type is url and rewrites Detail tab parameter to Communication tab', () => {
+      const directUrl = 'https://support.qualcomm.com/s/case/5002000000abcde?tabset-8baba=2';
+      const url = resolveTargetUrl({ type: 'url', url: directUrl });
+      assert.equal(url, 'https://support.qualcomm.com/s/case/5002000000abcde?tabset-8baba=1');
+    });
+
+    it('reads URL from cached case.json and rewrites tabset-XXXX=2 to tabset-XXXX=1', () => {
       const caseNumber = '08603854';
       const caseFolder = join(casesDir, caseNumber);
       mkdirSync(caseFolder, { recursive: true });
-      const cachedUrl = 'https://support.qualcomm.com/s/case/5004W00002FkXYZ';
+      const cachedUrl = 'https://support.qualcomm.com/s/case/5004W00002FkXYZ?tabset-8baba=2';
       writeFileSync(join(caseFolder, 'case.json'), JSON.stringify({
         caseNumber,
         url: cachedUrl,
@@ -132,7 +155,7 @@ describe('qc:// Protocol Dispatcher (open_qc_case.mjs)', () => {
       }));
 
       const url = resolveTargetUrl({ type: 'case', caseNumber }, { casesDir });
-      assert.equal(url, cachedUrl);
+      assert.equal(url, 'https://support.qualcomm.com/s/case/5004W00002FkXYZ?tabset-8baba=1');
     });
 
     it('falls back to global search URL when case.json is missing', () => {

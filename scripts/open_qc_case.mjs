@@ -133,6 +133,18 @@ export function parseQcUri(uriString) {
 }
 
 /**
+ * Ensures a Qualcomm support case URL activates tab 1 (Communication tab) by default.
+ * Replaces tabset-([a-zA-Z0-9_-]+)=\d+ with tabset-$1=1.
+ *
+ * @param {string} urlString
+ * @returns {string}
+ */
+export function ensureCommunicationTabUrl(urlString) {
+  if (typeof urlString !== 'string' || !urlString.trim()) return urlString;
+  return urlString.replace(/tabset-([a-zA-Z0-9_-]+)=\d+/gi, 'tabset-$1=1');
+}
+
+/**
  * Resolve destination URL for a parsed target object.
  * Reads data/cases/<caseNumber>/case.json if available; falls back to Qualcomm global search.
  *
@@ -142,26 +154,32 @@ export function parseQcUri(uriString) {
  * @returns {string}
  */
 export function resolveTargetUrl(parsed, options = {}) {
+  let targetUrl;
+
   if (parsed.type === 'url') {
-    return parsed.url;
-  }
+    targetUrl = parsed.url;
+  } else {
+    const casesDir = options.casesDir || DEFAULT_CASES_DIR;
+    const caseJsonPath = join(casesDir, parsed.caseNumber, 'case.json');
 
-  const casesDir = options.casesDir || DEFAULT_CASES_DIR;
-  const caseJsonPath = join(casesDir, parsed.caseNumber, 'case.json');
-
-  if (existsSync(caseJsonPath)) {
-    try {
-      const raw = readFileSync(caseJsonPath, 'utf8');
-      const data = JSON.parse(raw);
-      if (typeof data.url === 'string' && data.url.trim().length > 0) {
-        return data.url.trim();
+    if (existsSync(caseJsonPath)) {
+      try {
+        const raw = readFileSync(caseJsonPath, 'utf8');
+        const data = JSON.parse(raw);
+        if (typeof data.url === 'string' && data.url.trim().length > 0) {
+          targetUrl = data.url.trim();
+        }
+      } catch {
+        // Fall through to fallback search URL on read/parse error
       }
-    } catch {
-      // Fall through to fallback search URL on read/parse error
+    }
+
+    if (!targetUrl) {
+      targetUrl = `https://support.qualcomm.com/s/global-search/${encodeURIComponent(parsed.caseNumber)}`;
     }
   }
 
-  return `https://support.qualcomm.com/s/global-search/${encodeURIComponent(parsed.caseNumber)}`;
+  return ensureCommunicationTabUrl(targetUrl);
 }
 
 /**
