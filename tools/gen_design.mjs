@@ -47,7 +47,7 @@ function listCode(dir) {
 
 /** First sentence of a file's header comment: `//`/`#` runs, or a PowerShell `<# … #>` block. */
 export function headerPurpose(src, fileName) {
-  const lines = src.split('\n');
+  const lines = src.split(/\r?\n/);
   let i = 0;
   while (i < lines.length && (lines[i].trim() === '' || lines[i].startsWith('#!'))) i++;
 
@@ -91,7 +91,7 @@ function docAbove(lines, line) {
 
 /** Exported symbols of an ES module: { name, kind, signature, doc }. */
 export function exportsOf(src) {
-  const lines = src.split('\n');
+  const lines = src.split(/\r?\n/);
   const out = [];
   const re = /^export\s+(?:(async)\s+)?(function|class|const|let)\s+([A-Za-z_$][\w$]*)(.*)$/;
   lines.forEach((line, i) => {
