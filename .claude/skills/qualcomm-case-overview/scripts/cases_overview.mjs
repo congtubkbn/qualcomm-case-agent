@@ -379,9 +379,11 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     else if (cat === 'action_required') actionCount++;
   }
 
+  const STATUS_SHORT_LABEL = { open: 'OPEN', in_progress: 'PROG', action_required: 'ACTION', closed: 'DONE', other: '—' };
+
   const rowsHtml = cases.map((c) => {
     const category = getStatusCategory(c.status);
-    const badgeClass = `badge-${category}`;
+    const statusShortLabel = STATUS_SHORT_LABEL[category] || '—';
     const escapedCaseNum = escapeHtml(c.caseNumber);
     const escapedTitle = escapeHtml(c.title || 'Untitled Case');
     const escapedStatus = escapeHtml(c.status || 'Unknown');
@@ -467,7 +469,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         <td class="caret-cell"><span class="caret">▸</span></td>
         <td class="cell-case">${caseNumElement}</td>
         <td class="cell-title">${titleElement}</td>
-        <td><span class="badge ${badgeClass}">${escapedStatus}</span></td>
+        <td><span class="status-tag status-tag-${category}" title="${escapedStatus}">${statusShortLabel}</span></td>
         <td class="cell-num">${escapedPriority}</td>
         <td>${escapedProduct}${projectBadge}</td>
         <td>${escapedRaisedBy}</td>
@@ -497,21 +499,21 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
   <title>Qualcomm Cases Dashboard</title>
   <style>
     :root {
-      --bg: #f8fafc;
+      --bg: #fafaf9;
       --card-bg: #ffffff;
-      --text-primary: #0f172a;
-      --text-secondary: #475569;
-      --text-muted: #94a3b8;
-      --border: #e2e8f0;
-      --border-subtle: #f8fafc;
-      --accent: #2563eb;
-      --accent-hover: #1d4ed8;
+      --text-primary: #18181b;
+      --text-secondary: #52525b;
+      --text-muted: #a1a1aa;
+      --border: #d4d4d8;
+      --border-strong: #a1a1aa;
+      --border-subtle: #f4f4f5;
+      --accent: #1d4ed8;
+      --accent-hover: #1e40af;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       --badge-open-bg: #eff6ff;
       --badge-open-text: #1d4ed8;
-      --badge-progress-bg: #fffbeb;
       --badge-progress-text: #b45309;
-      --badge-closed-bg: #f1f5f9;
-      --badge-closed-text: #475569;
+      --badge-closed-text: #52525b;
       --badge-action-bg: #fef2f2;
       --badge-action-text: #b91c1c;
       --summary-bg: #f0fdf4;
@@ -531,14 +533,13 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       --text-secondary: #cbd5e1;
       --text-muted: #64748b;
       --border: #334155;
+      --border-strong: #475569;
       --border-subtle: #182234;
       --accent: #3b82f6;
       --accent-hover: #60a5fa;
       --badge-open-bg: rgba(59, 130, 246, 0.15);
       --badge-open-text: #93c5fd;
-      --badge-progress-bg: rgba(245, 158, 11, 0.15);
       --badge-progress-text: #fcd34d;
-      --badge-closed-bg: rgba(148, 163, 184, 0.15);
       --badge-closed-text: #cbd5e1;
       --badge-action-bg: rgba(239, 68, 68, 0.15);
       --badge-action-text: #fca5a5;
@@ -557,14 +558,13 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         --text-secondary: #cbd5e1;
         --text-muted: #64748b;
         --border: #334155;
+        --border-strong: #475569;
         --border-subtle: #182234;
         --accent: #3b82f6;
         --accent-hover: #60a5fa;
         --badge-open-bg: rgba(59, 130, 246, 0.15);
         --badge-open-text: #93c5fd;
-        --badge-progress-bg: rgba(245, 158, 11, 0.15);
         --badge-progress-text: #fcd34d;
-        --badge-closed-bg: rgba(148, 163, 184, 0.15);
         --badge-closed-text: #cbd5e1;
         --badge-action-bg: rgba(239, 68, 68, 0.15);
         --badge-action-text: #fca5a5;
@@ -598,9 +598,15 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       border-bottom: 1px solid var(--border);
     }
     .brand-title {
-      font-size: 24px;
+      font-size: 15px;
       font-weight: 700;
-      letter-spacing: -0.02em;
+      letter-spacing: 0.01em;
+    }
+    .meta {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
     }
     .header-actions {
       display: flex;
@@ -615,22 +621,21 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       background: var(--card-bg);
       border: 1px solid var(--border);
       padding: 4px 10px;
-      border-radius: var(--radius-sm);
-      font-size: 13px;
+      font-family: var(--mono);
+      font-size: 11px;
     }
     .refresh-label {
       color: var(--text-secondary);
       font-weight: 500;
-      font-size: 12px;
+      font-size: 11px;
     }
     .refresh-select {
       background: var(--bg);
       border: 1px solid var(--border);
       color: var(--text-primary);
-      padding: 4px 8px;
-      border-radius: var(--radius-sm);
-      font-size: 12px;
-      font-weight: 500;
+      font-family: var(--mono);
+      padding: 3px 6px;
+      font-size: 11px;
       cursor: pointer;
       outline: none;
     }
@@ -638,19 +643,18 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       border-color: var(--accent);
     }
     .countdown-ticker {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 12px;
+      font-family: var(--mono);
+      font-size: 11px;
       color: var(--text-muted);
-      min-width: 145px;
+      min-width: 135px;
     }
     .refresh-btn {
       background: transparent;
       border: 1px solid var(--border);
       color: var(--text-secondary);
+      font-family: var(--mono);
       padding: 4px 8px;
-      border-radius: var(--radius-sm);
-      font-size: 12px;
-      font-weight: 500;
+      font-size: 11px;
       cursor: pointer;
       transition: all 0.15s ease;
     }
@@ -663,32 +667,14 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       background: var(--card-bg);
       border: 1px solid var(--border);
       color: var(--text-primary);
-      padding: 8px 14px;
-      border-radius: var(--radius-sm);
+      font-family: var(--mono);
+      padding: 4px 10px;
       cursor: pointer;
-      font-size: 13px;
-      font-weight: 500;
+      font-size: 11px;
       transition: all 0.15s ease;
     }
     .theme-toggle-btn:hover {
       border-color: var(--accent);
-    }
-    .stats-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-bottom: 20px;
-    }
-    .stat-pill {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      padding: 6px 14px;
-      border-radius: 9999px;
-      font-size: 13px;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 6px;
     }
     .controls-bar {
       display: flex;
@@ -710,43 +696,45 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     }
     .search-input {
       width: 100%;
-      padding: 10px 14px;
-      border-radius: var(--radius-md);
+      padding: 7px 10px;
       border: 1px solid var(--border);
       background: var(--card-bg);
       color: var(--text-primary);
-      font-size: 14px;
+      font-size: 13px;
       outline: none;
       transition: border-color 0.15s ease;
     }
     .search-input:focus {
       border-color: var(--accent);
-      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+      outline: 1px solid var(--accent);
+      outline-offset: 1px;
     }
     .filter-tabs {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
+      border: 1px solid var(--border);
+      width: fit-content;
     }
     .filter-tab {
       background: var(--card-bg);
-      border: 1px solid var(--border);
+      border: none;
+      border-right: 1px solid var(--border);
       color: var(--text-secondary);
-      padding: 8px 14px;
-      border-radius: var(--radius-md);
-      font-size: 13px;
-      font-weight: 500;
+      padding: 7px 12px;
+      font-family: var(--mono);
+      font-size: 11px;
       cursor: pointer;
       transition: all 0.15s ease;
     }
+    .filter-tab:last-child {
+      border-right: none;
+    }
     .filter-tab:hover {
-      border-color: var(--accent);
       color: var(--text-primary);
     }
     .filter-tab.active {
-      background: var(--accent);
-      color: #ffffff;
-      border-color: var(--accent);
+      background: var(--text-primary);
+      color: var(--card-bg);
     }
     .table-wrap {
       overflow-x: auto;
@@ -762,12 +750,13 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     }
     .cases-table thead th {
       text-align: left;
-      font-size: 11px;
+      font-family: var(--mono);
+      font-size: 10.5px;
       text-transform: uppercase;
       letter-spacing: 0.04em;
       color: var(--text-muted);
-      border-bottom: 1px solid var(--border);
-      padding: 10px 12px;
+      border-bottom: 1px solid var(--border-strong);
+      padding: 8px 12px;
       white-space: nowrap;
     }
     tr.case-row {
@@ -805,6 +794,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       display: inline-block;
     }
     .cell-case {
+      font-family: var(--mono);
       white-space: nowrap;
     }
     .cell-title {
@@ -822,10 +812,12 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       text-decoration: underline;
     }
     .cell-num {
+      font-family: var(--mono);
       text-align: right;
       white-space: nowrap;
     }
     .cell-date {
+      font-family: var(--mono);
       white-space: nowrap;
       color: var(--text-muted);
     }
@@ -836,9 +828,9 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       justify-content: flex-end;
     }
     .case-number {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-family: var(--mono);
       font-weight: 700;
-      font-size: 16px;
+      font-size: 13px;
       color: var(--accent);
       text-decoration: none;
     }
@@ -849,10 +841,10 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     .action-btn, .copy-btn, .hide-btn, .unhide-btn {
       background: transparent;
       border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
       color: var(--text-secondary);
-      padding: 3px 8px;
-      font-size: 12px;
+      font-family: var(--mono);
+      padding: 2px 7px;
+      font-size: 10.5px;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
@@ -1052,7 +1044,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       gap: 10px;
     }
     .cmd-text {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-family: var(--mono);
       font-size: 12px;
       color: var(--text-primary);
       word-break: break-all;
@@ -1093,7 +1085,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       color: var(--text-muted);
     }
     .cmd-text-inline {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-family: var(--mono);
       background: var(--bg);
       border: 1px solid var(--border);
       padding: 2px 6px;
@@ -1101,7 +1093,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       color: var(--text-primary);
     }
     .code-inline {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-family: var(--mono);
       font-size: 0.9em;
       background: var(--border-subtle);
       padding: 1px 5px;
@@ -1118,12 +1110,23 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       text-transform: uppercase;
       letter-spacing: 0.04em;
     }
-    .badge-open { background: var(--badge-open-bg); color: var(--badge-open-text); }
-    .badge-in_progress { background: var(--badge-progress-bg); color: var(--badge-progress-text); }
-    .badge-closed { background: var(--badge-closed-bg); color: var(--badge-closed-text); }
-    .badge-action_required { background: var(--badge-action-bg); color: var(--badge-action-text); }
-    .badge-other { background: var(--badge-open-bg); color: var(--badge-open-text); }
     .badge-project { background: var(--border-subtle); color: var(--text-secondary); border: 1px solid var(--border); margin-left: 4px; }
+    .status-tag {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 1px 6px;
+      border: 1px solid currentColor;
+      white-space: nowrap;
+    }
+    .status-tag-open { color: var(--badge-open-text); }
+    .status-tag-in_progress { color: var(--badge-progress-text); }
+    .status-tag-closed { color: var(--badge-closed-text); }
+    .status-tag-action_required { color: var(--badge-action-text); }
+    .status-tag-other { color: var(--text-muted); }
     .ai-summary {
       background: var(--summary-bg);
       border: 1px solid var(--summary-border);
@@ -1206,8 +1209,8 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     <header>
       <div>
         <h1 class="brand-title">Qualcomm Cases Dashboard</h1>
-        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-          Last updated: ${escapeHtml(stats.lastUpdated || '')}
+        <div class="meta">
+          ${stats.total} cases — last updated: ${escapeHtml(stats.lastUpdated || '')}
         </div>
       </div>
       <div class="header-actions">
@@ -1228,14 +1231,6 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         <button id="themeToggle" class="theme-toggle-btn" type="button">🌓 Theme</button>
       </div>
     </header>
-
-    <div class="stats-row">
-      <div class="stat-pill">Total: ${stats.total}</div>
-      <div class="stat-pill" style="color: var(--badge-open-text);">Open: ${openCount}</div>
-      <div class="stat-pill" style="color: var(--badge-progress-text);">In Progress: ${progressCount}</div>
-      <div class="stat-pill" style="color: var(--badge-action-text);">Action Required: ${actionCount}</div>
-      <div class="stat-pill" style="color: var(--badge-closed-text);">Closed: ${closedCount}</div>
-    </div>
 
     <div class="controls-bar">
       <div class="search-box">

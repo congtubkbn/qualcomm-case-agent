@@ -113,14 +113,14 @@ describe('cases_overview_render: renderDashboardHtml', () => {
     assert.doesNotMatch(html, /<script>epsfb/);
   });
 
-  it('renders stats, header badges, search input, and filter tabs', () => {
+  it('renders header meta, search input, and filter tabs', () => {
     const data = createSampleOverviewData();
     const html = renderDashboardHtml(data);
 
-    // Total cases and stats
+    // Total cases and case rows
     assert.ok(html.includes('08603854'));
     assert.ok(html.includes('08642051'));
-    assert.ok(html.includes('Total: 2'));
+    assert.ok(html.includes('2 cases'));
 
     // Search bar
     assert.ok(html.includes('id="searchInput"'));
