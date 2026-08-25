@@ -379,7 +379,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     else if (cat === 'action_required') actionCount++;
   }
 
-  const cardsHtml = cases.map((c) => {
+  const rowsHtml = cases.map((c) => {
     const category = getStatusCategory(c.status);
     const badgeClass = `badge-${category}`;
     const escapedCaseNum = escapeHtml(c.caseNumber);
@@ -390,7 +390,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     const escapedAiSummary = escapeHtml(c.aiSummary || '');
     const escapedSyncedAt = escapeHtml(c.syncedAt || '');
     const escapedRaisedBy = escapeHtml(c.raisedBy || '');
-    const escapedUrl = escapeHtml(c.url || '');
+    const escapedOpenedAt = escapeHtml(c.openedAt || '');
     const commentCount = c.commentCount || 0;
 
     // Searchable text index for client-side filtering
@@ -411,22 +411,10 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       .join(' ');
     const escapedSearchIndex = escapeHtml(searchTokens);
 
-
-    let priorityBadge = '';
-    if (escapedPriority) {
-      priorityBadge = `<span class="badge badge-priority">${escapedPriority}</span>`;
-    }
-
-    let productBadge = '';
-    if (escapedProduct) {
-      productBadge = `<span class="badge badge-product">${escapedProduct}</span>`;
-    }
-
-    let projectBadge = '';
     const escapedCustomerProject = escapeHtml(c.customerProject || '');
-    if (escapedCustomerProject) {
-      projectBadge = `<span class="badge badge-project">${escapedCustomerProject}</span>`;
-    }
+    const projectBadge = escapedCustomerProject
+      ? ` <span class="badge badge-project">${escapedCustomerProject}</span>`
+      : '';
 
     let summaryBlock = '';
     if (c.hasSummary && escapedAiSummary) {
@@ -453,51 +441,52 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         .join('');
 
       commentsSection = `
-        <details class="comments-accordion">
-          <summary class="accordion-summary">Recent Updates (${c.latestComments.length})</summary>
-          <div class="comments-list">
-            ${itemsHtml}
-          </div>
-        </details>`;
+        <div class="detail-label">Recent Updates (${c.latestComments.length})</div>
+        <div class="comments-list">
+          ${itemsHtml}
+        </div>`;
     }
+
+    const metaLine = [
+      escapedRaisedBy ? `Raised by: ${escapedRaisedBy}` : '',
+      escapedCustomerProject ? `Project: ${escapedCustomerProject}` : '',
+      escapedOpenedAt ? `Opened: ${escapedOpenedAt}` : '',
+      escapedSyncedAt ? `Synced: ${escapedSyncedAt.slice(0, 10)}` : '',
+      c.lastCommentAuthor ? `Latest by: ${escapeHtml(c.lastCommentAuthor)}` : '',
+    ]
+      .filter(Boolean)
+      .map((part) => `<span>${part}</span>`)
+      .join('');
 
     const caseNumElement = `<a href="qc://case/${escapedCaseNum}" class="case-number" title="Open in Qualcomm Profile (qc://)">#${escapedCaseNum}</a>`;
 
-    const titleElement = `<h3 class="case-title"><a href="qc://case/${escapedCaseNum}" title="Open in Qualcomm Profile (qc://)">${escapedTitle}</a></h3>`;
+    const titleElement = `<a href="qc://case/${escapedCaseNum}" title="Open in Qualcomm Profile (qc://)">${escapedTitle}</a>`;
 
     return `
-      <article class="case-card" data-case-id="${escapedCaseNum}" data-status-category="${category}" data-search="${escapedSearchIndex}">
-        <div class="card-top">
-          <div class="case-id-group">
-            ${caseNumElement}
-
-            <button class="action-btn copy-btn" data-case-id="${escapedCaseNum}" title="Copy Case ID" type="button">Copy ID</button>
-            <button class="action-btn hide-btn" data-case-id="${escapedCaseNum}" title="Hide Case from active views" type="button">🚫 Hide</button>
-            <button class="action-btn unhide-btn" data-case-id="${escapedCaseNum}" title="Unhide Case to active views" type="button">👁️ Unhide</button>
-            <button class="action-btn delete-btn" data-case-id="${escapedCaseNum}" title="Copy a delete instruction for chat" type="button">🗑️ Delete</button>
-          </div>
-          <div class="card-badges">
-            <span class="badge ${badgeClass}">${escapedStatus}</span>
-            ${priorityBadge}
-            ${productBadge}
-            ${projectBadge}
-            <span class="badge badge-count">${commentCount} comments</span>
-          </div>
-        </div>
-
-        ${titleElement}
-        ${summaryBlock}
-
-        <div class="meta-row">
-          ${escapedRaisedBy ? `<span>Raised by: ${escapedRaisedBy}</span>` : ''}
-          ${escapedCustomerProject ? `<span>Project: ${escapedCustomerProject}</span>` : ''}
-          ${c.openedAt ? `<span>Opened: ${escapeHtml(c.openedAt)}</span>` : ''}
-          ${escapedSyncedAt ? `<span>Synced: ${escapedSyncedAt.slice(0, 10)}</span>` : ''}
-          ${c.lastCommentAuthor ? `<span>Latest by: ${escapeHtml(c.lastCommentAuthor)}</span>` : ''}
-        </div>
-
-        ${commentsSection}
-      </article>`;
+      <tr class="case-row" data-case-id="${escapedCaseNum}" data-status-category="${category}" data-search="${escapedSearchIndex}">
+        <td class="caret-cell"><span class="caret">▸</span></td>
+        <td class="cell-case">${caseNumElement}</td>
+        <td class="cell-title">${titleElement}</td>
+        <td><span class="badge ${badgeClass}">${escapedStatus}</span></td>
+        <td class="cell-num">${escapedPriority}</td>
+        <td>${escapedProduct}${projectBadge}</td>
+        <td>${escapedRaisedBy}</td>
+        <td class="cell-date">${escapedOpenedAt}</td>
+        <td class="cell-num">${commentCount}</td>
+        <td class="actions-cell">
+          <button class="action-btn copy-btn" data-case-id="${escapedCaseNum}" title="Copy Case ID" type="button">Copy ID</button>
+          <button class="action-btn hide-btn" data-case-id="${escapedCaseNum}" title="Hide Case from active views" type="button">🚫 Hide</button>
+          <button class="action-btn unhide-btn" data-case-id="${escapedCaseNum}" title="Unhide Case to active views" type="button">👁️ Unhide</button>
+          <button class="action-btn delete-btn" data-case-id="${escapedCaseNum}" title="Copy a delete instruction for chat" type="button">🗑️ Delete</button>
+        </td>
+      </tr>
+      <tr class="detail-row" data-case-detail="${escapedCaseNum}">
+        <td colspan="10">
+          <div class="meta-row">${metaLine}</div>
+          ${summaryBlock}
+          ${commentsSection}
+        </td>
+      </tr>`;
   }).join('\n');
 
   const html = `<!DOCTYPE html>
@@ -759,37 +748,92 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       color: #ffffff;
       border-color: var(--accent);
     }
-    .cases-grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 16px;
-    }
-    .case-card {
+    .table-wrap {
+      overflow-x: auto;
       background: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      padding: 18px;
       box-shadow: var(--shadow-sm);
-      transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
-    .case-card:hover {
-      box-shadow: var(--shadow-md);
+    .cases-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
     }
-    .case-card.hidden {
+    .cases-table thead th {
+      text-align: left;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 12px;
+      white-space: nowrap;
+    }
+    tr.case-row {
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background-color 0.1s ease;
+    }
+    tr.case-row:hover {
+      background: var(--border-subtle);
+    }
+    tr.case-row.hidden {
       display: none !important;
     }
-    .card-top {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: space-between;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 10px;
+    tr.case-row td {
+      padding: 9px 12px;
+      vertical-align: top;
     }
-    .case-id-group {
+    tr.detail-row {
+      display: none;
+    }
+    tr.detail-row td {
+      background: var(--border-subtle);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px 16px;
+    }
+    tr.case-row.expanded + tr.detail-row {
+      display: table-row;
+    }
+    .caret-cell {
+      width: 18px;
+    }
+    .caret {
+      color: var(--text-muted);
+      font-size: 11px;
+      display: inline-block;
+    }
+    .cell-case {
+      white-space: nowrap;
+    }
+    .cell-title {
+      max-width: 360px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .cell-title a {
+      color: var(--text-primary);
+      text-decoration: none;
+    }
+    .cell-title a:hover {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+    .cell-num {
+      text-align: right;
+      white-space: nowrap;
+    }
+    .cell-date {
+      white-space: nowrap;
+      color: var(--text-muted);
+    }
+    .actions-cell {
       display: flex;
-      align-items: center;
-      gap: 8px;
+      gap: 4px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
     .case-number {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -1064,12 +1108,6 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       border-radius: 4px;
       border: 1px solid var(--border);
     }
-    .card-badges {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      align-items: center;
-    }
     .badge {
       display: inline-flex;
       align-items: center;
@@ -1085,26 +1123,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     .badge-closed { background: var(--badge-closed-bg); color: var(--badge-closed-text); }
     .badge-action_required { background: var(--badge-action-bg); color: var(--badge-action-text); }
     .badge-other { background: var(--badge-open-bg); color: var(--badge-open-text); }
-    .badge-product { background: var(--border-subtle); color: var(--text-secondary); border: 1px solid var(--border); }
-    .badge-project { background: var(--border-subtle); color: var(--text-secondary); border: 1px solid var(--border); }
-    .badge-priority { background: var(--border-subtle); color: var(--text-secondary); border: 1px solid var(--border); }
-    .badge-count { background: var(--border-subtle); color: var(--text-muted); }
-    .case-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--text-primary);
-      margin-bottom: 10px;
-      word-break: break-word;
-    }
-    .case-title a {
-      color: inherit;
-      text-decoration: none;
-      transition: color 0.15s ease;
-    }
-    .case-title a:hover {
-      color: var(--accent);
-      text-decoration: underline;
-    }
+    .badge-project { background: var(--border-subtle); color: var(--text-secondary); border: 1px solid var(--border); margin-left: 4px; }
     .ai-summary {
       background: var(--summary-bg);
       border: 1px solid var(--summary-border);
@@ -1130,21 +1149,15 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       gap: 16px;
       margin-bottom: 12px;
     }
-    .comments-accordion {
+    .detail-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
       margin-top: 10px;
       border-top: 1px solid var(--border);
       padding-top: 10px;
-    }
-    .accordion-summary {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-secondary);
-      cursor: pointer;
-      user-select: none;
-      padding: 4px 0;
-    }
-    .accordion-summary:hover {
-      color: var(--accent);
     }
     .comments-list {
       display: flex;
@@ -1238,9 +1251,27 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       </div>
     </div>
 
-    <main class="cases-grid">
-      ${cardsHtml}
-    </main>
+    <div class="table-wrap">
+      <table class="cases-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Case#</th>
+            <th>Title</th>
+            <th>Status</th>
+            <th>Pri</th>
+            <th>Product</th>
+            <th>Raised By</th>
+            <th>Opened</th>
+            <th class="cell-num">Comm.</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+    </div>
 
     <div id="emptyState" class="empty-state">
       No Qualcomm cases match the selected filter and search criteria.
@@ -1286,7 +1317,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     document.addEventListener('DOMContentLoaded', () => {
       const searchInput = document.getElementById('searchInput');
       const filterTabs = document.querySelectorAll('.filter-tab');
-      const cards = document.querySelectorAll('.case-card');
+      const rows = document.querySelectorAll('.case-row');
       const emptyState = document.getElementById('emptyState');
       const themeToggle = document.getElementById('themeToggle');
       const hiddenCountEl = document.getElementById('hiddenCount');
@@ -1298,6 +1329,17 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       const closeModalBtn = document.getElementById('closeModalBtn');
       const copyProtocolCmdBtn = document.getElementById('copyProtocolCmdBtn');
       const copyNpmCmdBtn = document.getElementById('copyNpmCmdBtn');
+
+      // Row click toggles the adjacent detail row (AI summary + recent comments).
+      rows.forEach(row => {
+        row.addEventListener('click', (e) => {
+          if (e.target.closest('button') || e.target.closest('a')) return;
+          if (row.classList.contains('hidden')) return;
+          const isOpen = row.classList.toggle('expanded');
+          const caretEl = row.querySelector('.caret');
+          if (caretEl) caretEl.textContent = isOpen ? '▾' : '▸';
+        });
+      });
 
       const STORAGE_KEY_HIDDEN = 'qc_dashboard_hidden_cases';
       const STORAGE_KEY_THEME = 'qc_dashboard_theme';
@@ -1368,11 +1410,11 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         let visibleCount = 0;
         const query = currentSearch.toLowerCase().trim();
 
-        cards.forEach(card => {
-          const cardId = card.getAttribute('data-case-id') || '';
-          const cardCategory = card.getAttribute('data-status-category') || '';
-          const cardText = (card.getAttribute('data-search') || '').toLowerCase();
-          const isHidden = hiddenCases.has(cardId);
+        rows.forEach(row => {
+          const rowId = row.getAttribute('data-case-id') || '';
+          const rowCategory = row.getAttribute('data-status-category') || '';
+          const rowText = (row.getAttribute('data-search') || '').toLowerCase();
+          const isHidden = hiddenCases.has(rowId);
 
           let matchesFilter = false;
           if (currentFilter === 'hidden') {
@@ -1381,24 +1423,27 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
             if (isHidden) {
               matchesFilter = false;
             } else {
-              matchesFilter = (currentFilter === 'all') || (cardCategory === currentFilter);
+              matchesFilter = (currentFilter === 'all') || (rowCategory === currentFilter);
             }
           }
 
-          const matchesSearch = !query || cardText.includes(query);
+          const matchesSearch = !query || rowText.includes(query);
 
           if (matchesFilter && matchesSearch) {
-            card.classList.remove('hidden');
+            row.classList.remove('hidden');
             visibleCount++;
           } else {
-            card.classList.add('hidden');
+            row.classList.add('hidden');
+            row.classList.remove('expanded');
+            const caretEl = row.querySelector('.caret');
+            if (caretEl) caretEl.textContent = '▸';
           }
         });
 
         if (emptyState) {
           if (visibleCount === 0) {
             emptyState.textContent = currentFilter === 'hidden'
-              ? 'No hidden cases. Click "Hide" on any case card to move it here.'
+              ? 'No hidden cases. Click "Hide" on any case row to move it here.'
               : 'No Qualcomm cases match the selected filter and search criteria.';
             emptyState.classList.add('visible');
           } else {

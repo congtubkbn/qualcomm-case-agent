@@ -236,7 +236,7 @@ describe('cases_overview_render: renderDashboardHtml', () => {
     assert.ok(html.includes('Hidden Cases'));
   });
 
-  it('renders expandable comment accordion with latest updates', () => {
+  it('renders latest comments inside the expandable detail row', () => {
     const data = createSampleOverviewData();
     const html = renderDashboardHtml(data);
 
@@ -244,7 +244,8 @@ describe('cases_overview_render: renderDashboardHtml', () => {
     assert.ok(html.includes('MPSS. DE. Fix delivered to customer repo.'));
     assert.ok(html.includes('Sang Bui'));
     assert.ok(html.includes('Alex Chen'));
-    assert.ok(html.includes('comments-accordion'));
+    assert.ok(html.includes('comments-list'));
+    assert.ok(html.includes('class="detail-row"'));
   });
 
   it('renders AI summary when available', () => {
