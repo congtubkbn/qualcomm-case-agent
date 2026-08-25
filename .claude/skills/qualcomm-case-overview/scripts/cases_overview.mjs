@@ -379,11 +379,8 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     else if (cat === 'action_required') actionCount++;
   }
 
-  const STATUS_SHORT_LABEL = { open: 'OPEN', in_progress: 'PROG', action_required: 'ACTION', closed: 'DONE', other: '—' };
-
   const rowsHtml = cases.map((c) => {
     const category = getStatusCategory(c.status);
-    const statusShortLabel = STATUS_SHORT_LABEL[category] || '—';
     const escapedCaseNum = escapeHtml(c.caseNumber);
     const escapedTitle = escapeHtml(c.title || 'Untitled Case');
     const escapedStatus = escapeHtml(c.status || 'Unknown');
@@ -469,7 +466,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         <td class="caret-cell"><span class="caret">▸</span></td>
         <td class="cell-case">${caseNumElement}</td>
         <td class="cell-title">${titleElement}</td>
-        <td><span class="status-tag status-tag-${category}" title="${escapedStatus}">${statusShortLabel}</span></td>
+        <td><span class="status-tag status-tag-${category}" title="${escapedStatus}">${escapedStatus}</span></td>
         <td class="cell-num">${escapedPriority}</td>
         <td>${escapedProduct}${projectBadge}</td>
         <td>${escapedRaisedBy}</td>
