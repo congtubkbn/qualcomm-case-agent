@@ -27,6 +27,38 @@
   const txt = el => (el && (el.innerText || el.textContent || "")).trim();
   const qsa = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
+  // `innerText` derives line breaks from computed layout (block-level display),
+  // which this project cannot rely on: a CDP-driven tab does not always keep
+  // live layout for every node, so a genuinely block-level <p> (one per pasted
+  // log line — confirmed live on case 08420881, 45 <p> children, each
+  // display:block) can still read back with ZERO newlines in innerText. Walk
+  // the DOM structure directly instead — one line per block-level child
+  // (<p>/<div>/<li>/...), one blank line per <br> — which needs no layout at
+  // all and reproduces the same paragraph breaks a human sees on the real page.
+  const LINE_BREAK_TAGS = new Set(["P", "DIV", "LI", "BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6", "TR"]);
+  const domLines = el => {
+    if (!el) return "";
+    const kids = Array.from(el.children || []);
+    if (kids.length === 0) {
+      return (el.textContent || "").replace(/ /g, " ");
+    }
+    const lines = [];
+    let current = "";
+    for (const child of kids) {
+      if (child.tagName === "BR") {
+        lines.push(current);
+        current = "";
+      } else if (LINE_BREAK_TAGS.has(child.tagName)) {
+        if (current) { lines.push(current); current = ""; }
+        lines.push(domLines(child));
+      } else {
+        current += domLines(child);
+      }
+    }
+    if (current) lines.push(current);
+    return lines.join("\n");
+  };
+
   // Chatter renders its paragraph-separator marker differently in the collapsed
   // teaser vs the expanded ".feedBodyInner" body, and BOTH forms come through as
   // mojibake (a real non-breaking-space character double-encoded, not user text).
@@ -335,13 +367,12 @@
     const named = Array.from(a.querySelectorAll("a")).map(txt).map(s => stripFieldAffordances(s, 'author')).filter(Boolean);
     const author = named[0] || "";
     const bodyEl = a.querySelector(".feedBodyInner, .cuf-feedBodyText, [class*='feedBody']");
-    // Read innerText from the ATTACHED bodyEl, not a cloneNode(true) detached
-    // copy: a detached node has no layout, so its innerText falls back to
-    // something textContent-like and swallows every <br>/block-level line
-    // break. The trailing ".cuf-more" control's text (always exactly "Expand
-    // Post" — see check_collapsed.js) that used to be stripped by removing
-    // the cloned node is instead cut by cleanBody's trailing regex below.
-    const rawBodyText = bodyEl ? txt(bodyEl) : txt(a);
+    // domLines() walks DOM structure (one line per <p>/<div>, one per <br>)
+    // instead of trusting innerText's layout-derived line breaks — see the
+    // comment on domLines above for why innerText alone isn't reliable here.
+    // The trailing ".cuf-more" control's text (always exactly "Expand Post" —
+    // see check_collapsed.js) is cut by cleanBody's trailing regex below.
+    const rawBodyText = bodyEl ? domLines(bodyEl) : txt(a);
     const body = cleanBody(rawBodyText);
     if (!body || body.length === 0) continue;
 

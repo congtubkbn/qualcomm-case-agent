@@ -1015,6 +1015,43 @@ test('extract_case.js cleans trailing Expand Post and .cuf-more elements from co
     assert.equal(result.comments.length, 1);
     assert.equal(result.comments[0].body, 'Para one.\n\nPara two.\nLine three.');
   });
+
+  // Confirmed live on case 08420881: a pasted modem log renders as one <p> per
+  // line (each holding a <span class="uiOutputText">), with a lone-&nbsp; <p>
+  // as the blank-line separator — and innerText still comes back with ZERO
+  // newlines, because this project cannot assume live layout on a CDP-driven
+  // tab (the <p>s are display:block, yet innerText degrades exactly like the
+  // issue #83 detached-node case). The mock's innerText getter can't express
+  // that layout-dependent failure (it just joins children with a plain space),
+  // which is why this exercises the DOM-structural path (domLines) directly
+  // rather than relying on the mock's innerText/textContent to disagree.
+  await t.test('reconstructs one line per <p> even when innerText reports no newlines (real Chatter log-post structure)', () => {
+    const doc = createMockDocument();
+    doc.title = 'Case: 08420881 - modem log structure';
+
+    const art = createMockElement('article', { id: 'post_log' });
+    art.appendChild(createMockElement('a', {}, 'Test Engineer'));
+    const bodyEl = createMockElement('div', { className: 'feedBodyInner' });
+    const addLine = (text) => {
+      const p = createMockElement('p');
+      p.appendChild(createMockElement('span', { className: 'uiOutputText' }, text));
+      bodyEl.appendChild(p);
+    };
+    addLine('#REF: X716B_SEAU_redial_Outage_In_MOCN_Scenario_SSM_PASS');
+    addLine('X'); // stand-in for the nbsp-only blank-line separator paragraph
+    addLine('//Ecall start, CP reported LTE RAT');
+    addLine('18:32:44.281382 |  0.000 | cmemgext.c 2637 | N | QMI->CM: AC_EMERGENCY_ENTER_REQ');
+    art.appendChild(bodyEl);
+    doc.body.appendChild(art);
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+
+    assert.equal(result.comments.length, 1);
+    assert.equal(
+      result.comments[0].body,
+      '#REF: X716B_SEAU_redial_Outage_In_MOCN_Scenario_SSM_PASS\nX\n//Ecall start, CP reported LTE RAT\n18:32:44.281382 |  0.000 | cmemgext.c 2637 | N | QMI->CM: AC_EMERGENCY_ENTER_REQ'
+    );
+  });
 });
 
 test('expand_step.js deep Shadow DOM Description button expansion', async (t) => {
