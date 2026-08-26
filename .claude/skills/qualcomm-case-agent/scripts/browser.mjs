@@ -243,7 +243,6 @@ export async function ensureChrome({ launch = true } = {}) {
       );
     }
   }
-  ab(['connect', info.webSocketDebuggerUrl], { timeout: 60000, allowFail: true });
   return { launched, wsUrl: info.webSocketDebuggerUrl };
 }
 
