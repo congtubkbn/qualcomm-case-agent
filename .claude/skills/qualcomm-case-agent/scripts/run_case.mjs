@@ -266,17 +266,43 @@ export async function run(code, opts = {}) {
     }
   }
 
-  // Switch back to Feed tab for Chatter comments extraction (with retry)
+  // Switch back to Feed tab for Chatter comments extraction (with retry).
+  // A failed switch-back must not be silently swallowed (case 08637663: this
+  // org labels the tab "Communication" rather than "Feed"; switch_tab.js's
+  // alias list missed it, every retry failed, and the old bare `catch (e) {}`
+  // let extraction proceed anyway with the Detail tab still visually active —
+  // every visibility-dependent check in expand_step.js/check_collapsed.js then
+  // read the hidden Feed panel as "nothing left to expand", under-capturing
+  // 8 of 15 comments with no error anywhere).
+  let feedSwitched = false;
+  let feedSwitchError = null;
   for (let attempt = 0; attempt < DETAIL_SWITCH_RETRIES; attempt++) {
     try {
       const switchBack = await evalFileViaCdp(cdp, page('switch_tab.js'), { __TARGET_TAB: 'Feed' });
       if (switchBack && (switchBack.ok || switchBack.alreadyActive)) {
+        feedSwitched = true;
+        feedSwitchError = null;
         break;
       }
-    } catch (e) {}
+      feedSwitchError = switchBack?.reason || 'switch_tab failed to switch to Feed tab';
+    } catch (e) {
+      feedSwitchError = e?.message || String(e);
+    }
     if (attempt < DETAIL_SWITCH_RETRIES - 1) {
       await sleep(500);
     }
+  }
+  if (!feedSwitched) {
+    const shot = shoot(caseDir, 'feed_switch_failed.png');
+    return {
+      status: 'blocked',
+      retryable: true,
+      reason: `could not switch back to the Feed tab for extraction: ${feedSwitchError}`,
+      caseUrl,
+      timing: { landingMs: landingDurationMs },
+      diagnostics,
+      screenshot: shot,
+    };
   }
   await sleep(500);
 

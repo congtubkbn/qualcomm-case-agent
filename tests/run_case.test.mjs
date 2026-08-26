@@ -215,6 +215,9 @@ describe('run() expand-loop stuck detection', () => {
     const stableFeed = { articles: 5, displayed: 5, anchorIdx: -1, top: { author: 'A', bodyStart: 'x' } };
 
     mockBrowser(t, (file, vars) => {
+      if (file === 'switch_tab.js') {
+        return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
+      }
       if (file === 'expand_step.js') {
         if (vars?.__PROBE) return stableFeed;
         return stuckTick;
@@ -244,6 +247,9 @@ describe('run() expand-loop stuck detection', () => {
 
     let expandCount = 0;
     const { evalFileCalls } = mockBrowser(t, (file, vars) => {
+      if (file === 'switch_tab.js') {
+        return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
+      }
       if (file === 'expand_step.js') {
         if (vars?.__PROBE) return stableFeed;
         expandCount++;
@@ -300,6 +306,9 @@ describe('run() fast landing & verdict integration', () => {
     const idleTick = { clickedExpand: 0, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
 
     mockBrowser(t, (file, vars) => {
+      if (file === 'switch_tab.js') {
+        return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
+      }
       if (file === 'expand_step.js') {
         if (vars?.__PROBE) return stableFeed;
         return idleTick;
@@ -453,6 +462,9 @@ describe('run() fast landing & verdict integration', () => {
     };
 
     const { screenshotCalls } = mockBrowser(t, (file, vars) => {
+      if (file === 'switch_tab.js') {
+        return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
+      }
       if (file === 'expand_step.js') {
         return { articles: 0 };
       }
@@ -679,5 +691,58 @@ describe('run() fast landing & verdict integration', () => {
 
     const caseData = JSON.parse(readFileSync(v.casePath, 'utf8'));
     assert.equal(caseData.comments.length, 1);
+  });
+
+  it('blocks instead of extracting when switch-back to the Feed tab fails permanently (case 08637663: an unrecognized tab label — "Communication" — left Detail active during extraction, silently under-capturing 8 of 15 comments)', async (t) => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/500dK00000ONSaTQAX/08637663';
+    const mockCdp = {
+      isConnected: () => true,
+      navigate: async () => {},
+      eval: async () => ({
+        state: 'ON_CASE',
+        href: targetUrl,
+        fields: { title: 'Feed Switch-Back Failed Case', status: 'Open' },
+      }),
+      click: async () => true,
+      close: async () => {},
+    };
+
+    let extractCallCount = 0;
+    const { screenshotCalls } = mockBrowser(t, (file, vars) => {
+      if (file === 'switch_tab.js') {
+        if (vars?.__TARGET_TAB === 'Feed') {
+          return { ok: false, reason: 'tab not found: feed' };
+        }
+        return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
+      }
+      if (file === 'extract_case.js') {
+        extractCallCount++;
+        // Only the Detail-tab metadata pass (call 1) is legitimate here. A
+        // second call would be the Feed/Chatter extraction — that must never
+        // run once the Feed switch-back has failed, or this test would pass
+        // even with the original bug (silent extraction on a hidden tab).
+        if (extractCallCount > 1) {
+          throw new Error('extract_case.js must not run again after the Feed switch-back failed');
+        }
+        return {
+          caseNumber: '08637663',
+          title: 'Feed Switch-Back Failed Case',
+          url: targetUrl,
+          comments: [],
+        };
+      }
+      throw new Error(`Unexpected evalFile: ${file}`);
+    }, mockCdp);
+
+    mkdirSync(join(process.env.QUALCOMM_ROOT, 'data', 'cases', '08637663'), { recursive: true });
+    const { run } = await importRunCase();
+    const v = await run('08637663', { mode: 'auto', cdp: mockCdp });
+
+    assert.equal(v.status, 'blocked');
+    assert.equal(v.retryable, true);
+    assert.match(v.reason, /feed tab/i);
+    assert.equal(v.screenshot, 'feed_switch_failed.png');
+    assert.ok(screenshotCalls.some(p => p.endsWith('feed_switch_failed.png')));
+    assert.equal(extractCallCount, 1);
   });
 });

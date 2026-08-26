@@ -813,6 +813,29 @@ test('switch_tab.js tab switching engine', async (t) => {
     assert.equal(res.clicked, true);
     assert.equal(feedClicked, true);
   });
+
+  await t.test('switches back to Feed tab labeled "Communication" (case 08637663: this org labels the tab Communication, not Feed — an unrecognized label made every switch-back silently fail, leaving the Detail tab active during extraction and under-capturing 8 of 15 comments)', () => {
+    if (!SWITCH_TAB_SCRIPT) return;
+    const doc = createMockDocument();
+
+    const tabList = createMockElement('ul', { role: 'tablist' });
+    let commClicked = false;
+    const commTab = createMockElement('a', { role: 'tab', title: 'Communication', 'aria-selected': 'false' }, 'Communication');
+    commTab.onclick = () => { commClicked = true; };
+    tabList.appendChild(commTab);
+    doc.body.appendChild(tabList);
+
+    const ctx = vm.createContext({
+      document: doc,
+      window: { PointerEvent: function () {}, MouseEvent: function () {} },
+      __TARGET_TAB: 'Feed',
+    });
+    const res = vm.runInContext(SWITCH_TAB_SCRIPT, ctx);
+
+    assert.equal(res.ok, true);
+    assert.equal(res.clicked, true);
+    assert.equal(commClicked, true);
+  });
 });
 
 test('expand_step.js DOM expansion engine', async (t) => {

@@ -65,7 +65,12 @@
       return str === 'detail' || str === 'details' || str === 'case detail' || str === 'case details';
     }
     if (target === 'feed' || target === 'feeds' || target === 'chatter') {
-      return str === 'feed' || str === 'feeds' || str === 'chatter' || str === 'case feed' || str === 'collaborate';
+      // 'Communication' is this label on some Case layouts (case 08637663):
+      // the switch-back silently failed every run because this alias was
+      // missing, leaving the Detail tab active during extraction — every
+      // visibility-dependent check (isVisible, getBoundingClientRect) then
+      // read a hidden feed as empty, under-capturing the case.
+      return str === 'feed' || str === 'feeds' || str === 'chatter' || str === 'case feed' || str === 'collaborate' || str === 'communication';
     }
     return false;
   };
