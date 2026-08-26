@@ -157,5 +157,5 @@ Default five canonical roles (`needs-triage`, `needs-info`, `ready-for-agent`, `
 
 ### Domain docs
 
-Single-context: `CONTEXT.md` (not yet created) + `docs/adr/` at repo root. See
+Single-context: `CONTEXT.md` + `docs/adr/` at repo root. See
 `docs/agents/domain.md`.
