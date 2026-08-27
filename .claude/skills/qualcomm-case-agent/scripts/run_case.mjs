@@ -11,6 +11,7 @@
 //
 // Verdict `status`:
 //   created | updated | no-update   -> exit 0
+//   otp-timeout                     -> exit 2  (password autofilled, but OTP timed out)
 //   auth-required                   -> exit 3  (human must finish Okta/OTP once)
 //   not-found                       -> exit 4  (wrong code, or no access)
 //   blocked                         -> exit 5  (page never rendered / capture short)
@@ -52,6 +53,7 @@ const POST_EXPAND_SETTLE_ROUNDS = 15; // x2s ceiling — see article-count settl
 
 export const STATUS_EXIT = {
   created: 0, updated: 0, 'no-update': 0,
+  'otp-timeout': 2,
   'auth-required': 3, 'not-found': 4, blocked: 5, busy: 6, 'port-conflict': 7, error: 1,
 };
 
@@ -185,10 +187,27 @@ export async function run(code, opts = {}) {
     cdp,
     cached,
     portalUrl: PORTAL,
+    secretPath: opts.secretPath,
+    username: opts.username,
+    fillRetryLimit: opts.fillRetryLimit,
+    otpTimeoutMs: opts.otpTimeoutMs,
+    otpPollIntervalMs: opts.otpPollIntervalMs,
   });
   const landingDurationMs = landed.durationMs || 0;
   const diagnostics = landed.diagnostics || [];
 
+  if (landed.state === 'OTP_TIMEOUT') {
+    const shot = shoot(caseDir, 'otp_timeout.png');
+    return {
+      status: 'otp-timeout',
+      reason: landed.reason || 'Password accepted, but OTP verification was not completed within the timeout window',
+      url: landed.url,
+      caseUrl: landed.url,
+      timing: { landingMs: landingDurationMs },
+      diagnostics,
+      screenshot: shot,
+    };
+  }
   if (landed.state === 'AUTH') {
     const shot = shoot(caseDir, 'auth_required.png');
     return {

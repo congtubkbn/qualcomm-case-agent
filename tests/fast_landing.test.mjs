@@ -989,6 +989,241 @@ test('Fast Path Landing Engine', async (t) => {
       assert.ok(!diag.includes(LEAK_TEST_PASSWORD), 'password must not appear in any diagnostic message');
     }
   });
+
+  await t.test('otp: OTP_REQUIRED then poll resolves AUTHENTICATED resumes landing flow ON_CASE', async (st) => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
+    const TEST_PW = 'OtpValidPassword123';
+
+    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+      exports: {
+        readPassword: () => TEST_PW,
+        clearSecret: () => {},
+      },
+    });
+
+    const { fastLandOnCase: fastLand } = await importFastLanding();
+
+    let fillCalls = 0;
+    let pollCalls = 0;
+    let navProbes = 0;
+
+    server.setHandler((msg, ws) => {
+      if (msg.method === 'Page.navigate') {
+        return { id: msg.id, result: { frameId: 'F1' } };
+      }
+      if (msg.method === 'Runtime.evaluate') {
+        const expr = msg.params?.expression || '';
+        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+          fillCalls++;
+          return {
+            id: msg.id,
+            result: {
+              result: {
+                type: 'object',
+                value: { outcome: 'OTP_REQUIRED' },
+              },
+            },
+          };
+        }
+        if (expr.includes('otp_probe') || expr.includes('OTP_PROBE') || expr.includes('isHostAuthenticated')) {
+          pollCalls++;
+          if (pollCalls < 3) {
+            return {
+              id: msg.id,
+              result: {
+                result: {
+                  type: 'object',
+                  value: { outcome: 'OTP_REQUIRED', href: 'https://account.qualcomm.com/login' },
+                },
+              },
+            };
+          }
+          return {
+            id: msg.id,
+            result: {
+              result: {
+                type: 'object',
+                value: { outcome: 'AUTHENTICATED', href: 'https://support.qualcomm.com/s/' },
+              },
+            },
+          };
+        }
+        // Direct nav probe
+        navProbes++;
+        if (navProbes === 1) {
+          return {
+            id: msg.id,
+            result: {
+              result: {
+                type: 'object',
+                value: { state: 'AUTH', url: 'https://account.qualcomm.com/login' },
+              },
+            },
+          };
+        }
+        // Post-auth re-nav probe -> ON_CASE
+        return {
+          id: msg.id,
+          result: {
+            result: {
+              type: 'object',
+              value: { state: 'ON_CASE', href: targetUrl, fields: { title: 'Audio codec crash' } },
+            },
+          },
+        };
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const result = await fastLand('08603854', {
+      cdp: client,
+      cached: { caseUrl: targetUrl },
+      otpTimeoutMs: 1000,
+      otpPollIntervalMs: 20,
+    });
+
+    assert.equal(result.state, 'OK');
+    assert.equal(result.href, targetUrl);
+    assert.equal(fillCalls, 1);
+    assert.equal(pollCalls, 3);
+    assert.ok(result.diagnostics.some(d => d.includes('OTP')), 'diagnostics must log OTP activity');
+  });
+
+  await t.test('otp: OTP_REQUIRED exceeding otpTimeoutMs returns state OTP_TIMEOUT', async (st) => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
+    const TEST_PW = 'OtpValidPassword123';
+
+    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+      exports: {
+        readPassword: () => TEST_PW,
+        clearSecret: () => {},
+      },
+    });
+
+    const { fastLandOnCase: fastLand } = await importFastLanding();
+
+    let pollCalls = 0;
+
+    server.setHandler((msg, ws) => {
+      if (msg.method === 'Page.navigate') {
+        return { id: msg.id, result: { frameId: 'F1' } };
+      }
+      if (msg.method === 'Runtime.evaluate') {
+        const expr = msg.params?.expression || '';
+        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+          return {
+            id: msg.id,
+            result: {
+              result: {
+                type: 'object',
+                value: { outcome: 'OTP_REQUIRED' },
+              },
+            },
+          };
+        }
+        if (expr.includes('otp_probe') || expr.includes('OTP_PROBE') || expr.includes('isHostAuthenticated')) {
+          pollCalls++;
+          return {
+            id: msg.id,
+            result: {
+              result: {
+                type: 'object',
+                value: { outcome: 'OTP_REQUIRED' },
+              },
+            },
+          };
+        }
+        return {
+          id: msg.id,
+          result: {
+            result: {
+              type: 'object',
+              value: { state: 'AUTH', url: 'https://account.qualcomm.com/login' },
+            },
+          },
+        };
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const result = await fastLand('08603854', {
+      cdp: client,
+      cached: { caseUrl: targetUrl },
+      otpTimeoutMs: 60,
+      otpPollIntervalMs: 15,
+    });
+
+    assert.equal(result.state, 'OTP_TIMEOUT');
+    assert.match(result.reason, /OTP/i);
+    assert.match(result.reason, /timeout|timed out/i);
+    assert.ok(pollCalls >= 1, 'should have polled at least once');
+    assert.ok(result.diagnostics.some(d => d.includes('OTP')), 'diagnostics must log OTP activity');
+  });
+
+  await t.test('otp: OTP_REQUIRED then poll encounters REJECTED returns state AUTH', async (st) => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
+    const TEST_PW = 'OtpValidPassword123';
+
+    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+      exports: {
+        readPassword: () => TEST_PW,
+        clearSecret: () => {},
+      },
+    });
+
+    const { fastLandOnCase: fastLand } = await importFastLanding();
+
+    server.setHandler((msg, ws) => {
+      if (msg.method === 'Page.navigate') {
+        return { id: msg.id, result: { frameId: 'F1' } };
+      }
+      if (msg.method === 'Runtime.evaluate') {
+        const expr = msg.params?.expression || '';
+        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+          return {
+            id: msg.id,
+            result: {
+              result: {
+                type: 'object',
+                value: { outcome: 'OTP_REQUIRED' },
+              },
+            },
+          };
+        }
+        if (expr.includes('otp_probe') || expr.includes('OTP_PROBE') || expr.includes('isHostAuthenticated')) {
+          return {
+            id: msg.id,
+            result: {
+              result: {
+                type: 'object',
+                value: { outcome: 'REJECTED', reason: 'Invalid verification code entered' },
+              },
+            },
+          };
+        }
+        return {
+          id: msg.id,
+          result: {
+            result: {
+              type: 'object',
+              value: { state: 'AUTH', url: 'https://account.qualcomm.com/login' },
+            },
+          },
+        };
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const result = await fastLand('08603854', {
+      cdp: client,
+      cached: { caseUrl: targetUrl },
+      otpTimeoutMs: 1000,
+      otpPollIntervalMs: 20,
+    });
+
+    assert.equal(result.state, 'AUTH');
+    assert.equal(result.reason, 'Invalid verification code entered');
+  });
 });
 
 

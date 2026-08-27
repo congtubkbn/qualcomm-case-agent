@@ -189,6 +189,7 @@ describe('STATUS_EXIT & formatVerdict', () => {
     assert.equal(STATUS_EXIT.created, 0);
     assert.equal(STATUS_EXIT.updated, 0);
     assert.equal(STATUS_EXIT['no-update'], 0);
+    assert.equal(STATUS_EXIT['otp-timeout'], 2);
     assert.equal(STATUS_EXIT['auth-required'], 3);
     assert.equal(STATUS_EXIT['not-found'], 4);
     assert.equal(STATUS_EXIT.blocked, 5);
@@ -446,6 +447,50 @@ describe('run() fast landing & verdict integration', () => {
     const formatted = formatVerdict('08000003', v, Date.now() - 100);
     assert.equal(formatted.status, 'auth-required');
     assert.equal(formatted.screenshot, 'auth_required.png');
+  });
+
+  it('handles OTP_TIMEOUT landing with diagnostics, screenshot, and exit status otp-timeout (exit 2)', async (t) => {
+    t.mock.module(new URL('fast_landing.mjs', SCRIPTS), {
+      exports: {
+        isStubUrl: () => false,
+        fastLandOnCase: async () => ({
+          state: 'OTP_TIMEOUT',
+          url: 'https://account.qualcomm.com/login',
+          reason: 'Password accepted, but OTP verification timed out',
+          durationMs: 120,
+          diagnostics: ['[fast_landing] OTP wait timed out'],
+        }),
+      },
+    });
+
+    const mockCdp = {
+      isConnected: () => true,
+      navigate: async () => {},
+      eval: async () => ({}),
+      click: async () => true,
+      close: async () => {},
+    };
+
+    const { screenshotCalls } = mockBrowser(t, () => {}, mockCdp);
+    const { run, formatVerdict, STATUS_EXIT } = await importRunCase();
+    const v = await run('08000004', {
+      mode: 'auto',
+      enrich: 'none',
+      noPdf: true,
+      cdp: mockCdp,
+    });
+
+    assert.equal(v.status, 'otp-timeout');
+    assert.match(v.reason, /OTP/i);
+    assert.ok(Array.isArray(v.diagnostics));
+    assert.equal(v.screenshot, 'otp_timeout.png');
+    assert.ok(screenshotCalls.some(p => p.endsWith('otp_timeout.png')));
+    assert.equal(STATUS_EXIT[v.status], 2);
+
+    const formatted = formatVerdict('08000004', v, Date.now() - 100);
+    assert.equal(formatted.status, 'otp-timeout');
+    assert.equal(formatted.screenshot, 'otp_timeout.png');
+    assert.deepEqual(formatted.diagnostics, v.diagnostics);
   });
 
   it('handles feed with no articles with diagnostics and feed_missing screenshot', async (t) => {

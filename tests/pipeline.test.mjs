@@ -100,6 +100,7 @@ describe('run_case.mjs', async () => {
 
   it('maps blocked/auth/busy statuses to distinct non-zero exits', () => {
     assert.equal(STATUS_EXIT['no-update'], 0);
+    assert.equal(STATUS_EXIT['otp-timeout'], 2);
     assert.equal(STATUS_EXIT['auth-required'], 3);
     assert.equal(STATUS_EXIT.blocked, 5);
     assert.equal(STATUS_EXIT.busy, 6);

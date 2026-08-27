@@ -214,6 +214,53 @@ const IN_PAGE_SEARCH_SCRIPT = `
 })()
 `;
 
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+const OTP_PROBE_SCRIPT = `
+/* otp_probe */
+(function() {
+  function isHostAuthenticated() {
+    return location.hostname === 'support.qualcomm.com' ||
+      (location.hostname !== 'account.qualcomm.com' && !/login|auth|okta/i.test(location.pathname));
+  }
+  function checkError() {
+    var errorEls = (document.querySelectorAll && Array.prototype.slice.call(document.querySelectorAll('.okta-form-infobox-error, .infobox-error, [role="alert"], .okta-form-input-error, .error-summary, .o-form-error-container'))) || [];
+    for (var i = 0; i < errorEls.length; i++) {
+      var errText = ((errorEls[i].innerText || errorEls[i].textContent) || '').replace(/\\s+/g, ' ').trim();
+      if (errText && !/loading|spinner/i.test(errText)) {
+        return errText;
+      }
+    }
+    var bodyText = (document.body && (document.body.innerText || document.body.textContent) || '');
+    if (/unable to sign in|sign[- ]in failed|password is incorrect|password was incorrect|your password has expired|authentication failed|account is locked|user is locked out|invalid username or password|check your username and password/i.test(bodyText)) {
+      return 'Authentication failed';
+    }
+    return null;
+  }
+  function checkOtp() {
+    var bodyText = (document.body && (document.body.innerText || document.body.textContent) || '');
+    var otpRe = /send me an email|get a verification|enter a verification code|verification code|enter code|select an authenticator|select a security method|verify with your/i;
+    if (otpRe.test(bodyText)) {
+      return true;
+    }
+    var otpInputs = (document.querySelectorAll && Array.prototype.slice.call(document.querySelectorAll('input[name="credentials.passcode"][pattern*="0-9"], input[name="otp-code"], input[name="answer"], input[name="credentials.passcode"][inputmode="numeric"]'))) || [];
+    return otpInputs.length > 0;
+  }
+
+  if (isHostAuthenticated()) {
+    return { outcome: 'AUTHENTICATED', href: location.href };
+  }
+  var error = checkError();
+  if (error) {
+    return { outcome: 'REJECTED', reason: error, href: location.href };
+  }
+  if (checkOtp()) {
+    return { outcome: 'OTP_REQUIRED', href: location.href };
+  }
+  return { outcome: 'UNKNOWN', href: location.href };
+})()
+`;
+
 /**
  * Fast-path direct navigation and event-driven landing engine.
  * @param {string} code 8-digit Qualcomm case code (e.g. "08603854")
@@ -222,8 +269,13 @@ const IN_PAGE_SEARCH_SCRIPT = `
  * @param {Object} [options.cached] Cached case metadata (caseUrl, url, title, fields)
  * @param {string} [options.portalUrl='https://support.qualcomm.com']
  * @param {number} [options.timeout=25000]
+ * @param {number} [options.fillRetryLimit=3]
+ * @param {string} [options.secretPath]
+ * @param {string} [options.username]
+ * @param {number} [options.otpTimeoutMs=300000]
+ * @param {number} [options.otpPollIntervalMs=2000]
  * @returns {Promise<{
- *   state: 'OK' | 'AUTH' | 'NOT_FOUND' | 'BLOCKED' | 'STUB',
+ *   state: 'OK' | 'AUTH' | 'NOT_FOUND' | 'BLOCKED' | 'STUB' | 'OTP_TIMEOUT',
  *   href: string,
  *   fields: Record<string, string>,
  *   fastPathUsed: boolean,
@@ -242,6 +294,8 @@ export async function fastLandOnCase(code, options = {}) {
     fillRetryLimit = 3,
     secretPath,
     username,
+    otpTimeoutMs = 300000,
+    otpPollIntervalMs = 2000,
   } = options;
 
   const start = performance.now();
@@ -326,9 +380,49 @@ export async function fastLandOnCase(code, options = {}) {
       }
 
       if (lastOutcome === 'OTP_REQUIRED') {
-        logDiag(`Password accepted; OTP is required.`);
+        logDiag(`Password accepted; OTP is required. Waiting for human to enter OTP (timeout: ${otpTimeoutMs}ms, interval: ${otpPollIntervalMs}ms)...`);
+        const otpDeadline = Date.now() + otpTimeoutMs;
+        while (Date.now() < otpDeadline) {
+          await sleep(otpPollIntervalMs);
+          let pollRes = null;
+          try {
+            pollRes = await cdp.eval(
+              OTP_PROBE_SCRIPT,
+              {},
+              { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
+            );
+          } catch (err) {
+            pollRes = { outcome: 'UNKNOWN', reason: err.message };
+          }
+
+          const pollOutcome = pollRes?.outcome || (pollRes?.state === 'ON_CASE' || pollRes?.state === 'OK' ? 'AUTHENTICATED' : 'UNKNOWN');
+          if (pollOutcome === 'AUTHENTICATED') {
+            logDiag(`OTP verification completed. Resuming capture flow.`);
+            return { handled: true };
+          }
+
+          if (pollOutcome === 'REJECTED') {
+            logDiag(`OTP verification rejected: ${pollRes?.reason}`);
+            return {
+              state: 'AUTH',
+              reason: pollRes?.reason || 'otp-rejected',
+              href: '',
+              fields: {},
+              fastPathUsed,
+              durationMs: Math.round(performance.now() - start),
+              url: authUrl || '',
+              diagnostics,
+            };
+          }
+
+          const remainingSec = Math.max(0, Math.round((otpDeadline - Date.now()) / 1000));
+          logDiag(`Waiting for OTP completion (${remainingSec}s remaining)...`);
+        }
+
+        logDiag(`OTP verification timed out after ${otpTimeoutMs}ms.`);
         return {
-          state: 'AUTH',
+          state: 'OTP_TIMEOUT',
+          reason: 'Password accepted, but OTP verification was not completed within the timeout window',
           href: '',
           fields: {},
           fastPathUsed,
