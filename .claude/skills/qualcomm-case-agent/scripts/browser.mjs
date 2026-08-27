@@ -179,8 +179,11 @@ export function pdf(path) { return ab(['pdf', path], { timeout: 180000 }); }
 /** Full-page PNG of the feed exactly as expansion left it — the visual evidence
  *  that every "Expand Post" / "More comments" really did get clicked. Written
  *  next to case.json so a capture can be audited after the fact, which the
- *  counters alone cannot do (they are produced by the same code they attest to). */
-export function screenshot(path) { return ab(['screenshot', path, '--full'], { timeout: 120000 }); }
+ *  counters alone cannot do (they are produced by the same code they attest to).
+ *  Best-effort caller (run_case.mjs shoot()) swallows failure either way, and this
+ *  call sits directly in front of writing case.json/case.md — a short timeout
+ *  bounds how long a stuck agent-browser daemon can delay the required output. */
+export function screenshot(path) { return ab(['screenshot', path, '--full'], { timeout: 15000 }); }
 
 /** Ask the CDP endpoint directly — the one signal that says whether the
  *  persistent-profile Chrome is actually up, independent of the daemon. */
