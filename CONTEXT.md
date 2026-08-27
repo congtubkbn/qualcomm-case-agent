@@ -62,6 +62,13 @@ from active tab views. Stored in `localStorage`; touches no file on disk; fully 
 "Unhide". Does not affect `_overview.json`, `_index.json`, or the case's cache directory.
 _Avoid_: delete, archive, remove
 
+**Password Autofill**:
+Automated entry of the username/password steps of Okta login only, on session expiry
+(`auth-required`), using the DPAPI-protected secret at `data/.secrets/qid.bin`. Email OTP is never
+automated — always entered by a human in the visible Chrome window. See ADR 0004.
+_Avoid_: auto-login (implies the whole flow is unattended, which is impossible here — OTP always
+needs a human)
+
 **Delete (case)**:
 Permanently removes a case's entire local cache directory (`data/cases/<code>/` —
 `case.json`, `summary.json`, comments) and its `_index.json` entry. Irreversible. Owned by

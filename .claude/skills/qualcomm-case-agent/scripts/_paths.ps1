@@ -10,11 +10,13 @@
    - Nesting-depth-independent: the project root is found by WALKING UP to a marker
      (.git or an existing data\cases), not by counting a fixed number of '..'.
      Survives the skill being re-nested (e.g. under .claude\plugins\...).
-   - Escape hatch: $env:QUALCOMM_ROOT pins the project root for layouts the walk-up cannot infer.
+   - Escape hatch: $env:QUALCOMM_ROOT pins the project root, $env:QUALCOMM_SECRET
+     pins the DPAPI blob, for layouts the walk-up cannot infer.
 
   Exposes (Qc-prefixed to avoid clobbering a caller's own param):
      $QcSkillRoot   - the qualcomm-case-agent\ folder
      $QcProjectRoot - workspace root (holds data\)
+     $QcSecretPath  - data\.secrets\qid.bin   (DPAPI ciphertext)
      $QcProfileDir  - data\chrome-profile\    (persistent Chrome --user-data-dir)
      $QcDataDir     - data\cases\             (case cache)
 
@@ -62,5 +64,10 @@ if ($env:QUALCOMM_ROOT) {
   if (-not $QcProjectRoot) { $QcProjectRoot = (Get-Location).Path }   # last resort
 }
 
+if ($env:QUALCOMM_SECRET) {
+  $QcSecretPath = $env:QUALCOMM_SECRET
+} else {
+  $QcSecretPath = Join-Path $QcProjectRoot 'data\.secrets\qid.bin'
+}
 $QcProfileDir = Join-Path $QcProjectRoot 'data\chrome-profile'
 $QcDataDir    = Join-Path $QcProjectRoot 'data\cases'
