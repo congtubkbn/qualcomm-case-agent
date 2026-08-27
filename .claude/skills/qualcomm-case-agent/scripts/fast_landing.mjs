@@ -1,7 +1,14 @@
-// fast_landing.mjs — Deep Module: Direct Nav + Event-Driven Search & Landing Engine.
-// Provides fast-path direct navigation for cached cases and in-page observer for Lightning DOM.
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { readPassword, clearSecret } from './secret_store.mjs';
 
 export const STUB_PATH_RE = /\/s\/case\/Case\/Default(?:$|[/?#])/i;
+
+const LOGIN_FILL_SCRIPT = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), 'login_fill.js'),
+  'utf8'
+);
 
 /**
  * Checks if a URL is empty or points to the generic Lightning un-routed case stub.
@@ -232,17 +239,117 @@ export async function fastLandOnCase(code, options = {}) {
     cached,
     portalUrl = 'https://support.qualcomm.com',
     timeout = 25000,
+    fillRetryLimit = 3,
+    secretPath,
+    username,
   } = options;
 
   const start = performance.now();
   const caseUrl = cached?.caseUrl || cached?.url;
   const baseUrl = portalUrl.replace(/\/+$/, '');
   const diagnostics = [];
+  let authFillAttempted = false;
 
   const logDiag = (msg) => {
     diagnostics.push(msg);
     process.stderr.write(`[fast_landing] ${msg}\n`);
   };
+
+  async function handleAuth(authUrl, fastPathUsed) {
+    if (authFillAttempted) {
+      logDiag(`AUTH state re-encountered after fill already attempted. Returning manual AUTH.`);
+      return {
+        state: 'AUTH',
+        href: '',
+        fields: {},
+        fastPathUsed,
+        durationMs: Math.round(performance.now() - start),
+        url: authUrl || '',
+        diagnostics,
+      };
+    }
+
+    authFillAttempted = true;
+    const pw = readPassword(secretPath);
+    if (!pw) {
+      logDiag(`Direct navigation redirected to AUTH: ${authUrl} (no stored secret found)`);
+      return {
+        state: 'AUTH',
+        href: '',
+        fields: {},
+        fastPathUsed,
+        durationMs: Math.round(performance.now() - start),
+        url: authUrl || '',
+        diagnostics,
+      };
+    }
+
+    logDiag(`AUTH state detected; attempting password autofill (retry limit: ${fillRetryLimit})...`);
+    let lastOutcome = 'UNKNOWN';
+    for (let attempt = 1; attempt <= fillRetryLimit; attempt++) {
+      let fillRes = null;
+      try {
+        fillRes = await cdp.eval(
+          LOGIN_FILL_SCRIPT,
+          {
+            __PASSWORD: pw,
+            __USERNAME: username || 'the.thoi@samsung.com',
+            __TIMEOUT: Math.min(timeout, 10000),
+          },
+          { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
+        );
+      } catch (err) {
+        fillRes = { outcome: 'UNKNOWN', reason: err.message };
+      }
+
+      lastOutcome = fillRes?.outcome || 'UNKNOWN';
+      logDiag(`Autofill attempt ${attempt}/${fillRetryLimit} outcome: ${lastOutcome}`);
+
+      if (lastOutcome === 'AUTHENTICATED') {
+        logDiag(`Password autofill succeeded on attempt ${attempt}. Proceeding.`);
+        return { handled: true };
+      }
+
+      if (lastOutcome === 'REJECTED') {
+        logDiag(`Password rejected by Okta. Clearing stored secret.`);
+        clearSecret(secretPath);
+        return {
+          state: 'AUTH',
+          reason: 'password-rejected',
+          href: '',
+          fields: {},
+          fastPathUsed,
+          durationMs: Math.round(performance.now() - start),
+          url: authUrl || '',
+          diagnostics,
+        };
+      }
+
+      if (lastOutcome === 'OTP_REQUIRED') {
+        logDiag(`Password accepted; OTP is required.`);
+        return {
+          state: 'AUTH',
+          href: '',
+          fields: {},
+          fastPathUsed,
+          durationMs: Math.round(performance.now() - start),
+          url: authUrl || '',
+          diagnostics,
+        };
+      }
+    }
+
+    logDiag(`Autofill exceeded retry limit (${fillRetryLimit}). Falling back to manual AUTH.`);
+    return {
+      state: 'AUTH',
+      href: '',
+      fields: {},
+      fastPathUsed,
+      durationMs: Math.round(performance.now() - start),
+      url: authUrl || '',
+      diagnostics,
+    };
+  }
 
   // 1. Fast Path: Direct Navigation if cached case URL is known and valid
   if (caseUrl && !isStubUrl(caseUrl)) {
@@ -250,11 +357,25 @@ export async function fastLandOnCase(code, options = {}) {
     try {
       await cdp.navigate(caseUrl, { waitUntil: 'load', timeout: Math.min(timeout, 25000) });
 
-      const probe = await cdp.eval(
+      let probe = await cdp.eval(
         IN_PAGE_OBSERVE_SCRIPT,
         { __CODE: code, __TIMEOUT: Math.min(timeout, 15000) },
         { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
       );
+
+      if (probe?.state === 'AUTH') {
+        const authRes = await handleAuth(probe.url, true);
+        if (!authRes.handled) {
+          return authRes;
+        }
+        logDiag(`Re-attempting direct navigation after authentication: ${caseUrl}`);
+        await cdp.navigate(caseUrl, { waitUntil: 'load', timeout: Math.min(timeout, 25000) });
+        probe = await cdp.eval(
+          IN_PAGE_OBSERVE_SCRIPT,
+          { __CODE: code, __TIMEOUT: Math.min(timeout, 15000) },
+          { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
+        );
+      }
 
       const durationMs = Math.round(performance.now() - start);
 
@@ -276,16 +397,8 @@ export async function fastLandOnCase(code, options = {}) {
       }
 
       if (probe?.state === 'AUTH') {
-        logDiag(`Direct navigation redirected to AUTH: ${probe.url}`);
-        return {
-          state: 'AUTH',
-          href: '',
-          fields: {},
-          fastPathUsed: true,
-          durationMs,
-          url: probe.url || '',
-          diagnostics,
-        };
+        const authRes = await handleAuth(probe.url, true);
+        if (!authRes.handled) return authRes;
       }
 
       const reason = probe?.state ? `state was '${probe.state}'` : 'did not reach ON_CASE';
@@ -305,26 +418,27 @@ export async function fastLandOnCase(code, options = {}) {
   try {
     await cdp.navigate(searchUrl, { waitUntil: 'load', timeout: Math.min(timeout, 25000) });
 
-    const searchProbe = await cdp.eval(
+    let searchProbe = await cdp.eval(
       IN_PAGE_SEARCH_SCRIPT,
       { __CODE: code, __TIMEOUT: Math.min(timeout, 25000) },
       { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
     );
 
-    const durationMs = Math.round(performance.now() - start);
-
     if (searchProbe?.state === 'AUTH') {
-      logDiag(`Global search redirected to AUTH: ${searchProbe.url}`);
-      return {
-        state: 'AUTH',
-        href: '',
-        fields: {},
-        fastPathUsed: false,
-        durationMs,
-        url: searchProbe.url || '',
-        diagnostics,
-      };
+      const authRes = await handleAuth(searchProbe.url, false);
+      if (!authRes.handled) {
+        return authRes;
+      }
+      logDiag(`Re-attempting global search after authentication: ${searchUrl}`);
+      await cdp.navigate(searchUrl, { waitUntil: 'load', timeout: Math.min(timeout, 25000) });
+      searchProbe = await cdp.eval(
+        IN_PAGE_SEARCH_SCRIPT,
+        { __CODE: code, __TIMEOUT: Math.min(timeout, 25000) },
+        { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
+      );
     }
+
+    const durationMs = Math.round(performance.now() - start);
 
     if (searchProbe?.state === 'ON_CASE' && !isStubUrl(searchProbe.href)) {
       logDiag(`Search URL immediately landed ON_CASE: ${searchProbe.href}`);
@@ -347,23 +461,24 @@ export async function fastLandOnCase(code, options = {}) {
         try {
           logDiag(`Navigating directly to resolved case URL from search: ${searchProbe.href}`);
           await cdp.navigate(searchProbe.href, { waitUntil: 'load', timeout: Math.min(timeout, 15000) });
-          const navProbe = await cdp.eval(
+          let navProbe = await cdp.eval(
             IN_PAGE_OBSERVE_SCRIPT,
             { __CODE: code, __TIMEOUT: Math.min(timeout, 5000) },
             { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
           );
 
           if (navProbe?.state === 'AUTH') {
-            logDiag(`Navigation to resolved search URL redirected to AUTH: ${navProbe.url}`);
-            return {
-              state: 'AUTH',
-              href: '',
-              fields,
-              fastPathUsed: false,
-              durationMs: Math.round(performance.now() - start),
-              url: navProbe.url || '',
-              diagnostics,
-            };
+            const authRes = await handleAuth(navProbe.url, false);
+            if (!authRes.handled) {
+              return authRes;
+            }
+            logDiag(`Re-attempting search link navigation after authentication: ${searchProbe.href}`);
+            await cdp.navigate(searchProbe.href, { waitUntil: 'load', timeout: Math.min(timeout, 15000) });
+            navProbe = await cdp.eval(
+              IN_PAGE_OBSERVE_SCRIPT,
+              { __CODE: code, __TIMEOUT: Math.min(timeout, 5000) },
+              { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
+            );
           }
 
           if (navProbe?.state === 'ON_CASE' && !isStubUrl(navProbe.href || searchProbe.href)) {
@@ -388,23 +503,23 @@ export async function fastLandOnCase(code, options = {}) {
       try {
         logDiag(`Dispatching trusted click on search result element [data-cq-hit='1']`);
         await cdp.click("[data-cq-hit='1']");
-        const clickProbe = await cdp.eval(
+        let clickProbe = await cdp.eval(
           IN_PAGE_OBSERVE_SCRIPT,
           { __CODE: code, __TIMEOUT: Math.min(timeout, 5000) },
           { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
         );
 
         if (clickProbe?.state === 'AUTH') {
-          logDiag(`Trusted click redirected to AUTH: ${clickProbe.url}`);
-          return {
-            state: 'AUTH',
-            href: '',
-            fields,
-            fastPathUsed: false,
-            durationMs: Math.round(performance.now() - start),
-            url: clickProbe.url || '',
-            diagnostics,
-          };
+          const authRes = await handleAuth(clickProbe.url, false);
+          if (!authRes.handled) {
+            return authRes;
+          }
+          logDiag(`Re-attempting observation after authentication following trusted click`);
+          clickProbe = await cdp.eval(
+            IN_PAGE_OBSERVE_SCRIPT,
+            { __CODE: code, __TIMEOUT: Math.min(timeout, 5000) },
+            { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
+          );
         }
 
         if (clickProbe?.state === 'ON_CASE' && !isStubUrl(clickProbe.href)) {

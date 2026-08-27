@@ -1,9 +1,11 @@
-// tests/fast_landing.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMockCdpServer } from './mocks/cdp_server.mjs';
 import { CdpClient } from '../.claude/skills/qualcomm-case-agent/scripts/cdp_client.mjs';
 import { fastLandOnCase, isStubUrl } from '../.claude/skills/qualcomm-case-agent/scripts/fast_landing.mjs';
+
+let seq = 0;
+const importFastLanding = () => import(`../.claude/skills/qualcomm-case-agent/scripts/fast_landing.mjs?t=${++seq}`);
 
 test('Fast Path Landing Engine', async (t) => {
   let server;
@@ -538,6 +540,456 @@ test('Fast Path Landing Engine', async (t) => {
     assert.ok(result.diagnostics.some(d => d.includes('global search')));
     assert.equal(result.reason, 'Search yielded zero matches');
   });
+
+  await t.test('autofill: secret present + AUTHENTICATED result proceeds without human action', async (st) => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
+    const TEST_PW = 'SuperSecretQidPass123!';
+
+    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+      exports: {
+        readPassword: () => TEST_PW,
+        clearSecret: () => {},
+      },
+    });
+
+    const { fastLandOnCase: fastLand } = await importFastLanding();
+
+    let evalCount = 0;
+    let loginFillParams = null;
+
+    server.setHandler((msg, ws) => {
+      if (msg.method === 'Page.navigate') {
+        return { id: msg.id, result: { frameId: 'F1' } };
+      }
+      if (msg.method === 'Runtime.evaluate') {
+        evalCount++;
+        const expr = msg.params?.expression || '';
+        // 1. Initial direct nav probe -> AUTH
+        if (evalCount === 1) {
+          return {
+            id: msg.id,
+            result: {
+              result: {
+                type: 'object',
+                value: { state: 'AUTH', url: 'https://account.qualcomm.com/login' },
+              },
+            },
+          };
+        }
+        // 2. login_fill.js eval
+        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+          loginFillParams = msg.params;
+          return {
+            id: msg.id,
+            result: {
+              result: {
+                type: 'object',
+                value: { outcome: 'AUTHENTICATED' },
+              },
+            },
+          };
+        }
+        // 3. Post-auth re-nav probe -> ON_CASE
+        return {
+          id: msg.id,
+          result: {
+            result: {
+              type: 'object',
+              value: { state: 'ON_CASE', href: targetUrl, fields: { title: 'Camera ISP drop issue' } },
+            },
+          },
+        };
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const result = await fastLand('08603854', {
+      cdp: client,
+      cached: { caseUrl: targetUrl },
+    });
+
+    assert.equal(result.state, 'OK');
+    assert.equal(result.href, targetUrl);
+    assert.ok(loginFillParams !== null, 'login_fill.js should have been evaluated');
+    // Verify password is never in diagnostics
+    assert.ok(!result.diagnostics.some(d => d.includes(TEST_PW)));
+  });
+
+  await t.test('autofill: secret present + REJECTED calls clearSecret, returns AUTH with reason password-rejected and no retry', async (st) => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
+    const TEST_PW = 'WrongPassword999!';
+    let clearSecretCalls = 0;
+
+    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+      exports: {
+        readPassword: () => TEST_PW,
+        clearSecret: () => { clearSecretCalls++; },
+      },
+    });
+
+    const { fastLandOnCase: fastLand } = await importFastLanding();
+
+    let fillAttempts = 0;
+
+    server.setHandler((msg, ws) => {
+      if (msg.method === 'Page.navigate') {
+        return { id: msg.id, result: { frameId: 'F1' } };
+      }
+      if (msg.method === 'Runtime.evaluate') {
+        const expr = msg.params?.expression || '';
+        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+          fillAttempts++;
+          return {
+            id: msg.id,
+            result: {
+              result: {
+                type: 'object',
+                value: { outcome: 'REJECTED', reason: 'Unable to sign in' },
+              },
+            },
+          };
+        }
+        // Direct nav probe -> AUTH
+        return {
+          id: msg.id,
+          result: {
+            result: {
+              type: 'object',
+              value: { state: 'AUTH', url: 'https://account.qualcomm.com/login' },
+            },
+          },
+        };
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const result = await fastLand('08603854', {
+      cdp: client,
+      cached: { caseUrl: targetUrl },
+    });
+
+    assert.equal(result.state, 'AUTH');
+    assert.equal(result.reason, 'password-rejected');
+    assert.equal(clearSecretCalls, 1, 'clearSecret must be called on REJECTED');
+    assert.equal(fillAttempts, 1, 'rejected password must never be retried');
+    assert.ok(!result.diagnostics.some(d => d.includes(TEST_PW)));
+  });
+
+  await t.test('autofill: UNKNOWN twice then success on 3rd attempt executes exactly 3 attempts', async (st) => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
+    const TEST_PW = 'TransientGlitchPw';
+
+    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+      exports: {
+        readPassword: () => TEST_PW,
+        clearSecret: () => {},
+      },
+    });
+
+    const { fastLandOnCase: fastLand } = await importFastLanding();
+
+    let fillAttempts = 0;
+
+    server.setHandler((msg, ws) => {
+      if (msg.method === 'Page.navigate') {
+        return { id: msg.id, result: { frameId: 'F1' } };
+      }
+      if (msg.method === 'Runtime.evaluate') {
+        const expr = msg.params?.expression || '';
+        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+          fillAttempts++;
+          if (fillAttempts < 3) {
+            return {
+              id: msg.id,
+              result: {
+                result: {
+                  type: 'object',
+                  value: { outcome: 'UNKNOWN', reason: 'Form not ready yet' },
+                },
+              },
+            };
+          }
+          return {
+            id: msg.id,
+            result: {
+              result: {
+                type: 'object',
+                value: { outcome: 'AUTHENTICATED' },
+              },
+            },
+          };
+        }
+        if (fillAttempts >= 3) {
+          return {
+            id: msg.id,
+            result: {
+              result: {
+                type: 'object',
+                value: { state: 'ON_CASE', href: targetUrl },
+              },
+            },
+          };
+        }
+        return {
+          id: msg.id,
+          result: {
+            result: {
+              type: 'object',
+              value: { state: 'AUTH', url: 'https://account.qualcomm.com/login' },
+            },
+          },
+        };
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const result = await fastLand('08603854', {
+      cdp: client,
+      cached: { caseUrl: targetUrl },
+      fillRetryLimit: 3,
+    });
+
+    assert.equal(result.state, 'OK');
+    assert.equal(result.href, targetUrl);
+    assert.equal(fillAttempts, 3, 'should make exactly 3 fill attempts');
+  });
+
+  await t.test('autofill: UNKNOWN on all fillRetryLimit attempts falls back to generic AUTH', async (st) => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
+    let clearSecretCalls = 0;
+
+    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+      exports: {
+        readPassword: () => 'GlitchPw',
+        clearSecret: () => { clearSecretCalls++; },
+      },
+    });
+
+    const { fastLandOnCase: fastLand } = await importFastLanding();
+
+    let fillAttempts = 0;
+
+    server.setHandler((msg, ws) => {
+      if (msg.method === 'Page.navigate') {
+        return { id: msg.id, result: { frameId: 'F1' } };
+      }
+      if (msg.method === 'Runtime.evaluate') {
+        const expr = msg.params?.expression || '';
+        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+          fillAttempts++;
+          return {
+            id: msg.id,
+            result: {
+              result: {
+                type: 'object',
+                value: { outcome: 'UNKNOWN', reason: 'Timeout' },
+              },
+            },
+          };
+        }
+        return {
+          id: msg.id,
+          result: {
+            result: {
+              type: 'object',
+              value: { state: 'AUTH', url: 'https://account.qualcomm.com/login' },
+            },
+          },
+        };
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const result = await fastLand('08603854', {
+      cdp: client,
+      cached: { caseUrl: targetUrl },
+      fillRetryLimit: 3,
+    });
+
+    assert.equal(result.state, 'AUTH');
+    assert.equal(result.reason, undefined);
+    assert.equal(fillAttempts, 3);
+    assert.equal(clearSecretCalls, 0, 'clearSecret must not be called on UNKNOWN technical glitches');
+  });
+
+  await t.test('autofill: readPassword() returns null -> manual behavior unchanged, no fill attempted', async (st) => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
+
+    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+      exports: {
+        readPassword: () => null,
+        clearSecret: () => {},
+      },
+    });
+
+    const { fastLandOnCase: fastLand } = await importFastLanding();
+
+    let fillAttempted = false;
+
+    server.setHandler((msg, ws) => {
+      if (msg.method === 'Page.navigate') {
+        return { id: msg.id, result: { frameId: 'F1' } };
+      }
+      if (msg.method === 'Runtime.evaluate') {
+        const expr = msg.params?.expression || '';
+        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+          fillAttempted = true;
+        }
+        return {
+          id: msg.id,
+          result: {
+            result: {
+              type: 'object',
+              value: { state: 'AUTH', url: 'https://account.qualcomm.com/login' },
+            },
+          },
+        };
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const result = await fastLand('08603854', {
+      cdp: client,
+      cached: { caseUrl: targetUrl },
+    });
+
+    assert.equal(result.state, 'AUTH');
+    assert.equal(result.url, 'https://account.qualcomm.com/login');
+    assert.equal(fillAttempted, false, 'must not attempt fill when readPassword is null');
+  });
+
+  await t.test('autofill: second AUTH sighting later in same invocation does not re-trigger fresh fill attempt', async (st) => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
+    let readPasswordCalls = 0;
+
+    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+      exports: {
+        readPassword: () => {
+          readPasswordCalls++;
+          return 'ValidSecret';
+        },
+        clearSecret: () => {},
+      },
+    });
+
+    const { fastLandOnCase: fastLand } = await importFastLanding();
+
+    let fillAttempts = 0;
+    let directNavProbes = 0;
+
+    server.setHandler((msg, ws) => {
+      if (msg.method === 'Page.navigate') {
+        return { id: msg.id, result: { frameId: 'F1' } };
+      }
+      if (msg.method === 'Runtime.evaluate') {
+        const expr = msg.params?.expression || '';
+        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+          fillAttempts++;
+          return {
+            id: msg.id,
+            result: {
+              result: {
+                type: 'object',
+                value: { outcome: 'AUTHENTICATED' },
+              },
+            },
+          };
+        }
+        // Direct nav observe probe
+        directNavProbes++;
+        if (directNavProbes === 1) {
+          // First sighting triggers autofill
+          return {
+            id: msg.id,
+            result: {
+              result: {
+                type: 'object',
+                value: { state: 'AUTH', url: 'https://account.qualcomm.com/login' },
+              },
+            },
+          };
+        }
+        // Re-nav after autofill still returns AUTH (e.g. session was revoked or redirected back)
+        return {
+          id: msg.id,
+          result: {
+            result: {
+              type: 'object',
+              value: { state: 'AUTH', url: 'https://account.qualcomm.com/login-again' },
+            },
+          },
+        };
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const result = await fastLand('08603854', {
+      cdp: client,
+      cached: { caseUrl: targetUrl },
+    });
+
+    assert.equal(result.state, 'AUTH');
+    assert.equal(readPasswordCalls, 1, 'readPassword should only be called on first AUTH');
+    assert.equal(fillAttempts, 1, 'login_fill should only run once across the whole invocation');
+  });
+
+  await t.test('security: password is never logged or echoed anywhere in diagnostics or return values', async (st) => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
+    const LEAK_TEST_PASSWORD = 'TOP_SECRET_SUPER_SPECIAL_PASSWORD_NEVER_LOG';
+
+    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+      exports: {
+        readPassword: () => LEAK_TEST_PASSWORD,
+        clearSecret: () => {},
+      },
+    });
+
+    const { fastLandOnCase: fastLand } = await importFastLanding();
+
+    server.setHandler((msg, ws) => {
+      if (msg.method === 'Page.navigate') {
+        return { id: msg.id, result: { frameId: 'F1' } };
+      }
+      if (msg.method === 'Runtime.evaluate') {
+        const expr = msg.params?.expression || '';
+        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+          return {
+            id: msg.id,
+            result: {
+              result: {
+                type: 'object',
+                value: { outcome: 'UNKNOWN', reason: 'Simulated failure' },
+              },
+            },
+          };
+        }
+        return {
+          id: msg.id,
+          result: {
+            result: {
+              type: 'object',
+              value: { state: 'AUTH', url: 'https://account.qualcomm.com/login' },
+            },
+          },
+        };
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const result = await fastLand('08603854', {
+      cdp: client,
+      cached: { caseUrl: targetUrl },
+      fillRetryLimit: 1,
+    });
+
+    const resultStr = JSON.stringify(result);
+    assert.ok(!resultStr.includes(LEAK_TEST_PASSWORD), 'password must not appear in fastLandOnCase return object');
+    assert.ok(Array.isArray(result.diagnostics));
+    for (const diag of result.diagnostics) {
+      assert.ok(!diag.includes(LEAK_TEST_PASSWORD), 'password must not appear in any diagnostic message');
+    }
+  });
 });
+
 
 
