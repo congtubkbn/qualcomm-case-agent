@@ -613,67 +613,82 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       align-items: center;
       gap: 12px;
     }
-    .refresh-controls {
+    .toolbar-pill {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 2px;
       background: var(--card-bg);
       border: 1px solid var(--border);
-      padding: 4px 10px;
-      font-family: var(--mono);
-      font-size: 11px;
+      border-radius: 999px;
+      padding: 3px;
     }
-    .refresh-label {
-      color: var(--text-secondary);
-      font-weight: 500;
-      font-size: 11px;
+    .pill-divider {
+      width: 1px;
+      height: 18px;
+      background: var(--border);
+      margin: 0 2px;
     }
-    .refresh-select {
-      background: var(--bg);
-      border: 1px solid var(--border);
-      color: var(--text-primary);
-      font-family: var(--mono);
-      padding: 3px 6px;
-      font-size: 11px;
-      cursor: pointer;
-      outline: none;
-    }
-    .refresh-select:focus {
-      border-color: var(--accent);
-    }
-    .countdown-ticker {
-      font-family: var(--mono);
-      font-size: 11px;
-      color: var(--text-muted);
-      min-width: 135px;
-    }
-    .refresh-btn {
+    .icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 30px;
+      height: 30px;
+      border: none;
+      border-radius: 999px;
       background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text-secondary);
-      font-family: var(--mono);
-      padding: 4px 8px;
-      font-size: 11px;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-    .refresh-btn:hover {
-      background: var(--border-subtle);
       color: var(--text-primary);
-      border-color: var(--accent);
+      font-size: 15px;
+      line-height: 1;
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease;
     }
-    .theme-toggle-btn {
+    .icon-btn:hover {
+      background: var(--badge-open-bg);
+      color: var(--accent);
+    }
+    .icon-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .interval-wrap {
+      position: relative;
+    }
+    .interval-popover {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      display: none;
+      flex-direction: column;
+      min-width: 84px;
       background: var(--card-bg);
       border: 1px solid var(--border);
-      color: var(--text-primary);
-      font-family: var(--mono);
-      padding: 4px 10px;
-      cursor: pointer;
-      font-size: 11px;
-      transition: all 0.15s ease;
+      border-radius: var(--radius-sm);
+      box-shadow: var(--shadow-md);
+      padding: 4px;
+      z-index: 20;
     }
-    .theme-toggle-btn:hover {
-      border-color: var(--accent);
+    .interval-popover.open {
+      display: flex;
+    }
+    .interval-popover button {
+      all: unset;
+      box-sizing: border-box;
+      width: 100%;
+      padding: 6px 10px;
+      font-family: var(--mono);
+      font-size: 11.5px;
+      color: var(--text-secondary);
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .interval-popover button:hover {
+      background: var(--badge-open-bg);
+      color: var(--accent);
+    }
+    .interval-popover button.active {
+      color: var(--accent);
+      font-weight: 700;
     }
     .controls-bar {
       display: flex;
@@ -883,24 +898,6 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     body:not([data-active-filter="hidden"]) .unhide-btn {
       display: none !important;
     }
-    .protocol-help-btn {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      color: var(--text-primary);
-      padding: 8px 14px;
-      border-radius: var(--radius-sm);
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 500;
-      transition: all 0.15s ease;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .protocol-help-btn:hover {
-      border-color: var(--accent);
-      background: var(--border-subtle);
-    }
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -970,20 +967,6 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       display: flex;
       flex-direction: column;
       gap: 18px;
-    }
-    .modal-section-title {
-      font-size: 13px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: var(--text-secondary);
-      margin-bottom: 10px;
-    }
-    .modal-desc {
-      font-size: 13px;
-      color: var(--text-secondary);
-      line-height: 1.5;
-      margin-bottom: 8px;
     }
     .comparison-grid {
       display: grid;
@@ -1090,14 +1073,6 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       padding: 2px 6px;
       border-radius: var(--radius-sm);
       color: var(--text-primary);
-    }
-    .code-inline {
-      font-family: var(--mono);
-      font-size: 0.9em;
-      background: var(--border-subtle);
-      padding: 1px 5px;
-      border-radius: 4px;
-      border: 1px solid var(--border);
     }
     .badge {
       display: inline-flex;
@@ -1213,21 +1188,25 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         </div>
       </div>
       <div class="header-actions">
-        <div class="refresh-controls">
-          <label for="refreshInterval" class="refresh-label">Auto-refresh:</label>
-          <select id="refreshInterval" class="refresh-select" title="Select auto-refresh interval">
-            <option value="0">Off</option>
-            <option value="60">1m</option>
-            <option value="120">2m</option>
-            <option value="300" selected>5m (default)</option>
-            <option value="600">10m</option>
-            <option value="900">15m</option>
-          </select>
-          <span id="countdownTicker" class="countdown-ticker" title="Time until next auto-refresh">Auto-refresh in: 05:00</span>
-          <button id="refreshNowBtn" class="refresh-btn" type="button" title="Refresh dashboard immediately">🔄 Refresh Now</button>
+        <div class="toolbar-pill" id="toolbarPill">
+          <button id="refreshNowBtn" class="icon-btn" type="button" title="Refresh dashboard now">🔄</button>
+          <span class="pill-divider"></span>
+          <div class="interval-wrap">
+            <button id="intervalBtn" class="icon-btn" type="button" title="Auto-refresh: 5m" aria-haspopup="true" aria-expanded="false">⏱</button>
+            <div id="intervalPopover" class="interval-popover" role="menu" aria-label="Auto-refresh interval">
+              <button type="button" data-val="0" role="menuitemradio" aria-checked="false">Off</button>
+              <button type="button" data-val="60" role="menuitemradio" aria-checked="false">1m</button>
+              <button type="button" data-val="120" role="menuitemradio" aria-checked="false">2m</button>
+              <button type="button" data-val="300" class="active" role="menuitemradio" aria-checked="true">5m</button>
+              <button type="button" data-val="600" role="menuitemradio" aria-checked="false">10m</button>
+              <button type="button" data-val="900" role="menuitemradio" aria-checked="false">15m</button>
+            </div>
+          </div>
+          <span class="pill-divider"></span>
+          <button id="protocolHelpBtn" class="icon-btn" type="button" title="Protocol Help">⚙️</button>
+          <span class="pill-divider"></span>
+          <button id="themeToggle" class="icon-btn" type="button" title="Toggle theme" aria-label="Toggle theme">🌙</button>
         </div>
-        <button id="protocolHelpBtn" class="protocol-help-btn" type="button" title="View qc:// protocol help and status">⚙️ Protocol Help</button>
-        <button id="themeToggle" class="theme-toggle-btn" type="button">🌓 Theme</button>
       </div>
     </header>
 
@@ -1275,32 +1254,18 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     <div id="protocolModal" class="modal-overlay" aria-hidden="true">
       <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
         <div class="modal-header">
-          <h2 id="modalTitle" class="modal-title">⚙️ Qualcomm Protocol Handler (<code class="code-inline">qc://</code>)</h2>
+          <h2 id="modalTitle" class="modal-title">⚙️ Protocol Help</h2>
           <button id="closeModalBtn" class="modal-close-btn" type="button" aria-label="Close modal">&times;</button>
         </div>
         <div class="modal-body">
-          <div class="modal-section">
-            <h3 class="modal-section-title">qc:// Protocol</h3>
-            <p class="modal-desc">Clicking any <code class="code-inline">#CaseNumber</code> or Case Title launches the dedicated authenticated Chrome profile (<code class="code-inline">data/chrome-profile</code>) on port 9773. Your Okta SSO session and cookies stay active — no login gates or OTP prompts.</p>
+          <div class="cmd-box">
+            <code id="protocolCmdText" class="cmd-text">powershell -ExecutionPolicy Bypass -File scripts/register_protocol.ps1</code>
+            <button id="copyProtocolCmdBtn" class="copy-cmd-btn" type="button" title="Copy PowerShell registration command">Copy Command</button>
           </div>
-
-          <div class="modal-section">
-            <h3 class="modal-section-title">Windows Protocol Registration</h3>
-            <p class="modal-desc">The <code class="code-inline">qc://</code> scheme is registered in Windows user-space registry (<code class="code-inline">HKCU:\Software\Classes\qc</code>). No Administrator privileges required.</p>
-            <div class="cmd-box">
-              <code id="protocolCmdText" class="cmd-text">powershell -ExecutionPolicy Bypass -File scripts/register_protocol.ps1</code>
-              <button id="copyProtocolCmdBtn" class="copy-cmd-btn" type="button" title="Copy PowerShell registration command">Copy Command</button>
-            </div>
-            <div class="cmd-box-alt">
-              <span>Or via npm:</span>
-              <code id="npmCmdText" class="cmd-text-inline">npm run setup:protocol</code>
-              <button id="copyNpmCmdBtn" class="copy-cmd-btn-sm" type="button" title="Copy npm command">Copy</button>
-            </div>
-          </div>
-
-          <div class="modal-section">
-            <h3 class="modal-section-title">How to Test</h3>
-            <p class="modal-desc">Click any <code class="code-inline">#CaseNumber</code> or Case Title on this dashboard to test opening in the authenticated session.</p>
+          <div class="cmd-box-alt">
+            <span>Or via npm:</span>
+            <code id="npmCmdText" class="cmd-text-inline">npm run setup:protocol</code>
+            <button id="copyNpmCmdBtn" class="copy-cmd-btn-sm" type="button" title="Copy npm command">Copy</button>
           </div>
         </div>
       </div>
@@ -1315,8 +1280,8 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       const emptyState = document.getElementById('emptyState');
       const themeToggle = document.getElementById('themeToggle');
       const hiddenCountEl = document.getElementById('hiddenCount');
-      const refreshSelect = document.getElementById('refreshInterval');
-      const countdownTicker = document.getElementById('countdownTicker');
+      const intervalBtn = document.getElementById('intervalBtn');
+      const intervalPopover = document.getElementById('intervalPopover');
       const refreshNowBtn = document.getElementById('refreshNowBtn');
       const protocolHelpBtn = document.getElementById('protocolHelpBtn');
       const protocolModal = document.getElementById('protocolModal');
@@ -1595,39 +1560,38 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         });
       }
 
-      // Theme toggle
+      // Theme toggle — icon-only, glyph reflects the active theme (no visible label)
       if (themeToggle) {
+        function effectiveIsDark() {
+          const current = document.documentElement.getAttribute('data-theme');
+          if (current === 'dark') return true;
+          if (current === 'light') return false;
+          return window.matchMedia('(prefers-color-scheme: dark)').matches;
+        }
+
+        function syncThemeIcon() {
+          themeToggle.textContent = effectiveIsDark() ? '☀️' : '🌙';
+        }
+
         const savedTheme = safeStorageGet(STORAGE_KEY_THEME);
         if (savedTheme) {
           document.documentElement.setAttribute('data-theme', savedTheme);
-          themeToggle.textContent = savedTheme === 'dark' ? '☀️ Light' : '🌙 Dark';
         }
+        syncThemeIcon();
 
         themeToggle.addEventListener('click', () => {
-          const current = document.documentElement.getAttribute('data-theme');
-          let next = 'dark';
-          if (current === 'dark') {
-            next = 'light';
-          } else if (current === 'light') {
-            next = 'dark';
-          } else {
-            const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            next = isDark ? 'light' : 'dark';
-          }
+          const next = effectiveIsDark() ? 'light' : 'dark';
           document.documentElement.setAttribute('data-theme', next);
           safeStorageSet(STORAGE_KEY_THEME, next);
-          themeToggle.textContent = next === 'dark' ? '☀️ Light' : '🌙 Dark';
+          syncThemeIcon();
         });
       }
 
-      // Auto-refresh countdown timer (default 300s = 5m)
+      // Auto-refresh countdown timer (default 300s = 5m). No visible ticker text —
+      // remaining time surfaces only via the interval button's title tooltip.
       const savedRefreshInterval = safeStorageGet(STORAGE_KEY_REFRESH);
       let refreshSeconds = savedRefreshInterval !== null ? parseInt(savedRefreshInterval, 10) : 300;
       if (isNaN(refreshSeconds)) refreshSeconds = 300;
-
-      if (refreshSelect) {
-        refreshSelect.value = String(refreshSeconds);
-      }
 
       let remainingSeconds = refreshSeconds;
       let refreshTimer = null;
@@ -1639,12 +1603,10 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       }
 
       function updateTickerDisplay() {
-        if (!countdownTicker) return;
-        if (refreshSeconds <= 0) {
-          countdownTicker.textContent = 'Auto-refresh: Off';
-        } else {
-          countdownTicker.textContent = 'Auto-refresh in: ' + formatTime(remainingSeconds);
-        }
+        if (!intervalBtn) return;
+        intervalBtn.title = refreshSeconds <= 0
+          ? 'Auto-refresh: Off'
+          : 'Auto-refresh in: ' + formatTime(remainingSeconds);
       }
 
       function startCountdown() {
@@ -1669,12 +1631,48 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         }, 1000);
       }
 
-      if (refreshSelect) {
-        refreshSelect.addEventListener('change', (e) => {
-          refreshSeconds = parseInt(e.target.value, 10) || 0;
-          safeStorageSet(STORAGE_KEY_REFRESH, String(refreshSeconds));
-          startCountdown();
+      // Interval popover — pick an auto-refresh interval directly (Off…15m)
+      if (intervalBtn && intervalPopover) {
+        function closeIntervalPopover() {
+          intervalPopover.classList.remove('open');
+          intervalBtn.setAttribute('aria-expanded', 'false');
+        }
+
+        intervalBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const isOpen = intervalPopover.classList.toggle('open');
+          intervalBtn.setAttribute('aria-expanded', String(isOpen));
         });
+
+        intervalPopover.querySelectorAll('button').forEach(btn => {
+          btn.addEventListener('click', () => {
+            intervalPopover.querySelectorAll('button').forEach(b => {
+              b.classList.remove('active');
+              b.setAttribute('aria-checked', 'false');
+            });
+            btn.classList.add('active');
+            btn.setAttribute('aria-checked', 'true');
+            refreshSeconds = parseInt(btn.getAttribute('data-val'), 10) || 0;
+            safeStorageSet(STORAGE_KEY_REFRESH, String(refreshSeconds));
+            startCountdown();
+            closeIntervalPopover();
+          });
+        });
+
+        document.addEventListener('click', closeIntervalPopover);
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') closeIntervalPopover();
+        });
+
+        const activeBtn = intervalPopover.querySelector(\`button[data-val="\${refreshSeconds}"]\`);
+        if (activeBtn) {
+          intervalPopover.querySelectorAll('button').forEach(b => {
+            b.classList.remove('active');
+            b.setAttribute('aria-checked', 'false');
+          });
+          activeBtn.classList.add('active');
+          activeBtn.setAttribute('aria-checked', 'true');
+        }
       }
 
       if (refreshNowBtn) {

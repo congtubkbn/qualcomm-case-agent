@@ -173,17 +173,19 @@ describe('cases_overview_render: renderDashboardHtml', () => {
     const data = createSampleOverviewData();
     const html = renderDashboardHtml(data);
 
-    // Header button
+    // Header button (icon-only, title carries the label)
     assert.ok(html.includes('id="protocolHelpBtn"'));
-    assert.ok(html.includes('⚙️ Protocol Help'));
+    assert.ok(html.includes('title="Protocol Help"'));
 
-    // Modal dialog and contents
+    // Modal dialog and contents — command copy/paste only, no prose sections
     assert.ok(html.includes('id="protocolModal"'));
     assert.ok(html.includes('class="modal-overlay"'));
     assert.ok(html.includes('powershell -ExecutionPolicy Bypass -File scripts/register_protocol.ps1'));
     assert.ok(html.includes('id="copyProtocolCmdBtn"'));
     assert.ok(html.includes('id="closeModalBtn"'));
-    assert.ok(html.includes('qc:// Protocol'));
+    assert.ok(html.includes('⚙️ Protocol Help'));
+    assert.doesNotMatch(html, /qc:\/\/ Protocol/, 'Modal must not render the removed qc:// explanation section');
+    assert.doesNotMatch(html, /How to Test/, 'Modal must not render the removed How to Test section');
     assert.doesNotMatch(html, /Dual-Mode Links Explained/, 'Modal must not reference Dual-Mode (Web Link fallback removed)');
 
     // Modal interactive scripts (Escape key handler and click-outside backdrop dismiss)
@@ -256,24 +258,28 @@ describe('cases_overview_render: renderDashboardHtml', () => {
     assert.ok(html.includes('ai-summary'));
   });
 
-  it('renders auto-refresh timer controls, interval selector, and manual refresh button', () => {
+  it('renders auto-refresh icon toolbar with interval popover and manual refresh button', () => {
     const data = createSampleOverviewData();
     const html = renderDashboardHtml(data);
 
-    // Auto-refresh interval dropdown & options
-    assert.ok(html.includes('id="refreshInterval"'), 'Must render refreshInterval select element');
-    assert.ok(html.includes('value="0">Off<'), 'Must have Off option');
-    assert.ok(html.includes('value="60">1m<'), 'Must have 1m option');
-    assert.ok(html.includes('value="120">2m<'), 'Must have 2m option');
-    assert.ok(html.includes('value="300" selected>5m (default)<'), 'Must have 5m (default) option');
-    assert.ok(html.includes('value="600">10m<'), 'Must have 10m option');
-    assert.ok(html.includes('value="900">15m<'), 'Must have 15m option');
+    // Auto-refresh interval popover & options (icon-only trigger, no visible select/label)
+    assert.ok(html.includes('id="intervalBtn"'), 'Must render intervalBtn');
+    assert.ok(html.includes('id="intervalPopover"'), 'Must render intervalPopover');
+    assert.ok(html.includes('data-val="0"') && html.includes('>Off<'), 'Must have Off option');
+    assert.ok(html.includes('data-val="60"') && html.includes('>1m<'), 'Must have 1m option');
+    assert.ok(html.includes('data-val="120"') && html.includes('>2m<'), 'Must have 2m option');
+    assert.ok(html.includes('data-val="300"') && html.includes('>5m<'), 'Must have 5m (default) option');
+    assert.ok(html.includes('data-val="600"') && html.includes('>10m<'), 'Must have 10m option');
+    assert.ok(html.includes('data-val="900"') && html.includes('>15m<'), 'Must have 15m option');
+    assert.doesNotMatch(html, /id="refreshInterval"/, 'Must not render the old <select> element');
 
-    // Live countdown ticker & refresh now button
-    assert.ok(html.includes('id="countdownTicker"'), 'Must render countdownTicker');
-    assert.ok(html.includes('Auto-refresh in: 05:00'), 'Must initialize default countdown ticker text');
+    // Countdown surfaces only via the interval button's title tooltip, not visible header text
+    assert.ok(html.includes("intervalBtn.title = refreshSeconds <= 0"), 'Must drive the tooltip from the countdown state');
+    assert.ok(html.includes("'Auto-refresh in: ' + formatTime(remainingSeconds)"), 'Must format the remaining-time tooltip');
+    assert.doesNotMatch(html, /id="countdownTicker"/, 'Must not render a separate visible countdown ticker element');
+
     assert.ok(html.includes('id="refreshNowBtn"'), 'Must render refreshNowBtn');
-    assert.ok(html.includes('🔄 Refresh Now'), 'Must include Refresh Now button text');
+    assert.ok(html.includes('title="Refresh dashboard now"'), 'Must label refreshNowBtn via title, not visible text');
 
     // LocalStorage persistence logic for active filter, search query, and refresh interval
     assert.ok(html.includes('qc_dashboard_active_filter'), 'Must include active filter storage key');
