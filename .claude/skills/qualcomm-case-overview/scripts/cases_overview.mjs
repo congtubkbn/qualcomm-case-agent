@@ -163,13 +163,14 @@ export function extractCaseOverview(caseDir, caseNumber = '') {
     const latestComments = [];
 
     if (rawComments.length > 0) {
-      // In case.json comments are chronological (oldest to newest).
-      const newestComment = rawComments[rawComments.length - 1];
+      // In case.json comments are newest-first (see scrape_case.mjs's
+      // orderCommentsForPresentation — supersedes the old Oldest -> Newest order).
+      const newestComment = rawComments[0];
       lastCommentAt = newestComment.timestamp || '';
       lastCommentAuthor = newestComment.author || '';
 
-      // Extract up to 3 newest comments (newest first for quick preview)
-      const topRecent = rawComments.slice(-3).reverse();
+      // Extract up to 3 newest comments (already newest-first, no reverse needed)
+      const topRecent = rawComments.slice(0, 3);
       for (const c of topRecent) {
         latestComments.push({
           id: c.id || '',
@@ -186,7 +187,8 @@ export function extractCaseOverview(caseDir, caseNumber = '') {
       (typeof caseJson.raisedBy === 'string' && caseJson.raisedBy.trim()) ||
       (typeof caseJson.creator === 'string' && caseJson.creator.trim()) ||
       (typeof caseJson.openedBy === 'string' && caseJson.openedBy.trim()) ||
-      (rawComments.length > 0 && rawComments[0].author ? rawComments[0].author : '');
+      // Opener = oldest comment, which is now LAST in the newest-first array.
+      (rawComments.length > 0 && rawComments[rawComments.length - 1].author ? rawComments[rawComments.length - 1].author : '');
 
     // Summary extraction
     const summaryJsonPath = join(caseDir, 'summary.json');

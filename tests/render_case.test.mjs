@@ -117,7 +117,7 @@ describe('render_case: case.md content structure', () => {
 
     // 3. Chronological timeline of comments: synthesized description comment is suppressed,
     // subsequent comments start at #1, each with author + role label and NO summary line
-    assert.match(md, /## Chronological Timeline of Comments/);
+    assert.match(md, /## Comments \(Newest First\)/);
     assert.match(md, /### 1\. 2026-08-18T08:30:00\.000Z · Alice \(Customer\)/);
     assert.match(md, /Initial case filing with issue description\./);
     assert.match(md, /\*\*Attachments:\*\*\r?\n- \[modem_boot\.pcap\]\(https:\/\/support\.qualcomm\.com\/f\/pcap123\)/);
@@ -261,13 +261,13 @@ describe('render_case: malformed / missing data tolerance', () => {
     const { comments, ...noComments } = MINIMAL;
     const r = renderFixture(noComments);
     assert.equal(r.exit, 0);
-    assert.match(r.md(), /Chronological Timeline of Comments/);
+    assert.match(r.md(), /Comments \(Newest First\)/);
   });
 
   it('tolerates an empty comments array', () => {
     const r = renderFixture({ ...MINIMAL, comments: [] });
     assert.equal(r.exit, 0);
-    assert.match(r.md(), /Chronological Timeline of Comments/);
+    assert.match(r.md(), /Comments \(Newest First\)/);
   });
 
   it('tolerates missing optional header fields', () => {
@@ -499,7 +499,7 @@ describe('render_case: issue #95 portal structure, Description section, role lab
 
     // 1. Description section rendered before timeline
     const descIndex = md.indexOf('## Description');
-    const timelineIndex = md.indexOf('## Chronological Timeline of Comments');
+    const timelineIndex = md.indexOf('## Comments (Newest First)');
     assert.ok(descIndex > 0, 'Must have ## Description section');
     assert.ok(timelineIndex > descIndex, 'Timeline must appear after Description section');
 

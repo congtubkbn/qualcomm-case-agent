@@ -6,8 +6,10 @@
 //
 //   node render_case.mjs "data/cases/08550063/case.json"
 //
-// Input shape (see SKILL.md): Comments are expected in chronological order (Oldest -> Newest).
-// This script formats what is in the JSON into clean, human-readable Markdown.
+// Input shape (see SKILL.md): comments are expected newest-first, with each reply
+// grouped immediately after its parent (scrape_case.mjs's orderCommentsForPresentation —
+// supersedes PRD #105-109's strict Oldest -> Newest order). This script just formats
+// whatever order is in the JSON into clean, human-readable Markdown; it does not sort.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
@@ -133,7 +135,7 @@ export function generateMarkdown(data, stem = 'case') {
     L.push(formatBody(desc), '');
   }
 
-  L.push('## Chronological Timeline of Comments', '');
+  L.push('## Comments (Newest First)', '');
   timelineComments.forEach((c, i) => {
     const role = c?.role || classifyRole(c?.author, c?.company, '', c?.body);
     const authorStr = S(c?.author) ? (role ? `${S(c.author)} (${role})` : S(c.author)) : (role ? `(${role})` : '');

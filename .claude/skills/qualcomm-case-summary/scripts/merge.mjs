@@ -1,6 +1,7 @@
 // merge.mjs - pure merge of a new batch of comment summaries into summary.json's shape.
-// Prior per-comment summaries are preserved unchanged; the new batch is appended in
-// case.json order. Status and flow are replaced with the run's latest values (the flow
+// Prior per-comment summaries are preserved unchanged; the new batch is prepended, matching
+// case.json's newest-first order (qualcomm-case-agent's orderCommentsForPresentation — see
+// ADR 0002 update). Status and flow are replaced with the run's latest values (the flow
 // narrative is meant to be updated, not regenerated from scratch, by whoever built `flow`).
 
 export function mergeSummary(prior, { caseNumber, title, url, priority, product, status, newComments, flow, executive, now }) {
@@ -22,7 +23,7 @@ export function mergeSummary(prior, { caseNumber, title, url, priority, product,
     status,
     ...(mergedExecutive && { executive: mergedExecutive }),
     summarizedCommentIds: [...priorIds, ...newComments.map((c) => c.id)],
-    comments: [...priorComments, ...newComments],
+    comments: [...newComments, ...priorComments],
     flow,
     lastSummarizedAt: now ?? new Date().toISOString(),
   };

@@ -213,7 +213,7 @@ describe('finalize()', () => {
     assert.match(md, /Customer reported x\./);
   });
 
-  it('update run: reads prior summary.json off disk, preserves its comments untouched, appends the new batch', async (t) => {
+  it('update run: reads prior summary.json off disk, preserves its comments untouched, prepends the new batch (newest-first)', async (t) => {
     mockDeps(t, { status: 'updated' });
     writeCaseJson('08000021', {
       status: 'Pending Qualcomm',
@@ -229,7 +229,8 @@ describe('finalize()', () => {
       caseNumber: '08000021',
       status: 'Open',
       summarizedCommentIds: ['c1', 'c2'],
-      comments: [priorC1, priorC2],
+      // newest-first: B (t2) is newer than A (t1).
+      comments: [priorC2, priorC1],
       flow: 'A reported x (FAIL); B said wait for logs.',
       lastSummarizedAt: '2026-08-20T00:00:00.000Z',
     });
@@ -242,9 +243,9 @@ describe('finalize()', () => {
 
     const written = JSON.parse(readFileSync(result.summaryPath, 'utf8'));
     assert.deepEqual(written.summarizedCommentIds, ['c1', 'c2', 'c3']);
-    assert.deepEqual(written.comments[0], priorC1);
+    assert.deepEqual(written.comments[0], { id: 'c3', timestamp: 't3', author: 'C', nextAction: 'escalate' });
     assert.deepEqual(written.comments[1], priorC2);
-    assert.deepEqual(written.comments[2], { id: 'c3', timestamp: 't3', author: 'C', nextAction: 'escalate' });
+    assert.deepEqual(written.comments[2], priorC1);
     assert.equal(written.flow, 'A reported x (FAIL); B said wait for logs; C escalated.');
     assert.equal(written.status, 'Pending Qualcomm');
 

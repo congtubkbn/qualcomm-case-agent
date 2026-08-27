@@ -79,4 +79,23 @@ describe('verifyCase capture evidence and artifacts', () => {
     assert.equal(r.ok, true, r.errors.join('; '));
     assert.match(r.warnings.join('\n'), /capture\.png/);
   });
+
+  // case 08460319: 5 persisted comments but portal badge said "4 Chatter Feed
+  // Items" — comments[0] is scrape_case.mjs's synthesized description comment
+  // (synthesizeDescriptionComment), which the portal badge never counts. The
+  // gate must compare against genuineCommentCount(), not raw comments.length.
+  it('does not warn when the extra comment is the synthesized description', () => {
+    const dir = fixture({
+      description: 'RRC reject on n78',
+      displayedCommentCount: 2,
+      comments: [
+        { id: 'c1', author: 'Alice', timestamp: '2 days ago', body: 'RRC reject on n78' },
+        { id: 'c2', author: 'Bob', timestamp: '3 days ago', body: 'Attach accept seen' },
+        { id: 'c3', author: 'Carol', timestamp: '1 day ago', body: 'Confirmed fixed' },
+      ],
+    });
+    const r = verifyCase('08000001', dir);
+    assert.equal(r.ok, true, r.errors.join('; '));
+    assert.doesNotMatch(r.warnings.join('\n'), /displayedCommentCount/);
+  });
 });

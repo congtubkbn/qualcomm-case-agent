@@ -9,9 +9,10 @@ const summary = {
   caseNumber: '08633581',
   status: 'Pending Qualcomm',
   summarizedCommentIds: ['c1', 'c2'],
+  // newest-first: c2 (Aug 6) is newer than c1 (Aug 5).
   comments: [
-    { id: 'c1', timestamp: 'Aug 5, 2026', author: 'Luyen Kieu Ba', issue: 'RRC setup fails', status: 'FAIL', nextAction: 'wait for Qualcomm' },
     { id: 'c2', timestamp: 'Aug 6, 2026', author: 'Qualcomm Engineer', nextAction: 'will check and get back' },
+    { id: 'c1', timestamp: 'Aug 5, 2026', author: 'Luyen Kieu Ba', issue: 'RRC setup fails', status: 'FAIL', nextAction: 'wait for Qualcomm' },
   ],
   flow: 'Customer reported an RRC setup failure; Qualcomm is investigating.',
   lastSummarizedAt: '2026-08-22T10:00:00.000Z',
@@ -30,7 +31,7 @@ describe('renderSummaryMd', () => {
     const idxC1 = md.indexOf('Luyen Kieu Ba');
     assert.ok(idxC2 !== -1 && idxC1 !== -1);
     assert.ok(idxC2 < idxC1, 'newest comment (c2) must render before older comment (c1)');
-    assert.deepEqual(summary.comments[0].id, 'c1', 'input array order must stay untouched');
+    assert.deepEqual(summary.comments[0].id, 'c2', 'input array order must stay untouched');
   });
 
   it('renders the case flow narrative', () => {

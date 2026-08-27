@@ -18,8 +18,12 @@ _Avoid_: state (ambiguous with a capture-pipeline verdict)
 
 **Capture**:
 The deterministic, model-free pipeline (`qualcomm-case-agent`) that signs in, finds a case, and
-writes it verbatim to `case.json`/`case.md`. Comments are always stored Oldest → Newest — this
-order is load-bearing for the pipeline's own merge/dedup logic, not just display.
+writes it verbatim to `case.json`/`case.md`. Internally, comments are merged/deduped/hashed in strict
+Oldest → Newest order (`sortCommentsChronological`) — that ascending order is load-bearing for the
+pipeline's dedup/hash logic. The array actually PERSISTED to `case.json`/`case.md` is then reordered
+one final time (`orderCommentsForPresentation`) to newest-first with each Reply grouped immediately
+after its parent — see Reply. Supersedes PRD #105-109's original choice to persist strict
+Oldest → Newest.
 _Avoid_: sync, scrape
 
 **Comment**:
@@ -32,9 +36,9 @@ field name and array stay `comments`/`comment` everywhere in code)
 **Reply**:
 A Comment whose `parentId` is set to the id of the Comment it's nested under in the portal's
 Chatter feed (a Salesforce `<article>` inside `ul.cuf-replies`/`li.cuf-reply`). A top-level Comment
-(a Post) has `parentId: null`. Still stored in the same flat `comments` array, sorted
-Oldest → Newest across ALL comments regardless of nesting — `parentId` is metadata for rendering a
-thread, not a second storage structure.
+(a Post) has `parentId: null`. Still stored in the same flat `comments` array — not a nested tree —
+but ordered so every Reply immediately follows its parent Post, both newest-first (see Capture).
+`parentId` is metadata for rendering/grouping a thread, not a second storage structure.
 
 **Comment Summary**:
 A short, technical, per-comment digest (issue / status / next-action, applied as it fits the

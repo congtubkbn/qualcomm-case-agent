@@ -641,6 +641,38 @@ export function sortCommentsChronological(comments, referenceDate = new Date()) 
   return indexed.map(item => item.c);
 }
 
+// Final PRESENTATION order for case.json/case.md (supersedes PRD #105-109's
+// strict Oldest -> Newest "Variant A"): newest activity first, with each reply
+// grouped immediately after its parent (both threads and same-thread replies
+// ordered newest-first). Input must already be ascending (sortCommentsChronological's
+// output) — that ascending order is what lets "last-seen sibling = newest sibling"
+// hold without re-parsing timestamps a second time.
+export function orderCommentsForPresentation(comments) {
+  if (!Array.isArray(comments) || comments.length === 0) return [];
+  const byId = new Map(comments.map(c => [c.id, c]));
+  const childrenOf = new Map();
+  const topLevel = [];
+  for (const c of comments) {
+    const parent = c.parentId != null && c.parentId !== c.id ? byId.get(c.parentId) : null;
+    if (parent) {
+      if (!childrenOf.has(parent.id)) childrenOf.set(parent.id, []);
+      childrenOf.get(parent.id).push(c);
+    } else {
+      topLevel.push(c);
+    }
+  }
+  const out = [];
+  for (let i = topLevel.length - 1; i >= 0; i--) {
+    const parent = topLevel[i];
+    out.push(parent);
+    const kids = childrenOf.get(parent.id);
+    if (kids) {
+      for (let j = kids.length - 1; j >= 0; j--) out.push(kids[j]);
+    }
+  }
+  return out;
+}
+
 // Merge raw comments not already cached and enforce chronological sorting (Oldest -> Newest).
 // Cached comments are kept verbatim — an update run never rewrites old bodies.
 // Both lists must already carry content ids (see assignIds), so dedup is an id
@@ -871,6 +903,12 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
     parentId: rest.parentId ?? null,
     summary: extractSummary(rest.body),
   }));
+
+  // Final PRESENTATION order: newest-first, replies grouped under their parent
+  // (see orderCommentsForPresentation above — supersedes PRD #105-109's strict
+  // Oldest -> Newest). Applied last, after ids/parentId/summary are settled, so
+  // it only reorders — never recomputes — the array computeHash below covers.
+  out.comments = orderCommentsForPresentation(out.comments);
 
   // Stamp identity + write canonical JSON.
   out.hash = computeHash(out);

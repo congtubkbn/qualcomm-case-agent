@@ -1,12 +1,12 @@
 ---
 name: qualcomm-case-agent
-description: "Qualcomm Case Extraction Agent. Given ONE Qualcomm case code, capture the COMPLETE case from the Qualcomm Support portal (support.qualcomm.com) — full metadata, case description, attachments, and all Chatter feed comments sorted strictly in chronological order (Oldest -> Newest) — with ONE headless command (`run_case.mjs`) that connects via native CDP over the persistent Chrome profile, expands the Chatter feed, extracts the DOM, and finalizes the cache into `case.json` and human-readable `case.md`. Incremental: unchanged cases report 'no update'. Triggers: 'qualcomm case <code>', 'pull qualcomm case', 'access qualcomm case', 'lấy case qualcomm', 'extract qualcomm case code'. Use whenever the user provides a Qualcomm case code/number and wants the full case captured."
+description: "Qualcomm Case Extraction Agent. Given ONE Qualcomm case code, capture the COMPLETE case from the Qualcomm Support portal (support.qualcomm.com) — full metadata, case description, attachments, and all Chatter feed comments, newest-first with each reply grouped under its parent — with ONE headless command (`run_case.mjs`) that connects via native CDP over the persistent Chrome profile, expands the Chatter feed, extracts the DOM, and finalizes the cache into `case.json` and human-readable `case.md`. Incremental: unchanged cases report 'no update'. Triggers: 'qualcomm case <code>', 'pull qualcomm case', 'access qualcomm case', 'lấy case qualcomm', 'extract qualcomm case code'. Use whenever the user provides a Qualcomm case code/number and wants the full case captured."
 allowed-tools: Bash(node:*), Bash(npm:*), Bash(powershell:*), PowerShell, Read, Write, Glob
 ---
 
 # Qualcomm Case Management Agent
 
-**Role.** Qualcomm Case Extraction & Management Agent. Given one **case code**, retrieve the entire case from the Qualcomm Support portal (support.qualcomm.com), sort all Chatter feed comments in chronological order (Oldest -> Newest), and produce clean structured JSON and Markdown artifacts in the local project cache.
+**Role.** Qualcomm Case Extraction & Management Agent. Given one **case code**, retrieve the entire case from the Qualcomm Support portal (support.qualcomm.com), order all Chatter feed comments newest-first with each reply grouped immediately under its parent, and produce clean structured JSON and Markdown artifacts in the local project cache.
 
 **Input contract.** One Qualcomm case code = **exactly 8 digits** (e.g. `08460319`). A leading `CASE-` prefix is accepted and stripped. Anything else → intake fails, ask user, STOP.
 
@@ -61,7 +61,7 @@ Scripts and references live under `.claude/skills/qualcomm-case-agent/`.
 node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE>
 ```
 
-That is the whole capture. It validates the code, attaches to the persistent-profile Chrome (launching it if needed), lands on the case via direct cache URL or fast global search (`/s/global-search/<CODE>`), expands the Chatter feed completely, extracts metadata + description + comments, sorts comments chronologically (Oldest -> Newest), writes `case.json`, updates `_index.json`, renders `case.md`, and runs QA validation. It decides new-vs-update from the cache on its own.
+That is the whole capture. It validates the code, attaches to the persistent-profile Chrome (launching it if needed), lands on the case via direct cache URL or fast global search (`/s/global-search/<CODE>`), expands the Chatter feed completely, extracts metadata + description + comments, orders comments newest-first (each reply grouped under its parent), writes `case.json`, updates `_index.json`, renders `case.md`, and runs QA validation. It decides new-vs-update from the cache on its own.
 
 Optional: `--mode full|update` (override the auto choice).
 
@@ -92,8 +92,8 @@ Optional: `--mode full|update` (override the auto choice).
 ## Output Artifacts
 
 Each captured case produces two clean artifacts in `data/cases/<CODE>/`:
-1. `case.json`: Canonical structured JSON with case metadata, description, attachments, and `comments` array sorted chronologically (Oldest -> Newest).
-2. `case.md`: Clean Markdown document containing case headers, initial description, and numbered chronological comment timeline.
+1. `case.json`: Canonical structured JSON with case metadata, description, attachments, and `comments` array ordered newest-first (each reply grouped immediately after its parent).
+2. `case.md`: Clean Markdown document containing case headers, initial description, and a numbered newest-first comment list.
 
 The global index `data/cases/_index.json` is updated with synced timestamp, hash, and comment count.
 

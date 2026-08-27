@@ -1,6 +1,7 @@
 // render_summary.mjs - pure summary.md renderer for qualcomm-case-summary.
-// Presentation-only newest-first order (does not touch case.json/case.md's own
-// Oldest -> Newest storage/rendering order in qualcomm-case-agent). See ADR 0002.
+// summary.comments (via merge.mjs) is already newest-first, matching case.json/
+// case.md's own order in qualcomm-case-agent (orderCommentsForPresentation —
+// supersedes the old Oldest -> Newest storage order). See ADR 0002.
 
 function renderComment(c) {
   const lines = [`### ${c.author ?? c.id} (${c.timestamp ?? c.id})`];
@@ -44,7 +45,7 @@ function renderExecutiveBlock(executive) {
 }
 
 export function renderSummaryMd(summary) {
-  const newestFirst = [...summary.comments].reverse();
+  const newestFirst = summary.comments;
   const blocks = [renderHeader(summary)];
   const executiveBlock = renderExecutiveBlock(summary.executive);
   if (executiveBlock) blocks.push(executiveBlock);

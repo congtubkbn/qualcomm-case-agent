@@ -17,6 +17,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
+import { genuineCommentCount } from './scrape_case.mjs';
 
 const COLLAPSED_BODY_RE = /\bExpand Post\s*$/i;
 const MOJIBAKE_RE = /â”¬Ã¡|Â(?=[\s\n]|$)/;
@@ -78,8 +79,9 @@ export function verifyCase(code, dir = join(DATA_DIR, code)) {
     for (const [id, n] of seenIds) {
       if (n > 1) errors.push(`comment id "${id}" is used by ${n} comments — identity collision`);
     }
-    if (typeof c.displayedCommentCount === 'number' && c.displayedCommentCount !== c.comments.length) {
-      warnings.push(`displayedCommentCount (${c.displayedCommentCount}) != persisted comments (${c.comments.length}) — may be expected if replies nest under top-level posts`);
+    const genuineCount = genuineCommentCount(c.comments, c.description);
+    if (typeof c.displayedCommentCount === 'number' && c.displayedCommentCount !== genuineCount) {
+      warnings.push(`displayedCommentCount (${c.displayedCommentCount}) != genuine persisted comments (${genuineCount}, ${c.comments.length} incl. synthesized description) — may be expected if replies nest under top-level posts`);
     }
   }
 

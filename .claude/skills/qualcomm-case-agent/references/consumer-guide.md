@@ -80,7 +80,7 @@ if (!fileExists(casePath)) {
   // wait for completion
 }
 const caseData = JSON.parse(readFile(casePath));
-const comments  = caseData.comments;                       // oldest-first
+const comments  = caseData.comments;                       // newest-first, replies grouped under parent
 ```
 
 ## Rules for consumers
@@ -89,7 +89,9 @@ const comments  = caseData.comments;                       // oldest-first
   Both are owned by qualcomm-case-agent.
 - **NDA content.** Never pass `comments[].body` or `comments[].analysisLog` verbatim to
   external services. These contain Qualcomm NDA material.
-- **Comments are oldest-first.** Index 0 is the earliest comment.
+- **Comments are newest-first.** Index 0 is the most recent comment; each reply (`parentId != null`)
+  is grouped immediately after its parent Post (also newest-first among siblings) — see
+  `scrape_case.mjs`'s `orderCommentsForPresentation`.
 
 ## Full schema reference
 

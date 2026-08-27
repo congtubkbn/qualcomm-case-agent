@@ -1,5 +1,11 @@
 # Case Detail Schema + Threaded Comments
 
+> **Partially superseded 2026-08-27** (case 08516422 review): §3's "Variant A" — strict
+> Oldest → Newest, no renumbering by thread — is no longer what's persisted. `case.json`/`case.md`
+> now order comments newest-first with each Reply grouped immediately after its parent
+> (`scrape_case.mjs`'s `orderCommentsForPresentation`). See ADR 0002's addendum. §1/§2 (field
+> schema, `parentId` derivation) are unaffected and still current.
+
 ## Problem Statement
 
 `case.json` currently carries two synthesized duplicate fields (`customer` — a copy of

@@ -24,7 +24,7 @@ describe('mergeSummary', () => {
     });
   });
 
-  it('update merge: prior summaries preserved unchanged, new ones appended, ids unioned', () => {
+  it('update merge: prior summaries preserved unchanged, new ones prepended (newest-first), ids unioned', () => {
     const prior = {
       caseNumber: '08633581',
       status: 'Open',
@@ -42,8 +42,8 @@ describe('mergeSummary', () => {
     });
     assert.deepEqual(result.summarizedCommentIds, ['c1', 'c2']);
     assert.deepEqual(result.comments, [
-      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' },
       { id: 'c2', issue: 'y', nextAction: 'escalate' },
+      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' },
     ]);
     assert.equal(result.status, 'Pending Qualcomm');
     assert.equal(result.flow, 'Customer reported x; Qualcomm asked for logs.');

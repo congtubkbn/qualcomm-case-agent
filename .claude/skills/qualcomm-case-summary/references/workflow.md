@@ -95,7 +95,7 @@ flowchart TD
 |:---|:---|:---|:---|
 | `summary.json` | `qualcomm-case-summary` | JSON · Canonical storage | Structured summaries, comment IDs, flow narrative, and metadata |
 | `summary.md` | `qualcomm-case-summary` | Markdown · **Newest-First** | Quick technical digestion for engineers |
-| `case.json` | `qualcomm-case-agent` | JSON · **Oldest-First** | Read-only input source of truth |
+| `case.json` | `qualcomm-case-agent` | JSON · **Newest-First** (replies grouped under parent) | Read-only input source of truth |
 
 ---
 
@@ -104,4 +104,4 @@ flowchart TD
 1. **Downstream Read-Only Consumer**: Never mutates `case.json`, `_index.json`, or the capture pipeline.
 2. **Deterministic Mechanics, Model for Judgment**: Script manages filesystem, delta, and formatting; LLM is used only for synthesizing technical meaning.
 3. **Delta Efficiency**: Unchanged cases cost 0 model calls; updated cases process only unsummarized comments.
-4. **Ordering Separation**: `case.json` remains strictly Oldest → Newest for capture integrity; `summary.md` renders Newest → Oldest for human ergonomics (ADR 0002).
+4. **Ordering**: `case.json` is newest-first (`orderCommentsForPresentation` — supersedes the original Oldest → Newest design in PRD #105-109); `summary.md` mirrors that newest-first order (ADR 0002, updated).

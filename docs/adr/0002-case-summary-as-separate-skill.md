@@ -1,7 +1,7 @@
 # 0002. Add case-summary as a separate skill instead of reopening ADR 0001
 
 Date: 2026-08-22
-Status: Accepted
+Status: Accepted, partially superseded 2026-08-27 (see Addendum)
 
 ADR 0001 dropped all model-in-the-loop analysis from `qualcomm-case-agent`'s capture pipeline. A
 later need arose — Case Status visibility, per-comment Comment Summaries, and a Case Flow narrative
@@ -36,3 +36,18 @@ pipeline, comment storage order, or merge logic.
 - Two independently-evolving comment orderings now exist in this repo: `case.json`/`case.md`
   (Oldest → Newest, canonical) and `summary.md` (newest-first, presentation-only). Anyone reading
   comment order must check which file they're in.
+
+## Addendum (2026-08-27): the rejected option, adopted after all
+
+Reversed on explicit user request (case 08516422 review): `case.json`/`case.md` now persist
+comments **newest-first**, with each Reply grouped immediately after its parent Post (also
+newest-first among siblings) — `scrape_case.mjs`'s `orderCommentsForPresentation`, applied as a
+final pass after the internal merge/dedup engine (`sortCommentsChronological`, unchanged, still
+ascending — that engine's ordering is still load-bearing for tie-break/interpolation, just no
+longer what gets persisted). This supersedes PRD #105-109's "Variant A" (strict Oldest → Newest,
+no renumbering by thread) and the "rejected" bullet above.
+
+Consequence: the "two independently-evolving orderings" problem above is gone — `summary.md`
+(via `qualcomm-case-summary`'s `merge.mjs`/`render_summary.mjs`) now simply mirrors `case.json`'s
+order (new batch prepended, no reverse needed) instead of independently reversing it. See
+`CONTEXT.md`'s Capture/Reply entries for the current contract.

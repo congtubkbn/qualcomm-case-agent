@@ -330,6 +330,65 @@ describe('synthesizeDescriptionComment', () => {
   });
 });
 
+// Newest-first presentation order supersedes PRD #105-109 ("Variant A": strict
+// Oldest -> Newest, no renumbering by thread) — case.json/case.md now show the
+// most recent activity first, with each reply grouped immediately after its
+// parent (also newest-first among siblings). sortCommentsChronological above
+// still runs first and stays ascending — it is the merge/dedup/hash engine;
+// this is a separate, final ordering pass applied only to its output.
+describe('orderCommentsForPresentation', () => {
+  it('reverses a flat (no-reply) ascending list to newest-first', () => {
+    const asc = m.assignIds([
+      comment('Alice', 'first', { timestamp: '5 days ago' }),
+      comment('Bob', 'second', { timestamp: '3 days ago' }),
+      comment('Carol', 'third', { timestamp: '1 day ago' }),
+    ]).comments.map(c => ({ ...c, parentId: null }));
+
+    const ordered = m.orderCommentsForPresentation(asc);
+    assert.deepEqual(ordered.map(c => c.author), ['Carol', 'Bob', 'Alice']);
+  });
+
+  it('keeps each reply immediately after its parent, both newest-first', () => {
+    const withIds = m.assignIds([
+      comment('Alice', 'post 1', { timestamp: '10 days ago' }),
+      comment('Bob', 'reply to post 1, early', { timestamp: '9 days ago' }),
+      comment('Carol', 'post 2', { timestamp: '5 days ago' }),
+      comment('Dave', 'reply to post 1, later', { timestamp: '4 days ago' }),
+      comment('Eve', 'reply to post 2', { timestamp: '3 days ago' }),
+    ]).comments;
+    const [post1, reply1a, post2, reply1b, reply2a] = withIds;
+    const asc = [
+      { ...post1, parentId: null },
+      { ...reply1a, parentId: post1.id },
+      { ...post2, parentId: null },
+      { ...reply1b, parentId: post1.id },
+      { ...reply2a, parentId: post2.id },
+    ];
+
+    const ordered = m.orderCommentsForPresentation(asc);
+    // Thread order by each POST's own timestamp, newest first: post 2, then post 1.
+    // Within a thread, replies newest-first immediately after the post.
+    assert.deepEqual(ordered.map(c => c.author), ['Carol', 'Eve', 'Alice', 'Dave', 'Bob']);
+  });
+
+  it('treats a reply whose parent is missing from the array as top-level', () => {
+    const asc = m.assignIds([
+      comment('Alice', 'post 1', { timestamp: '2 days ago' }),
+      comment('Bob', 'orphan reply', { timestamp: '1 day ago' }),
+    ]).comments;
+    const ordered = m.orderCommentsForPresentation([
+      { ...asc[0], parentId: null },
+      { ...asc[1], parentId: 'missing-parent-id' },
+    ]);
+    assert.deepEqual(ordered.map(c => c.author), ['Bob', 'Alice']);
+  });
+
+  it('returns [] for empty/non-array input', () => {
+    assert.deepEqual(m.orderCommentsForPresentation([]), []);
+    assert.deepEqual(m.orderCommentsForPresentation(null), []);
+  });
+});
+
 describe('hasDescriptionComment', () => {
   it('returns true if a comment body matches the description', () => {
     const desc = 'Problem description body';
@@ -445,8 +504,8 @@ describe('finalize (child process)', () => {
     const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
     assert.equal(saved.title, 'NR SA attach failure');
     assert.equal(saved.hash, verdict.hash);
-    assert.equal(saved.comments[0].id, m.commentId(comment('Bob', 'Initial report', { timestamp: '5 days ago' })));
-    assert.equal(saved.comments[1].id, m.commentId(comment('Alice', 'RRC reject on n78', { timestamp: '2 days ago' })));
+    assert.equal(saved.comments[0].id, m.commentId(comment('Alice', 'RRC reject on n78', { timestamp: '2 days ago' })));
+    assert.equal(saved.comments[1].id, m.commentId(comment('Bob', 'Initial report', { timestamp: '5 days ago' })));
     const index = JSON.parse(readFileSync(join(root, 'data', 'cases', '_index.json'), 'utf8'));
     assert.equal(index['08603854'].commentCount, 2);
   });
@@ -526,7 +585,7 @@ describe('finalize (child process)', () => {
     assert.equal(verdict.changed, true);
     assert.equal(verdict.headerChanged, true);
     const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
-    assert.deepEqual(saved.comments.map(c => c.author), ['Bob', 'Alice', 'Carol']);
+    assert.deepEqual(saved.comments.map(c => c.author), ['Carol', 'Alice', 'Bob']);
     assert.equal(saved.status, 'Closed', 'a fresh header flag is the current truth on an update run');
   });
 
@@ -719,7 +778,7 @@ describe('finalize (child process)', () => {
 
       const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
       assert.equal(saved.comments.length, 3);
-      const descComment = saved.comments[0]; // Chronologically first
+      const descComment = saved.comments[saved.comments.length - 1]; // Chronologically first -> now last (newest-first presentation order)
       assert.equal(descComment.author, 'Acme Corp');
       assert.equal(descComment.timestamp, 'August 15, 2026 at 9:00 AM');
       assert.equal(descComment.body, rawWithDesc.description);
@@ -741,7 +800,7 @@ describe('finalize (child process)', () => {
       assert.equal(exit, m.EXIT.OK);
 
       const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
-      const descComment = saved.comments[0];
+      const descComment = saved.comments[saved.comments.length - 1]; // oldest -> now last (newest-first presentation order)
       assert.equal(descComment.author, 'Reporter');
       assert.equal(descComment.timestamp, '');
       assert.equal(descComment.body, rawWithDesc.description);
@@ -823,9 +882,10 @@ describe('finalize (child process)', () => {
       assert.equal(saved.caseRecordType, 'Customer Support');
       assert.equal(saved.description, 'VoNR call drops during 5G SA to EPS Fallback transition.');
 
-      // Description comment author should be Contact Name
-      assert.equal(saved.comments[0].author, 'Mai Ngoc');
-      assert.equal(saved.comments[0].timestamp, 'August 10, 2026 at 09:30 AM');
+      // Description comment author should be Contact Name — oldest -> now last (newest-first presentation order)
+      const descComment = saved.comments[saved.comments.length - 1];
+      assert.equal(descComment.author, 'Mai Ngoc');
+      assert.equal(descComment.timestamp, 'August 10, 2026 at 09:30 AM');
     });
 
     it('preserves cached Detail metadata during partial update (--merge) runs', () => {
@@ -951,17 +1011,17 @@ describe('finalize (child process)', () => {
       const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
       assert.equal(saved.comments.length, 2);
 
-      // Comment 0 = Bob (5 days before 2026-08-22T12:00:00Z)
-      const expectedBobTs = new Date(Date.parse(captureTime) - 5 * 86400 * 1000).toISOString();
-      assert.equal(saved.comments[0].author, 'Bob');
-      assert.equal(saved.comments[0].timestamp, expectedBobTs);
-      assert.equal(saved.comments[0].rawTimestamp, '5 days ago');
-
-      // Comment 1 = Carol (1 hour before 2026-08-22T12:00:00Z)
+      // Comment 0 = Carol (1 hour before 2026-08-22T12:00:00Z) — newest-first presentation order
       const expectedCarolTs = new Date(Date.parse(captureTime) - 3600 * 1000).toISOString();
-      assert.equal(saved.comments[1].author, 'Carol');
-      assert.equal(saved.comments[1].timestamp, expectedCarolTs);
-      assert.equal(saved.comments[1].rawTimestamp, '1 hour ago');
+      assert.equal(saved.comments[0].author, 'Carol');
+      assert.equal(saved.comments[0].timestamp, expectedCarolTs);
+      assert.equal(saved.comments[0].rawTimestamp, '1 hour ago');
+
+      // Comment 1 = Bob (5 days before 2026-08-22T12:00:00Z)
+      const expectedBobTs = new Date(Date.parse(captureTime) - 5 * 86400 * 1000).toISOString();
+      assert.equal(saved.comments[1].author, 'Bob');
+      assert.equal(saved.comments[1].timestamp, expectedBobTs);
+      assert.equal(saved.comments[1].rawTimestamp, '5 days ago');
     });
 
     it('unchanged Case re-captured after simulated passage of time yields identical comment order and reports no-update', () => {

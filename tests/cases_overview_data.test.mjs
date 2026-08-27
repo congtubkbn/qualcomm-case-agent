@@ -82,11 +82,12 @@ describe('cases_overview: extractCaseOverview', () => {
       product: 'SM7635',
       url: 'https://support.qualcomm.com/s/case/500dK00000Njp7aQAB/test-case',
       extractedAt: '2026-08-22T23:18:35.894Z',
+      // case.json comments are newest-first (orderCommentsForPresentation).
       comments: [
-        { id: 'c1', author: 'Sang Bui', timestamp: 'July 20, 2026 at 12:14 AM', body: 'First comment' },
-        { id: 'c2', author: 'Luyen Kieu Ba', timestamp: 'July 21, 2026 at 6:53 PM', body: 'Second comment' },
-        { id: 'c3', author: 'Sang Bui', timestamp: 'July 22, 2026 at 12:00 AM', body: 'Third comment' },
         { id: 'c4', author: 'Luyen Kieu Ba', timestamp: 'July 22, 2026 at 5:42 AM', body: 'Fourth comment with details' },
+        { id: 'c3', author: 'Sang Bui', timestamp: 'July 22, 2026 at 12:00 AM', body: 'Third comment' },
+        { id: 'c2', author: 'Luyen Kieu Ba', timestamp: 'July 21, 2026 at 6:53 PM', body: 'Second comment' },
+        { id: 'c1', author: 'Sang Bui', timestamp: 'July 20, 2026 at 12:14 AM', body: 'First comment' },
       ],
     };
 
@@ -216,7 +217,7 @@ describe('cases_overview: extractCaseOverview', () => {
     rmSync(casesDir, { recursive: true, force: true });
   });
 
-  it('extracts raisedBy from raisedBy, creator, contactName, openedBy or falls back to comments[0].author', () => {
+  it('extracts raisedBy from raisedBy, creator, contactName, openedBy or falls back to the opener (oldest comment)', () => {
     const casesDir = createTempCasesDir();
 
     // 1. Prioritize contactName over creator and first comment author
@@ -288,15 +289,16 @@ describe('cases_overview: extractCaseOverview', () => {
     );
     assert.equal(extractCaseOverview(case4Dir, '08000004')?.raisedBy, 'Eve Adams');
 
-    // 5. Fallback to comments[0].author
+    // 5. Fallback to the opener (oldest comment, i.e. LAST in the newest-first array)
     const case5Dir = join(casesDir, '08000005');
     mkdirSync(case5Dir, { recursive: true });
     writeFileSync(
       join(case5Dir, 'case.json'),
       JSON.stringify({
         caseNumber: '08000005',
-        title: 'Comments[0] fallback',
-        comments: [{ author: 'Charlie Brown' }, { author: 'Latest Responder' }],
+        title: 'Opener fallback',
+        // newest-first: Latest Responder is newest, Charlie Brown opened the case (oldest, last).
+        comments: [{ author: 'Latest Responder' }, { author: 'Charlie Brown' }],
       }),
       'utf8'
     );
