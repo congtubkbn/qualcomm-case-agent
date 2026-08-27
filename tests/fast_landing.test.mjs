@@ -1013,7 +1013,7 @@ test('Fast Path Landing Engine', async (t) => {
       }
       if (msg.method === 'Runtime.evaluate') {
         const expr = msg.params?.expression || '';
-        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+        if (expr.includes(TEST_PW)) {
           fillCalls++;
           return {
             id: msg.id,
@@ -1025,7 +1025,7 @@ test('Fast Path Landing Engine', async (t) => {
             },
           };
         }
-        if (expr.includes('otp_probe') || expr.includes('OTP_PROBE') || expr.includes('isHostAuthenticated')) {
+        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('isHostAuthenticated')) {
           pollCalls++;
           if (pollCalls < 3) {
             return {
@@ -1110,7 +1110,7 @@ test('Fast Path Landing Engine', async (t) => {
       }
       if (msg.method === 'Runtime.evaluate') {
         const expr = msg.params?.expression || '';
-        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+        if (expr.includes(TEST_PW)) {
           return {
             id: msg.id,
             result: {
@@ -1121,7 +1121,7 @@ test('Fast Path Landing Engine', async (t) => {
             },
           };
         }
-        if (expr.includes('otp_probe') || expr.includes('OTP_PROBE') || expr.includes('isHostAuthenticated')) {
+        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('isHostAuthenticated')) {
           pollCalls++;
           return {
             id: msg.id,
@@ -1179,7 +1179,7 @@ test('Fast Path Landing Engine', async (t) => {
       }
       if (msg.method === 'Runtime.evaluate') {
         const expr = msg.params?.expression || '';
-        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+        if (expr.includes(TEST_PW)) {
           return {
             id: msg.id,
             result: {
@@ -1190,7 +1190,7 @@ test('Fast Path Landing Engine', async (t) => {
             },
           };
         }
-        if (expr.includes('otp_probe') || expr.includes('OTP_PROBE') || expr.includes('isHostAuthenticated')) {
+        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('isHostAuthenticated')) {
           return {
             id: msg.id,
             result: {

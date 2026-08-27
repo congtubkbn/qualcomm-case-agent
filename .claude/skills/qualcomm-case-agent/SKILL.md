@@ -72,7 +72,8 @@ Optional: `--mode full|update` (override the auto choice).
 | `created` | 0 | new case captured | Report case info & artifacts to user |
 | `updated` | 0 | new comments merged (`newComments`, `newCommentIds`) | Report updated comments & artifacts to user |
 | `no-update` | 0 | nothing new since `since` | Report "no update", STOP |
-| `auth-required` | 3 | saved Okta session lapsed | The user must sign in MANUALLY in the open Chrome window (enter password + email OTP) (Recovery 1 → `references/login-flow.md`). Once logged in, re-run the command. |
+| `otp-timeout` | 2 | password autofilled from stored secret, but the ~5min OTP window elapsed before the human entered the code (ADR 0004) | Tell the user to enter the OTP now in the open Chrome window, then re-run the command. |
+| `auth-required` | 3 | saved Okta session lapsed | Password autofill is attempted automatically from the DPAPI-stored secret; the user's only remaining action is the email OTP, entered directly in the open Chrome window (Recovery 1 → `references/login-flow.md`, ADR 0004). If there's no stored secret, or the stored password was rejected, the user signs in fully by hand. Once logged in, re-run the command. |
 | `not-found` | 4 | search returned nothing for this code | STOP — wrong code, or the account cannot see it |
 | `blocked` | 5 | page never rendered / capture short | load `references/manual-flow.md` and finish by hand; `reason` says where it stopped |
 | `busy` | 6 | another capture holds the lock for a **different** case, or a same-case collision's ~60s wait budget ran out | wait ~30s, re-run **once**; still `busy` after 2 retries → report and STOP |

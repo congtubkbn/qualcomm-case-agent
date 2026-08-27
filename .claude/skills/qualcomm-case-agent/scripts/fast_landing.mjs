@@ -216,51 +216,6 @@ const IN_PAGE_SEARCH_SCRIPT = `
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-const OTP_PROBE_SCRIPT = `
-/* otp_probe */
-(function() {
-  function isHostAuthenticated() {
-    return location.hostname === 'support.qualcomm.com' ||
-      (location.hostname !== 'account.qualcomm.com' && !/login|auth|okta/i.test(location.pathname));
-  }
-  function checkError() {
-    var errorEls = (document.querySelectorAll && Array.prototype.slice.call(document.querySelectorAll('.okta-form-infobox-error, .infobox-error, [role="alert"], .okta-form-input-error, .error-summary, .o-form-error-container'))) || [];
-    for (var i = 0; i < errorEls.length; i++) {
-      var errText = ((errorEls[i].innerText || errorEls[i].textContent) || '').replace(/\\s+/g, ' ').trim();
-      if (errText && !/loading|spinner/i.test(errText)) {
-        return errText;
-      }
-    }
-    var bodyText = (document.body && (document.body.innerText || document.body.textContent) || '');
-    if (/unable to sign in|sign[- ]in failed|password is incorrect|password was incorrect|your password has expired|authentication failed|account is locked|user is locked out|invalid username or password|check your username and password/i.test(bodyText)) {
-      return 'Authentication failed';
-    }
-    return null;
-  }
-  function checkOtp() {
-    var bodyText = (document.body && (document.body.innerText || document.body.textContent) || '');
-    var otpRe = /send me an email|get a verification|enter a verification code|verification code|enter code|select an authenticator|select a security method|verify with your/i;
-    if (otpRe.test(bodyText)) {
-      return true;
-    }
-    var otpInputs = (document.querySelectorAll && Array.prototype.slice.call(document.querySelectorAll('input[name="credentials.passcode"][pattern*="0-9"], input[name="otp-code"], input[name="answer"], input[name="credentials.passcode"][inputmode="numeric"]'))) || [];
-    return otpInputs.length > 0;
-  }
-
-  if (isHostAuthenticated()) {
-    return { outcome: 'AUTHENTICATED', href: location.href };
-  }
-  var error = checkError();
-  if (error) {
-    return { outcome: 'REJECTED', reason: error, href: location.href };
-  }
-  if (checkOtp()) {
-    return { outcome: 'OTP_REQUIRED', href: location.href };
-  }
-  return { outcome: 'UNKNOWN', href: location.href };
-})()
-`;
-
 /**
  * Fast-path direct navigation and event-driven landing engine.
  * @param {string} code 8-digit Qualcomm case code (e.g. "08603854")
@@ -387,8 +342,8 @@ export async function fastLandOnCase(code, options = {}) {
           let pollRes = null;
           try {
             pollRes = await cdp.eval(
-              OTP_PROBE_SCRIPT,
-              {},
+              LOGIN_FILL_SCRIPT,
+              { __PASSWORD: '', __TIMEOUT: 0 },
               { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
             );
           } catch (err) {

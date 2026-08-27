@@ -8,7 +8,8 @@ Authoritative reference for authentication and session management in the Qualcom
 |------|-------|
 | Qualcomm ID (login) | `the.thoi@samsung.com` |
 | Auth provider | Okta OAuth at `account.qualcomm.com` → redirects to `support.qualcomm.com` |
-| MFA | **Email OTP** — 6-digit code emailed to the Samsung mailbox. **Expires ~5 min.** Always entered manually by user. |
+| Password | Autofilled automatically from a DPAPI-protected secret (`data/.secrets/qid.bin`) when the session lapses. See [ADR 0004](../../../../docs/adr/0004-revive-password-autofill-otp-stays-manual.md). |
+| MFA | **Email OTP** — 6-digit code emailed to the Samsung mailbox, which Claude cannot read. **Expires ~5 min. Always entered manually by the user**, directly in the visible Chrome window. |
 | Browser | **Real Google Chrome** on CDP `9773` (launched detached via `scripts/connect_chrome.ps1`) with persistent `--user-data-dir`. |
 | Session store | `data/chrome-profile/` — Chrome persistent profile (cookies/tokens). Git-ignored. Isolated from personal browser instances. |
 
@@ -19,21 +20,47 @@ Authentication relies entirely on **Persistent Chrome Profile Session Reuse**:
 2. All authenticated session cookies and security tokens remain persisted across runs.
 3. As long as the Okta session is active, all case captures and searches proceed silently with **zero credentials or OTP required**.
 
-## When the Session Expires (`auth-required`)
+## When the Session Expires: Automatic Password Autofill + OTP-Wait (ADR 0004)
 
-When an Okta session lapses or requires re-authentication, the portal redirects to `account.qualcomm.com`:
-1. `run_case.mjs` detects the redirection and halts immediately with exit code `3` and JSON verdict:
+When an Okta session lapses, the portal redirects to `account.qualcomm.com`. `fastLandOnCase()`
+detects that `AUTH` state on the *first* sighting per run and attempts autofill automatically —
+this is not a fully manual flow:
+
+1. **Password autofill**: `login_fill.js` (run via `CdpClient.eval()`, the same page-script
+   pattern as `readiness.js`/`expand_step.js`) fills the username/password fields from the
+   DPAPI-protected secret at `data/.secrets/qid.bin`, retrying up to 3 times for transient
+   failures (DOM not ready yet, a click that didn't register).
+2. **OTP handoff — the human's only remaining step**: once Okta accepts the password and asks for
+   the OTP, `run_case.mjs` polls for up to ~5 minutes (matching the OTP's own expiry) while the
+   human retrieves the 6-digit code from the Samsung mailbox and enters it directly into the
+   visible Chrome window on port 9773. As soon as Okta accepts it, the same invocation resumes
+   capture automatically — **no second command needed**.
+3. **If the OTP window elapses** before the human enters the code, the run reports:
    ```json
-   {"status": "auth-required", "reason": "session-lapsed", "code": "<CODE>"}
+   {"status": "otp-timeout", "reason": "Password accepted, but OTP verification was not completed within the timeout window", "code": "<CODE>"}
    ```
-2. **User Manual Login**:
-   - The user opens/switches to the visible Chrome window connected on port 9773.
-   - Signs in with password on `account.qualcomm.com`.
-   - Checks Samsung email inbox for the 6-digit MFA OTP and enters it into Chrome.
-   - Waits until the Qualcomm Support dashboard (`support.qualcomm.com`) loads successfully.
-3. **Resume Capture**:
-   - The user or agent re-runs `node .claude/skills/qualcomm-case-agent/scripts/run_case.mjs <CODE>`.
-   - The new session tokens are automatically persisted in `data/chrome-profile/`.
+   exit code `2`. The password step already succeeded — enter the OTP now in the still-open
+   Chrome window, then simply re-run the command; a fresh Okta session will pick it up (no need to
+   restart the login from the password step).
+4. **If the stored password is rejected by Okta** (account password changed, secret stale), the
+   secret at `data/.secrets/qid.bin` is deleted immediately — it is never retried unchanged, since
+   that only spends attempts against Okta's lockout threshold for zero chance of a different
+   outcome — and the run falls back to `auth-required`:
+   ```json
+   {"status": "auth-required", "reason": "password-rejected", "code": "<CODE>"}
+   ```
+   The user must sign in fully by hand in the visible Chrome window (password + OTP), then run
+   `capture_password.ps1` to recapture a fresh secret so future runs autofill again.
+5. **If there is no stored secret at all** (first run, or after a manual recapture hasn't happened
+   yet), autofill is skipped and the run reports plain `auth-required` / `reason: session-lapsed`
+   — sign in fully by hand as above.
+6. **Resume Capture**: after any of the above, re-run
+   `node .claude/skills/qualcomm-case-agent/scripts/run_case.mjs <CODE>`. New session tokens
+   persist automatically in `data/chrome-profile/`.
+
+See [ADR 0004](../../../../docs/adr/0004-revive-password-autofill-otp-stays-manual.md) for the
+full rationale, including why OTP always stays human (Claude cannot read the Samsung mailbox) and
+why a rejected password is never retried blindly.
 
 ## Port Conflict (`port-conflict`)
 
