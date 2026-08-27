@@ -57,7 +57,7 @@ mechanism) and only falls all the way back to a fully manual walkthrough when th
    - Sign in fully by hand in the visible Chrome window (password + OTP).
    - Recapture the secret so future runs autofill again:
      `powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/capture_password.ps1"`.
-3. **`auth-required` with `reason: session-lapsed` — no stored secret at all**:
+3. **`auth-required` with the default reason ("Okta session lapsed...") — no stored secret at all**:
    - Autofill was skipped entirely (first run, or secret never captured).
    - Sign in fully by hand in the visible Chrome window: enter credentials on
      `account.qualcomm.com`, retrieve the MFA OTP from Samsung email (expires ~5 min), submit, and
