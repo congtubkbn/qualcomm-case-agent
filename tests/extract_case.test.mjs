@@ -38,8 +38,16 @@ try {
 /**
  * Creates a lightweight mock DOM node hierarchy for testing extraction and expansion scripts.
  */
+function createMockTextNode(text) {
+  return { nodeType: 3, textContent: text, tagName: undefined };
+}
+
 function createMockElement(tag, attrs = {}, text = '') {
-  const children = [];
+  // `nodes` holds every appended child (elements AND text nodes, in order) —
+  // real childNodes. `children` (below) filters to elements only — real
+  // .children — since querySelectorAll's walk() and .matches() assume
+  // element-shaped nodes and would throw on a bare text node.
+  const nodes = [];
   const classList = new Set((attrs.className || attrs.class || '').split(/\s+/).filter(Boolean));
   let parent = null;
   const style = attrs.style ? { ...attrs.style } : {};
@@ -71,34 +79,34 @@ function createMockElement(tag, attrs = {}, text = '') {
       // verbatim, so tests can catch code that reads innerText post-clone.
       const cloned = createMockElement(this.tagName.toLowerCase(), { ...this.attributes, className: this.className, id: this.id, style: { ...this.style } }, text.replace(/\n+/g, ' '));
       if (!deep) return cloned;
-      for (const child of children) {
-        cloned.appendChild(child.cloneNode(true));
+      for (const child of nodes) {
+        cloned.appendChild(child.nodeType === 3 ? createMockTextNode(child.textContent) : child.cloneNode(true));
       }
       return cloned;
     },
     remove() {
       if (this.parent) {
-        const idx = this.parent.children.indexOf(this);
-        if (idx >= 0) this.parent.children.splice(idx, 1);
+        const idx = this.parent.childNodes.indexOf(this);
+        if (idx >= 0) this.parent.childNodes.splice(idx, 1);
         this.parent = null;
         this.parentElement = null;
       }
     },
     removeChild(child) {
-      const idx = children.indexOf(child);
-      if (idx >= 0) children.splice(idx, 1);
+      const idx = nodes.indexOf(child);
+      if (idx >= 0) nodes.splice(idx, 1);
       child.parent = null;
       child.parentElement = null;
       return child;
     },
     get innerText() {
       if (text) return text;
-      return children.map(c => c.innerText || c.textContent || '').join(' ').trim();
+      return nodes.map(c => c.innerText || c.textContent || '').join(' ').trim();
     },
     set innerText(v) { text = v; },
     get textContent() {
       if (text) return text;
-      return children.map(c => c.textContent || c.innerText || '').join(' ').trim();
+      return nodes.map(c => c.textContent || c.innerText || '').join(' ').trim();
     },
     set textContent(v) { text = v; },
     shadowRoot: null,
@@ -118,8 +126,8 @@ function createMockElement(tag, attrs = {}, text = '') {
     parentElement: null,
     get parent() { return parent; },
     set parent(p) { parent = p; this.parentElement = p; },
-    children,
-    childNodes: children,
+    get children() { return nodes.filter(n => n.nodeType !== 3); },
+    childNodes: nodes,
     addEventListener() {},
     dispatchEvent() { return true; },
     click() {
@@ -221,7 +229,7 @@ function createMockElement(tag, attrs = {}, text = '') {
     appendChild(child) {
       child.parent = this;
       child.parentElement = this;
-      children.push(child);
+      nodes.push(child);
       return child;
     },
     getBoundingClientRect() {
@@ -707,6 +715,107 @@ test('extract_case.js DOM extraction engine', async (t) => {
     assert.equal(result.comments.length, 1);
     assert.equal(result.comments[0].author, 'Luyen Kieu Ba');
     assert.equal(result.comments[0].author.includes('Preview'), false);
+  });
+
+  // Case 08516422: real Chrome's innerText concatenates the "Preview" affordance
+  // directly onto the value with ZERO whitespace ("ChangSeok LEEPreview",
+  // "SS_SM8850_H8_EUPreview") — the mock elsewhere in this file always inserts a
+  // space when joining child text (see createMockElement's innerText getter),
+  // which is why the earlier "Preview affordance" tests above passed even though
+  // stripFieldAffordances' regex required `\s+` (one-or-more whitespace) before
+  // "Preview". Model the real zero-space concatenation here by putting the whole
+  // string as ONE text node, the way a single <span> with no child elements does.
+  await t.test('strips "Preview" affordance with zero whitespace before it (real Chrome concatenation, case 08516422)', () => {
+    const doc = createMockDocument();
+    doc.title = 'Case: 08516422 - zero-space Preview affordance';
+
+    function addLookupField(label, value) {
+      const formEl = createMockElement('div', { className: 'slds-form-element record-layout-item' });
+      const labelEl = createMockElement('span', { className: 'slds-form-element__label test-id__field-label' }, label);
+      formEl.appendChild(labelEl);
+      const controlEl = createMockElement('div', { className: 'slds-form-element__control' });
+      const a = createMockElement('a', {}, value + 'Preview');
+      controlEl.appendChild(a);
+      formEl.appendChild(controlEl);
+      doc.body.appendChild(formEl);
+    }
+
+    addLookupField('Contact Name', 'ChangSeok LEE');
+    addLookupField('Customer Project', 'SS_SM8850_H8_EU');
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+
+    assert.equal(result.contactName, 'ChangSeok LEE');
+    assert.equal(result.customerProject, 'SS_SM8850_H8_EU');
+  });
+
+  await t.test('strips "Preview" affordance with zero whitespace from comment author (case 08516422)', () => {
+    const doc = createMockDocument();
+    doc.title = 'Case: 08516422 - zero-space Preview affordance';
+
+    const art = createMockElement('article', { id: 'c1' });
+    const authorA = createMockElement('a', {}, 'ChangSeok LEEPreview');
+    art.appendChild(authorA);
+    art.appendChild(createMockElement('a', {}, '2 days ago'));
+    art.appendChild(createMockElement('div', { className: 'feedBodyInner' }, 'Body text here.'));
+    doc.body.appendChild(art);
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+
+    assert.equal(result.comments.length, 1);
+    assert.equal(result.comments[0].author, 'ChangSeok LEE');
+  });
+
+  // Case 08516422: a short reply that never needed truncation renders as one
+  // <span dir="ltr">Dear Customer,<br><br>...<br>Hoon</span> — plain text
+  // nodes sitting directly between <br> siblings, no wrapping <p>/<div> at
+  // all. domLines() used to walk `el.children` (Element-only), which skips
+  // every text node here: it saw nothing but a run of <br> elements and
+  // reconstructed N blank lines. cleanBody() then stripped the trailing
+  // "Expand Post" marker, leaving an empty body, and the comment was silently
+  // dropped by extract_case.js's `if (!body) continue` guard — the exact
+  // real-world symptom this test locks down.
+  await t.test('extracts a short un-truncated reply whose text sits directly between <br> siblings (case 08516422, "Hoon" reply)', () => {
+    const doc = createMockDocument();
+    doc.title = 'Case: 08516422 - short reply with text between <br> siblings';
+
+    const feedBodyText = createMockElement('div', { className: 'cuf-feedBodyText forceChatterMessageSegments forceChatterFeedBodyText' });
+    const feedBodyInner = createMockElement('div', { className: 'feedBodyInner Desktop' });
+    const span = createMockElement('span', { className: 'uiOutputText', attrs: { dir: 'ltr' } });
+    span.appendChild(createMockTextNode('Dear Customer,'));
+    span.appendChild(createMockElement('br'));
+    span.appendChild(createMockElement('br'));
+    span.appendChild(createMockTextNode("I've checked that we plan to enable bring this feature on KI as well. "));
+    span.appendChild(createMockElement('br'));
+    span.appendChild(createMockTextNode('I think it would be better to check release plan/schedule with TAM directly. Or, do you still want to discuss it on this case ? '));
+    span.appendChild(createMockElement('br'));
+    span.appendChild(createMockElement('br'));
+    span.appendChild(createMockTextNode('Thanks,'));
+    span.appendChild(createMockElement('br'));
+    span.appendChild(createMockTextNode('Hoon'));
+    feedBodyInner.appendChild(span);
+    feedBodyText.appendChild(feedBodyInner);
+
+    // Salesforce hides "Expand Post" for posts short enough to need no
+    // truncation — .cuf-more here carries the real "fadeOut hidden" classes.
+    const expandLink = createMockElement('a', { className: 'cuf-more fadeOut hidden' });
+    expandLink.appendChild(createMockElement('div', {}, 'Expand Post'));
+    feedBodyText.appendChild(expandLink);
+
+    const art = createMockElement('article', { id: 'hoon_post' });
+    art.appendChild(createMockElement('a', {}, 'Seunghoon Lee'));
+    art.appendChild(createMockElement('a', {}, 'June 15, 2026 at 8:58 PM'));
+    art.appendChild(feedBodyText);
+    doc.body.appendChild(art);
+
+    const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+
+    assert.equal(result.comments.length, 1);
+    assert.equal(result.comments[0].author, 'Seunghoon Lee');
+    assert.equal(
+      result.comments[0].body,
+      "Dear Customer,\n\nI've checked that we plan to enable bring this feature on KI as well. \nI think it would be better to check release plan/schedule with TAM directly. Or, do you still want to discuss it on this case ? \n\nThanks,\nHoon"
+    );
   });
 
 });

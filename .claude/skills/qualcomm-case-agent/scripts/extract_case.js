@@ -38,13 +38,18 @@
   const LINE_BREAK_TAGS = new Set(["P", "DIV", "LI", "BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6", "TR"]);
   const domLines = el => {
     if (!el) return "";
-    const kids = Array.from(el.children || []);
+    const kids = Array.from(el.childNodes || []);
     if (kids.length === 0) {
       return (el.textContent || "").replace(/ /g, " ");
     }
     const lines = [];
     let current = "";
     for (const child of kids) {
+      if (child.nodeType === 3) {
+        current += (child.textContent || "").replace(/ /g, " ");
+        continue;
+      }
+      if (child.nodeType != null && child.nodeType !== 1) continue;
       if (child.tagName === "BR") {
         lines.push(current);
         current = "";
@@ -84,8 +89,10 @@
   const stripFieldAffordances = (s, label = '') => {
     if (!s || typeof s !== 'string') return s;
     let val = s.trim();
-    // 1. Trailing "Preview" affordance (Salesforce lookup preview trigger)
-    val = val.replace(/\s+Preview\s*$/, '').trim();
+    // 1. Trailing "Preview" affordance (Salesforce lookup preview trigger).
+    // Case 08516422: real Chrome's innerText concatenates this with ZERO
+    // whitespace ("ChangSeok LEEPreview") — \s* (not \s+) so it still strips.
+    val = val.replace(/\s*Preview\s*$/, '').trim();
     // 2. Trailing inline-edit affordance: e.g. "\nEdit Status", " Edit Priority", "Edit Case Status"
     val = val.replace(/(?:\r?\n|\s+)Edit\s+[A-Za-z0-9_\-\s]+$/i, '').trim();
     // 3. Help tooltip text (e.g. "Help Related CRs", "Help Case Record Type")
