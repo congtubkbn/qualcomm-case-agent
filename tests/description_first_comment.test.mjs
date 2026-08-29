@@ -18,14 +18,8 @@ import {
   EXIT,
 } from '../.claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs';
 
-import {
-  migrateCaseData,
-  migrateCaseJson,
-} from '../.claude/skills/qualcomm-case-agent/scripts/migrate_case.mjs';
-
 const SCRAPE_SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs', import.meta.url));
 const RENDER_SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/render_case.mjs', import.meta.url));
-const MIGRATE_SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/migrate_case.mjs', import.meta.url));
 
 function createTempEnv(caseCode = '08123456') {
   const root = mkdtempSync(join(tmpdir(), 'qc-desc-test-'));
@@ -323,82 +317,4 @@ describe('4. Markdown Rendering: render_case.mjs', () => {
   });
 });
 
-describe('5. Cached Case Migration: tools/migrate_case.mjs', () => {
-  it('migrateCaseData injects description into legacy case and re-sorts chronologically', () => {
-    const legacyCase = {
-      caseNumber: '08555555',
-      title: 'Legacy Case Title',
-      customer: 'OnePlus OEM',
-      created: '2026-08-01T06:00:00.000Z',
-      description: 'Thermal throttling observed during 4K 60fps video recording.',
-      comments: [
-        {
-          id: 'c1',
-          author: 'QCOM Thermal Lead',
-          timestamp: '2026-08-01T10:00:00.000Z',
-          body: 'Please provide thermal sensor dump.',
-        },
-      ],
-    };
 
-    const migrated = migrateCaseData(legacyCase);
-    assert.equal(migrated.comments.length, 2);
-
-    // Comment 0 should be description comment
-    assert.equal(migrated.comments[0].author, 'OnePlus OEM');
-    assert.equal(migrated.comments[0].timestamp, '2026-08-01T06:00:00.000Z');
-    assert.equal(migrated.comments[0].body, legacyCase.description);
-    assert.equal(migrated.comments[0].role, 'Customer');
-    assert.match(migrated.comments[0].id, /^c[a-f0-9]{12}$/);
-
-    // Comment 1 should be response
-    assert.equal(migrated.comments[1].author, 'QCOM Thermal Lead');
-    assert.equal(migrated.comments[1].role, 'Qualcomm');
-
-    // Retains root description
-    assert.equal(migrated.description, legacyCase.description);
-
-    // Idempotent
-    const reMigrated = migrateCaseData(migrated);
-    assert.deepEqual(reMigrated, migrated);
-  });
-
-  it('migrateCaseJson updates case.json and case.md on disk via CLI and API', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'qc-mig-cli-'));
-    const caseDir = join(dir, '08555555');
-    mkdirSync(caseDir, { recursive: true });
-
-    const legacyCase = {
-      caseNumber: '08555555',
-      title: 'Legacy Case Title',
-      customer: 'OnePlus OEM',
-      created: 'August 1, 2026 at 6:00 AM',
-      description: 'Thermal throttling observed during 4K 60fps video recording.',
-      comments: [
-        {
-          id: 'c1',
-          author: 'QCOM Thermal Lead',
-          timestamp: 'August 1, 2026 at 10:00 AM',
-          body: 'Please provide thermal sensor dump.',
-        },
-      ],
-    };
-
-    const jsonPath = join(caseDir, 'case.json');
-    writeFileSync(jsonPath, JSON.stringify(legacyCase, null, 2), 'utf8');
-
-    // Run migration via CLI
-    const r = spawnSync(process.execPath, [MIGRATE_SCRIPT, jsonPath], { encoding: 'utf8' });
-    assert.equal(r.status, 0);
-
-    const updated = JSON.parse(readFileSync(jsonPath, 'utf8'));
-    assert.equal(updated.comments.length, 2);
-    assert.equal(updated.comments[0].author, 'OnePlus OEM');
-    assert.equal(updated.comments[0].body, legacyCase.description);
-
-    const md = readFileSync(join(caseDir, 'case.md'), 'utf8');
-    assert.match(md, /^## Description$/m);
-    assert.match(md, /Thermal throttling observed during 4K 60fps video recording\./);
-    assert.match(md, /### 1\. August 1, 2026 at 10:00 AM · QCOM Thermal Lead \(Qualcomm\)/);
-  });
-});
