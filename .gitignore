@@ -19,3 +19,6 @@ temp/
 .scratch/
 *.log
 debug_*.mjs
+
+# npm deps
+node_modules/

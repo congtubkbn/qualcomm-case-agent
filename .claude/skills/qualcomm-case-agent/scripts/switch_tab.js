@@ -8,10 +8,6 @@
   var target = (typeof __TARGET_TAB !== 'undefined' ? __TARGET_TAB : '').toLowerCase().trim();
   if (!target) return { ok: false, reason: 'no target tab specified' };
 
-  var txt = function (el) {
-    return ((el && (el.innerText || el.textContent)) || '').replace(/\s+/g, ' ').trim();
-  };
-
   var deepQsa = function (sel, root) {
     var results = [];
     var seen = new Set();
@@ -45,16 +41,6 @@
     };
     scan(root || document);
     return results;
-  };
-
-  var fire = function (el) {
-    ['pointerdown', 'mousedown', 'pointerup', 'mouseup'].forEach(function (type) {
-      try {
-        var Ctor = (/^pointer/.test(type) && window.PointerEvent) ? window.PointerEvent : window.MouseEvent;
-        el.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, composed: true, view: window }));
-      } catch (e) { /* fallback */ }
-    });
-    el.click();
   };
 
   var matchesTarget = function (s) {

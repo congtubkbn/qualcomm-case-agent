@@ -10,14 +10,22 @@ const EXTRACT_SCRIPT = readFileSync(
   'utf8'
 );
 
-const EXPAND_SCRIPT = readFileSync(
+// txt/qsa/isVisible/deepByText/fire now come from dom_helpers.js, textually
+// prepended into every real eval payload by browser.mjs's buildPayload() —
+// mirror that here so these scripts see the same globals they get at runtime.
+const DOM_HELPERS_SRC = readFileSync(
+  fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/dom_helpers.js', import.meta.url)),
+  'utf8'
+);
+
+const EXPAND_SCRIPT = DOM_HELPERS_SRC + '\n' + readFileSync(
   fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/expand_step.js', import.meta.url)),
   'utf8'
 );
 
 let SWITCH_TAB_SCRIPT = '';
 try {
-  SWITCH_TAB_SCRIPT = readFileSync(
+  SWITCH_TAB_SCRIPT = DOM_HELPERS_SRC + '\n' + readFileSync(
     fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/switch_tab.js', import.meta.url)),
     'utf8'
   );
@@ -27,7 +35,7 @@ try {
 
 let CHECK_COLLAPSED_SCRIPT = '';
 try {
-  CHECK_COLLAPSED_SCRIPT = readFileSync(
+  CHECK_COLLAPSED_SCRIPT = DOM_HELPERS_SRC + '\n' + readFileSync(
     fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/check_collapsed.js', import.meta.url)),
     'utf8'
   );

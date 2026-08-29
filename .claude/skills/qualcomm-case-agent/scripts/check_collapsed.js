@@ -18,12 +18,6 @@
 (function () {
   var ANCHOR = (typeof __ANCHOR !== 'undefined') ? __ANCHOR : null;
 
-  var txt = function (el) {
-    return ((el && (el.innerText || el.textContent)) || '').replace(/\s+/g, ' ').trim();
-  };
-  var qsa = function (sel, root) {
-    return Array.prototype.slice.call((root || document).querySelectorAll(sel));
-  };
   var bodyOf = function (a) {
     var b = a.querySelector(".feedBodyInner, .cuf-feedBodyText, [class*='feedBody']");
     return txt(b || a);
@@ -51,32 +45,6 @@
     return !baseline || baseline.indexOf(prefixes[idx]) >= 0;
   };
 
-  var isVisible = function (el) {
-    if (!el) return false;
-    var cls = el.className || '';
-    if (typeof cls === 'string' && /\b(hidden|fadeOut)\b/i.test(cls)) return false;
-    if (el.classList) {
-      if (el.classList.contains('hidden') || el.classList.contains('fadeOut')) return false;
-    }
-    if (el.closest) {
-      var hiddenAncestor = el.closest('.hidden, .fadeOut, [style*="display: none"], [style*="display:none"]');
-      if (hiddenAncestor) return false;
-    }
-    if (el.style) {
-      if (el.style.display === 'none' || el.style.visibility === 'hidden' || el.style.opacity === '0') return false;
-    }
-    if (typeof window !== 'undefined' && window.getComputedStyle) {
-      try {
-        var style = window.getComputedStyle(el);
-        if (style && (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')) return false;
-      } catch (e) {}
-    }
-    if (el.offsetParent === null && (!el.style || el.style.position !== 'fixed')) {
-      return false;
-    }
-    return true;
-  };
-
   var isArticleCollapsed = function (art) {
     if (!art) return false;
     var controls = qsa('.cuf-more, [class*="cuf-more"], a, button', art).filter(function (el) {
@@ -93,32 +61,9 @@
     return isArticleCollapsed(art) ? n + 1 : n;
   }, 0);
 
-  // Same class of issue as "Expand Post": fire()'s synthetic events can no-op
-  // on the per-post "N more comments" nested-reply pagination link too, and
-  // unlike Expand Post this had NO settle-check at all — a click that never
-  // actually loaded the reply looked identical to "nothing left to expand"
-  // (observed: case 08503838, a reply dropped out of case.json with no error).
-  //
-  // The REAL cause of that drop (confirmed live, 2026-07-30, case 08503838):
-  // this control renders as `<button class="slds-button">More comments</button>`
-  // inside an LWC shadow root, unlike "Expand Post" which sits in plain light
-  // DOM. Plain `document.querySelectorAll` never pierces a shadow boundary, so
-  // this read reported 0 while 4 fully-rendered, unclicked buttons sat on
-  // screen (7 real comments never captured, on a run that verified clean).
-  // Must mirror expand_step.js's deepByText exactly, or the settle-check and
-  // the tick loop disagree about what's still hidden.
-  var deepByText = function (sel, re) {
-    var out = [];
-    (function scan(root) {
-      var all = root.querySelectorAll('*');
-      for (var i = 0; i < all.length; i++) {
-        var el = all[i];
-        if (el.matches && el.matches(sel) && re.test(txt(el)) && isVisible(el)) out.push(el);
-        if (el.shadowRoot) scan(el.shadowRoot);
-      }
-    })(document);
-    return out;
-  };
+  // deepByText (shared, see dom_helpers.js) must mirror expand_step.js's
+  // exactly, or the settle-check and the tick loop disagree about what's
+  // still hidden.
   var stillHasMoreComments = deepByText('a, button', /^(view\s+)?\d*\s*more\s+comments?$/i).length;
 
   return { stillCollapsed: stillCollapsed, stillHasMoreComments: stillHasMoreComments };

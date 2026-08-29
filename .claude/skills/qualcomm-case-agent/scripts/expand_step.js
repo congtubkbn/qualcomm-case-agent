@@ -17,55 +17,12 @@
   var ANCHOR = (typeof __ANCHOR !== 'undefined') ? __ANCHOR : null;
   var PROBE = (typeof __PROBE !== 'undefined') ? __PROBE : false;
 
-  var txt = function (el) {
-    return ((el && (el.innerText || el.textContent)) || '').replace(/\s+/g, ' ').trim();
-  };
-  var qsa = function (sel, root) {
-    return Array.prototype.slice.call((root || document).querySelectorAll(sel));
-  };
   var bodyOf = function (a) {
     var b = a.querySelector(".feedBodyInner, .cuf-feedBodyText, [class*='feedBody']");
     return txt(b || a);
   };
   var byText = function (sel, re) {
     return qsa(sel).filter(function (e) { return re.test(txt(e)); });
-  };
-  // Shadow-DOM-aware version of byText. Confirmed live (2026-07-30, case
-  // 08503838): the per-post "More comments" pagination button renders as a
-  // real `<button class="slds-button">More comments</button>` — but inside an
-  // LWC's shadow root, unlike "Expand Post" which sits in plain light DOM.
-  // Plain `document.querySelectorAll('a, button')` never pierces a shadow
-  // boundary, so it silently found 0 of these buttons every run while they
-  // sat fully rendered and unclicked on screen (verified against capture.png:
-  // 4 unclicked "More comments" buttons, 7 real comments never captured, on a
-  // run that reported pendingMoreComments: 0). Recurse into every element's
-  // .shadowRoot, not just the light-DOM tree.
-  var deepByText = function (sel, re) {
-    var out = [];
-    (function scan(root) {
-      var all = root.querySelectorAll('*');
-      for (var i = 0; i < all.length; i++) {
-        var el = all[i];
-        if (el.matches && el.matches(sel) && re.test(txt(el))) out.push(el);
-        if (el.shadowRoot) scan(el.shadowRoot);
-      }
-    })(document);
-    return out;
-  };
-  // Plain `el.click()` can silently no-op on Lightning/Aura controls whose real
-  // handler listens for pointer/mouse events rather than the synthetic click
-  // event .click() dispatches — observed as the same "Expand Post" label
-  // getting re-clicked tick after tick without ever actually expanding. Fire
-  // the fuller event sequence a real interaction produces, then .click() too
-  // as a harmless belt-and-suspenders fallback.
-  var fire = function (el) {
-    ['pointerdown', 'mousedown', 'pointerup', 'mouseup'].forEach(function (type) {
-      try {
-        var Ctor = (/^pointer/.test(type) && window.PointerEvent) ? window.PointerEvent : window.MouseEvent;
-        el.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, composed: true, view: window }));
-      } catch (e) { /* Ctor unsupported in this environment — click() below still fires */ }
-    });
-    el.click();
   };
 
   var articles = qsa('article');
@@ -101,32 +58,6 @@
     ? { author: txt(articles[0].querySelector('a')), bodyStart: bodyOf(articles[0]).slice(0, 80) }
     : null;
 
-  var isVisible = function (el) {
-    if (!el) return false;
-    var cls = el.className || '';
-    if (typeof cls === 'string' && /\b(hidden|fadeOut)\b/i.test(cls)) return false;
-    if (el.classList) {
-      if (el.classList.contains('hidden') || el.classList.contains('fadeOut')) return false;
-    }
-    if (el.closest) {
-      var hiddenAncestor = el.closest('.hidden, .fadeOut, [style*="display: none"], [style*="display:none"]');
-      if (hiddenAncestor) return false;
-    }
-    if (el.style) {
-      if (el.style.display === 'none' || el.style.visibility === 'hidden' || el.style.opacity === '0') return false;
-    }
-    if (typeof window !== 'undefined' && window.getComputedStyle) {
-      try {
-        var style = window.getComputedStyle(el);
-        if (style && (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')) return false;
-      } catch (e) {}
-    }
-    if (el.offsetParent === null && (!el.style || el.style.position !== 'fixed')) {
-      return false;
-    }
-    return true;
-  };
-
   // Filter expand controls to genuinely visible and active controls inside an article.
   var expandControls = qsa('.cuf-more, [class*="cuf-more"], a, button')
     .filter(function (e) {
@@ -151,7 +82,7 @@
   // Nested-reply pagination is NEVER anchor-skipped: a reply added to an OLD
   // post renders as an <article> BELOW the anchor, so skipping it there is how
   // a new reply stays invisible to every update run (case 08503838).
-  var moreCommentControls = deepByText('a, button', /^(view\s+)?\d*\s*more\s+comments?$/i).filter(isVisible);
+  var moreCommentControls = deepByText('a, button', /^(view\s+)?\d*\s*more\s+comments?$/i);
 
   // Baseline = the posts on screen BEFORE this run expanded anything, kept on
   // `window` across ticks (same tab, no reload mid-expansion). PROBE ticks keep

@@ -14,5 +14,8 @@
     "uninstall:protocol": "powershell -ExecutionPolicy Bypass -File scripts/unregister_protocol.ps1",
     "postinstall": "node scripts/ensure_protocol.mjs"
   },
-  "engines": { "node": ">=22.3.0" }
+  "engines": { "node": ">=22.3.0" },
+  "devDependencies": {
+    "jsdom": "^25.0.1"
+  }
 }

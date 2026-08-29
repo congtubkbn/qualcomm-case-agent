@@ -16,14 +16,6 @@
   var username = (typeof __USERNAME !== 'undefined' && __USERNAME) ? String(__USERNAME) : 'the.thoi@samsung.com';
   var timeout = (typeof __TIMEOUT !== 'undefined') ? Number(__TIMEOUT) : 10000;
 
-  var txt = function (el) {
-    return ((el && (el.innerText || el.textContent)) || '').replace(/\s+/g, ' ').trim();
-  };
-
-  var qsa = function (sel, root) {
-    return Array.prototype.slice.call((root || document).querySelectorAll(sel));
-  };
-
   function isHostAuthenticated() {
     return location.hostname === 'support.qualcomm.com' ||
       (location.hostname !== 'account.qualcomm.com' && !/login|auth|okta/i.test(location.pathname));
