@@ -10,7 +10,7 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -1097,6 +1097,77 @@ describe('finalize (child process): dashboard render isolation', () => {
 
     const overview = JSON.parse(readFileSync(join(root, 'data', 'cases', '_overview.json'), 'utf8'));
     assert.equal(overview.cases[0].caseNumber, '08603854');
+  });
+
+  it('creates and synchronizes _overview.json and dashboard.html on successful capture finalization', () => {
+    const root = fixture();
+    const rawPath = join(root, 'data', 'cases', '08603854', 'case.raw.json');
+    writeFileSync(rawPath, JSON.stringify(RAW), 'utf8');
+    const r = spawnSync(process.execPath, [SCRIPT, '08603854', rawPath], {
+      encoding: 'utf8', env: { ...process.env, QUALCOMM_ROOT: root },
+    });
+    assert.equal(r.status, m.EXIT.OK, r.stderr);
+
+    const overviewFile = join(root, 'data', 'cases', '_overview.json');
+    const dashboardFile = join(root, 'data', 'cases', 'dashboard.html');
+    assert.equal(existsSync(overviewFile), true);
+    assert.equal(existsSync(dashboardFile), true);
+
+    const overview = JSON.parse(readFileSync(overviewFile, 'utf8'));
+    assert.equal(overview.cases.length, 1);
+    assert.equal(overview.cases[0].caseNumber, '08603854');
+    assert.equal(overview.cases[0].title, 'NR SA attach failure');
+  });
+
+  it('invokes dependency-injected syncCaseOverview option when finalizing', (t) => {
+    const root = fixture();
+    const rawPath = join(root, 'data', 'cases', '08603854', 'case.raw.json');
+    writeFileSync(rawPath, JSON.stringify(RAW), 'utf8');
+
+    let syncCalledWith = null;
+    t.mock.method(process, 'exit', (code) => {
+      throw new Error(`process.exit:${code}`);
+    });
+
+    assert.throws(
+      () => m.finalize('08603854', rawPath, {}, false, {
+        casesDir: join(root, 'data', 'cases'),
+        syncCaseOverview: (code, opts) => {
+          syncCalledWith = { code, opts };
+          return { hadEntry: true, overviewData: {}, rendered: true };
+        },
+      }),
+      /process.exit:0/
+    );
+
+    assert.ok(syncCalledWith);
+    assert.equal(syncCalledWith.code, '08603854');
+    assert.equal(syncCalledWith.opts.action, 'upsert');
+    assert.equal(syncCalledWith.opts.casesDir, join(root, 'data', 'cases'));
+  });
+
+  it('warns and continues when syncCaseOverview throws an error', (t) => {
+    const root = fixture();
+    const rawPath = join(root, 'data', 'cases', '08603854', 'case.raw.json');
+    writeFileSync(rawPath, JSON.stringify(RAW), 'utf8');
+    const writeSpy = t.mock.method(process.stderr, 'write');
+
+    t.mock.method(process, 'exit', (code) => {
+      throw new Error(`process.exit:${code}`);
+    });
+
+    assert.throws(
+      () => m.finalize('08603854', rawPath, {}, false, {
+        casesDir: join(root, 'data', 'cases'),
+        syncCaseOverview: () => {
+          throw new Error('simulated sync crash');
+        },
+      }),
+      /process.exit:0/
+    );
+
+    const warnings = writeSpy.mock.calls.map((c) => c.arguments[0]).join('');
+    assert.match(warnings, /Warning: overview auto-sync failed \(simulated sync crash\)/);
   });
 });
 

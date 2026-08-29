@@ -274,4 +274,82 @@ describe('finalize()', () => {
     const c1Idx = md.indexOf('### A (t1)');
     assert.ok(c3Idx < c2Idx && c2Idx < c1Idx, 'newest comment (c3) must render above older ones');
   });
+
+  it('creates and synchronizes _overview.json and dashboard.html on summary finalization', async () => {
+    writeCaseJson('08000022', {
+      status: 'Open',
+      comments: [{ id: 'c1', timestamp: 't1', author: 'A', body: 'first' }],
+    });
+    const { finalize } = await importOrchestrator();
+    const result = finalize('08000022', {
+      comments: [{ id: 'c1', timestamp: 't1', author: 'A', issue: 'x', nextAction: 'wait' }],
+      flow: 'Customer reported x.',
+      executive: {
+        resolution: 'Fixed in patch v2',
+      },
+    });
+    assert.equal(result.status, 'summarized');
+
+    const casesDir = join(process.env.QUALCOMM_ROOT, 'data', 'cases');
+    const overviewFile = join(casesDir, '_overview.json');
+    const dashboardFile = join(casesDir, 'dashboard.html');
+    assert.equal(existsSync(overviewFile), true);
+    assert.equal(existsSync(dashboardFile), true);
+
+    const overview = JSON.parse(readFileSync(overviewFile, 'utf8'));
+    const rec = overview.cases.find((c) => c.caseNumber === '08000022');
+    assert.ok(rec);
+    assert.equal(rec.hasSummary, true);
+    assert.match(rec.aiSummary, /Fixed in patch v2/);
+  });
+
+  it('delegates overview cache update to dependency-injected syncCaseOverview option', async () => {
+    writeCaseJson('08000023', {
+      status: 'Open',
+      comments: [{ id: 'c1', timestamp: 't1', author: 'A', body: 'first' }],
+    });
+    let syncCalledWith = null;
+    const { finalize } = await importOrchestrator();
+    const result = finalize(
+      '08000023',
+      {
+        comments: [{ id: 'c1', timestamp: 't1', author: 'A', issue: 'x', nextAction: 'wait' }],
+        flow: 'Customer reported x.',
+      },
+      {
+        syncCaseOverview: (code, opts) => {
+          syncCalledWith = { code, opts };
+          return { hadEntry: true, overviewData: {}, rendered: true };
+        },
+      }
+    );
+    assert.equal(result.status, 'summarized');
+    assert.ok(syncCalledWith);
+    assert.equal(syncCalledWith.code, '08000023');
+    assert.equal(syncCalledWith.opts.action, 'upsert');
+  });
+
+  it('warns to stderr and continues when syncCaseOverview throws', async (t) => {
+    writeCaseJson('08000024', {
+      status: 'Open',
+      comments: [{ id: 'c1', timestamp: 't1', author: 'A', body: 'first' }],
+    });
+    const writeSpy = t.mock.method(process.stderr, 'write');
+    const { finalize } = await importOrchestrator();
+    const result = finalize(
+      '08000024',
+      {
+        comments: [{ id: 'c1', timestamp: 't1', author: 'A', issue: 'x', nextAction: 'wait' }],
+        flow: 'Customer reported x.',
+      },
+      {
+        syncCaseOverview: () => {
+          throw new Error('boom: simulated sync failure');
+        },
+      }
+    );
+    assert.equal(result.status, 'summarized');
+    const warnings = writeSpy.mock.calls.map((c) => c.arguments[0]).join('');
+    assert.match(warnings, /Warning: overview auto-sync failed \(boom: simulated sync failure\)/);
+  });
 });

@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from '../../qualcomm-case-agent/scripts/_paths.mjs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { afterFinalize } from '../../qualcomm-case-overview/scripts/cases_overview.mjs';
+import { syncCaseOverview } from '../../qualcomm-case-overview/scripts/cases_overview.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -171,7 +171,7 @@ export async function prepare(code) {
   };
 }
 
-export function finalize(code, { comments: newComments, flow, executive }) {
+export function finalize(code, { comments: newComments, flow, executive }, options = {}) {
   const { casePath, summaryPath, mdPath } = paths(code);
   const caseJson = readJson(casePath);
   const prior = readJson(summaryPath);
@@ -188,7 +188,19 @@ export function finalize(code, { comments: newComments, flow, executive }) {
   });
   writeFileSync(summaryPath, JSON.stringify(merged, null, 2));
   writeFileSync(mdPath, renderSummaryMd(merged));
-  afterFinalize(code, DATA_DIR);
+  try {
+    const syncFn = options.syncCaseOverview || syncCaseOverview;
+    syncFn(code, {
+      ...options,
+      casesDir: options.casesDir || DATA_DIR,
+      action: 'upsert',
+    });
+  } catch (e) {
+    if (typeof options.onError === 'function') {
+      options.onError(e, 'overview');
+    }
+    process.stderr.write(`Warning: overview auto-sync failed (${e.message})\n`);
+  }
   return { status: 'summarized', summaryPath, mdPath, newCount: newComments.length };
 }
 
