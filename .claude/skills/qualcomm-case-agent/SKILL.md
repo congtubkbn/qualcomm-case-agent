@@ -43,7 +43,7 @@ Scripts and references live under `.claude/skills/qualcomm-case-agent/`.
 | `cdp_client.mjs` | lightweight native Chrome DevTools Protocol WebSocket client |
 | `intake.mjs` | validate code + prep cache dirs (also imported by `run_case.mjs`) |
 | `browser.mjs` | browser/CDP runtime bridge |
-| `readiness.js` · `expand_step.js` · `extract_case.js` | page scripts run inside browser DOM |
+| `expand_step.js` · `extract_case.js` · `switch_tab.js` | page scripts run inside browser DOM |
 | `scrape_case.mjs` | finalizer — sort chronologically, assert, hash, write `case.json` + index (`--merge` = update run) |
 | `check_collapsed.js` · `verify_case.mjs` | completeness gates — unexpanded-control read, post-capture QA (`verifyCase`) |
 | `render_case.mjs` | `case.json` → clean human-readable `case.md` |

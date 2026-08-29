@@ -56,13 +56,13 @@ mechanism) and only falls all the way back to a fully manual walkthrough when th
      unchanged, to avoid spending attempts against Okta's lockout threshold).
    - Sign in fully by hand in the visible Chrome window (password + OTP).
    - Recapture the secret so future runs autofill again:
-     `powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/capture_password.ps1"`.
+     `powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/setup/capture_password.ps1"`.
 3. **`auth-required` with the default reason ("Okta session lapsed...") — no stored secret at all**:
    - Autofill was skipped entirely (first run, or secret never captured).
    - Sign in fully by hand in the visible Chrome window: enter credentials on
      `account.qualcomm.com`, retrieve the MFA OTP from Samsung email (expires ~5 min), submit, and
      confirm navigation lands on `support.qualcomm.com`.
-   - Optionally run `capture_password.ps1` afterward so the next lapse can autofill.
+   - Optionally run `scripts/setup/capture_password.ps1` afterward so the next lapse can autofill.
 4. **Resume execution** (all cases): run
    `node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE>`. New session cookies
    persist automatically in `data/chrome-profile/`.
