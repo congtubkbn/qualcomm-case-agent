@@ -5,14 +5,12 @@ import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureProtocolRegistered } from '../../../../scripts/ensure_protocol.mjs';
-import { applyFilter, buildOverviewData, DEFAULT_CASES_DIR, updateCaseOverview } from './overview_store.mjs';
+import { applyFilter, buildOverviewData, DEFAULT_CASES_DIR, syncCaseOverview, updateCaseOverview } from './overview_store.mjs';
 import { renderDashboardHtml } from './dashboard_renderer.mjs';
 import { renderCliTable } from './cli_renderer.mjs';
 
-// Kept for delete_case.mjs, which still calls updateCaseOverview/renderDashboardHtml
-// directly — its delete-then-sync flow needs updateCaseOverview's result to decide
-// whether the case had an overview entry, before it separately renders the dashboard.
-export { updateCaseOverview };
+// Unified synchronization seam and legacy single-record updater
+export { syncCaseOverview, updateCaseOverview };
 
 /**
  * Syncs the cases overview and dashboard after a case finalizes (capture or summary).
@@ -20,17 +18,26 @@ export { updateCaseOverview };
  * caller's own success/failure contract — failures are warned to stderr instead.
  * @param {string} caseCode
  * @param {string} dataDir
+ * @param {object} [options={}] Optional configuration (e.g. dependency-injected renderDashboard, syncCaseOverview, updateCaseOverview, or onError)
+ * @returns {{ hadEntry: boolean, overviewData: object|null, rendered: boolean }}
  */
-export function afterFinalize(caseCode, dataDir) {
+export function afterFinalize(caseCode, dataDir, options = {}) {
+  const syncFn = options.syncCaseOverview || syncCaseOverview;
   try {
-    const overviewData = updateCaseOverview(caseCode, dataDir);
-    try {
-      renderDashboardHtml(overviewData, join(dataDir, 'dashboard.html'));
-    } catch (e) {
-      process.stderr.write(`Warning: dashboard render failed (${e.message})\n`);
+    if (typeof options.updateCaseOverview === 'function') {
+      options.updateCaseOverview(caseCode, dataDir);
     }
+    return syncFn(caseCode, {
+      casesDir: dataDir,
+      action: 'upsert',
+      ...options,
+    });
   } catch (e) {
+    if (typeof options.onError === 'function') {
+      options.onError(e, 'overview');
+    }
     process.stderr.write(`Warning: overview auto-sync failed (${e.message})\n`);
+    return { hadEntry: false, overviewData: null, rendered: false };
   }
 }
 

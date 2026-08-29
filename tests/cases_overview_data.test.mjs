@@ -12,6 +12,7 @@ import {
   extractAiSummary,
   extractCaseOverview,
   extractProductFromTitle,
+  syncCaseOverview,
   updateCaseOverview,
 } from '../.claude/skills/qualcomm-case-overview/scripts/overview_store.mjs';
 
@@ -464,6 +465,168 @@ describe('cases_overview: updateCaseOverview', () => {
     const updated4 = updateCaseOverview('08603854', casesDir);
     assert.equal(updated4.stats.total, 1);
     assert.equal(updated4.cases[0].caseNumber, '08642051');
+
+    rmSync(casesDir, { recursive: true, force: true });
+  });
+});
+
+describe('cases_overview: syncCaseOverview', () => {
+  it('upserts new case, returns hadEntry: false, writes overview and dashboard', () => {
+    const casesDir = createTempCasesDir();
+    const caseDir = join(casesDir, '08603854');
+    mkdirSync(caseDir, { recursive: true });
+    writeFileSync(
+      join(caseDir, 'case.json'),
+      JSON.stringify({ caseNumber: '08603854', title: 'Case 1', status: 'Open', comments: [] }),
+      'utf8'
+    );
+
+    const res = syncCaseOverview('08603854', { casesDir, action: 'upsert' });
+    assert.equal(res.hadEntry, false);
+    assert.equal(res.rendered, true);
+    assert.equal(res.overviewData.stats.total, 1);
+    assert.equal(res.overviewData.cases[0].caseNumber, '08603854');
+    assert.ok(existsSync(join(casesDir, '_overview.json')));
+    assert.ok(existsSync(join(casesDir, 'dashboard.html')));
+
+    rmSync(casesDir, { recursive: true, force: true });
+  });
+
+  it('upserts existing case, returns hadEntry: true, and updates record', () => {
+    const casesDir = createTempCasesDir();
+    const caseDir = join(casesDir, '08603854');
+    mkdirSync(caseDir, { recursive: true });
+    writeFileSync(
+      join(caseDir, 'case.json'),
+      JSON.stringify({ caseNumber: '08603854', title: 'Case 1', status: 'Open', comments: [] }),
+      'utf8'
+    );
+
+    const first = syncCaseOverview('08603854', { casesDir, action: 'upsert' });
+    assert.equal(first.hadEntry, false);
+
+    writeFileSync(
+      join(caseDir, 'case.json'),
+      JSON.stringify({ caseNumber: '08603854', title: 'Case 1 Updated', status: 'Closed', comments: [] }),
+      'utf8'
+    );
+
+    const second = syncCaseOverview('08603854', { casesDir, action: 'upsert' });
+    assert.equal(second.hadEntry, true);
+    assert.equal(second.overviewData.stats.total, 1);
+    assert.equal(second.overviewData.cases[0].title, 'Case 1 Updated');
+    assert.equal(second.overviewData.cases[0].status, 'Closed');
+
+    rmSync(casesDir, { recursive: true, force: true });
+  });
+
+  it('removes existing case, returns hadEntry: true, and updates overview & dashboard', () => {
+    const casesDir = createTempCasesDir();
+    const case1Dir = join(casesDir, '08603854');
+    const case2Dir = join(casesDir, '08642051');
+    mkdirSync(case1Dir, { recursive: true });
+    mkdirSync(case2Dir, { recursive: true });
+    writeFileSync(
+      join(case1Dir, 'case.json'),
+      JSON.stringify({ caseNumber: '08603854', title: 'Case 1', status: 'Open', comments: [] }),
+      'utf8'
+    );
+    writeFileSync(
+      join(case2Dir, 'case.json'),
+      JSON.stringify({ caseNumber: '08642051', title: 'Case 2', status: 'Open', comments: [] }),
+      'utf8'
+    );
+
+    syncCaseOverview('08603854', { casesDir, action: 'upsert' });
+    syncCaseOverview('08642051', { casesDir, action: 'upsert' });
+
+    // Now remove case 1
+    const removeRes = syncCaseOverview('08603854', { casesDir, action: 'remove' });
+    assert.equal(removeRes.hadEntry, true);
+    assert.equal(removeRes.rendered, true);
+    assert.equal(removeRes.overviewData.stats.total, 1);
+    assert.equal(removeRes.overviewData.cases[0].caseNumber, '08642051');
+
+    const overview = JSON.parse(readFileSync(join(casesDir, '_overview.json'), 'utf8'));
+    assert.equal(overview.cases.length, 1);
+    assert.equal(overview.cases[0].caseNumber, '08642051');
+
+    rmSync(casesDir, { recursive: true, force: true });
+  });
+
+  it('returns hadEntry: false on removal of non-existent case without writing files', () => {
+    const casesDir = createTempCasesDir();
+
+    const res = syncCaseOverview('08699999', { casesDir, action: 'remove' });
+    assert.equal(res.hadEntry, false);
+    assert.equal(res.rendered, false);
+    assert.equal(existsSync(join(casesDir, '_overview.json')), false);
+    assert.equal(existsSync(join(casesDir, 'dashboard.html')), false);
+
+    rmSync(casesDir, { recursive: true, force: true });
+  });
+
+  it('isolates rendering failures with warning without throwing, returning rendered: false', (t) => {
+    const casesDir = createTempCasesDir();
+    const caseDir = join(casesDir, '08603854');
+    mkdirSync(caseDir, { recursive: true });
+    writeFileSync(
+      join(caseDir, 'case.json'),
+      JSON.stringify({ caseNumber: '08603854', title: 'Case 1', status: 'Open', comments: [] }),
+      'utf8'
+    );
+
+    const writeSpy = t.mock.method(process.stderr, 'write');
+    let capturedError = null;
+
+    const res = syncCaseOverview('08603854', {
+      casesDir,
+      action: 'upsert',
+      renderDashboard: () => {
+        throw new Error('boom: render failed');
+      },
+      onError: (err, stage) => {
+        capturedError = { err, stage };
+      },
+    });
+
+    assert.equal(res.rendered, false);
+    assert.equal(res.hadEntry, false);
+    assert.ok(existsSync(join(casesDir, '_overview.json')));
+    assert.equal(existsSync(join(casesDir, 'dashboard.html')), false);
+
+    const warnings = writeSpy.mock.calls.map((c) => c.arguments[0]).join('');
+    assert.match(warnings, /Warning: dashboard render failed \(boom: render failed\)/);
+    assert.equal(capturedError.stage, 'render');
+    assert.equal(capturedError.err.message, 'boom: render failed');
+
+    rmSync(casesDir, { recursive: true, force: true });
+  });
+
+  it('respects render: false option by skipping dashboard generation', () => {
+    const casesDir = createTempCasesDir();
+    const caseDir = join(casesDir, '08603854');
+    mkdirSync(caseDir, { recursive: true });
+    writeFileSync(
+      join(caseDir, 'case.json'),
+      JSON.stringify({ caseNumber: '08603854', title: 'Case 1', status: 'Open', comments: [] }),
+      'utf8'
+    );
+
+    let renderCalled = false;
+    const res = syncCaseOverview('08603854', {
+      casesDir,
+      action: 'upsert',
+      render: false,
+      renderDashboard: () => {
+        renderCalled = true;
+      },
+    });
+
+    assert.equal(res.rendered, false);
+    assert.equal(renderCalled, false);
+    assert.ok(existsSync(join(casesDir, '_overview.json')));
+    assert.equal(existsSync(join(casesDir, 'dashboard.html')), false);
 
     rmSync(casesDir, { recursive: true, force: true });
   });

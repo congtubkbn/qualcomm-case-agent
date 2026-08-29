@@ -3,6 +3,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { renderDashboardHtml } from './dashboard_renderer.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -263,41 +264,73 @@ export function buildOverviewData(casesDir = DEFAULT_CASES_DIR) {
 }
 
 /**
- * Incrementally updates or inserts a single case record in _overview.json atomically.
- * @param {string} caseNumber Case ID (e.g. "08603854")
- * @param {string} casesDir Directory containing case folders
- * @returns {object} The updated overview data
+ * Unified, resilient synchronization seam for case overview cache and dashboard.
+ * Supports both upserting and removing cases from the overview cache,
+ * atomically persisting _overview.json, recomputing summary statistics,
+ * and regenerating dashboard.html.
+ *
+ * @param {string} caseNumber
+ * @param {object|string} [options={}] Options object, or dataDir string for backward compatibility
+ * @param {'upsert'|'remove'} [options.action='upsert'] Sync action
+ * @param {string} [options.casesDir=DEFAULT_CASES_DIR] Directory containing cases
+ * @param {string} [options.dataDir] Alias for casesDir
+ * @param {boolean} [options.render=true] Whether to regenerate dashboard.html
+ * @param {function} [options.renderDashboard=renderDashboardHtml] Injectable dashboard renderer
+ * @param {function} [options.onError] Optional error callback (err, stage)
+ * @returns {{ hadEntry: boolean, overviewData: object, rendered: boolean }}
  */
-export function updateCaseOverview(caseNumber, casesDir = DEFAULT_CASES_DIR) {
+export function syncCaseOverview(caseNumber, options = {}) {
+  const opts = typeof options === 'string' ? { casesDir: options } : (options || {});
+  const {
+    action = 'upsert',
+    render = true,
+    renderDashboard = renderDashboardHtml,
+    onError,
+  } = opts;
+  const casesDir = opts.casesDir || opts.dataDir || DEFAULT_CASES_DIR;
+
   const overviewPath = join(casesDir, '_overview.json');
   let overviewData;
+  let hadEntry = false;
 
   if (existsSync(overviewPath)) {
     try {
       overviewData = JSON.parse(readFileSync(overviewPath, 'utf8'));
-      if (!overviewData || !Array.isArray(overviewData.cases)) {
+      if (overviewData && Array.isArray(overviewData.cases)) {
+        hadEntry = overviewData.cases.some((c) => c.caseNumber === caseNumber);
+      } else {
         overviewData = buildOverviewData(casesDir);
       }
     } catch {
       overviewData = buildOverviewData(casesDir);
     }
   } else {
-    overviewData = buildOverviewData(casesDir);
+    overviewData = action === 'remove'
+      ? { cases: [], stats: { total: 0, byStatus: {}, lastUpdated: new Date().toISOString() } }
+      : buildOverviewData(casesDir);
   }
 
-  const caseDir = join(casesDir, caseNumber);
-  const updatedRecord = extractCaseOverview(caseDir, caseNumber);
-
-  if (updatedRecord) {
-    const existingIndex = overviewData.cases.findIndex((c) => c.caseNumber === caseNumber);
-    if (existingIndex >= 0) {
-      overviewData.cases[existingIndex] = updatedRecord;
-    } else {
-      overviewData.cases.unshift(updatedRecord);
+  if (action === 'remove') {
+    if (!hadEntry) {
+      return { hadEntry: false, overviewData, rendered: false };
     }
-  } else {
-    // If case dir is deleted or invalid, remove from overview
     overviewData.cases = overviewData.cases.filter((c) => c.caseNumber !== caseNumber);
+  } else {
+    // action === 'upsert'
+    const caseDir = join(casesDir, caseNumber);
+    const updatedRecord = extractCaseOverview(caseDir, caseNumber);
+
+    if (updatedRecord) {
+      const existingIndex = overviewData.cases.findIndex((c) => c.caseNumber === caseNumber);
+      if (existingIndex >= 0) {
+        overviewData.cases[existingIndex] = updatedRecord;
+      } else {
+        overviewData.cases.unshift(updatedRecord);
+      }
+    } else {
+      // If case dir is deleted or invalid, remove from overview
+      overviewData.cases = overviewData.cases.filter((c) => c.caseNumber !== caseNumber);
+    }
   }
 
   // Re-sort and recompute stats
@@ -319,7 +352,38 @@ export function updateCaseOverview(caseNumber, casesDir = DEFAULT_CASES_DIR) {
   writeFileSync(tempPath, JSON.stringify(overviewData, null, 2), 'utf8');
   renameSync(tempPath, overviewPath);
 
-  return overviewData;
+  let rendered = false;
+  if (render) {
+    const dashboardPath = join(casesDir, 'dashboard.html');
+    try {
+      renderDashboard(overviewData, dashboardPath);
+      rendered = true;
+    } catch (e) {
+      rendered = false;
+      if (typeof onError === 'function') {
+        onError(e, 'render');
+      }
+      process.stderr.write(`Warning: dashboard render failed (${e.message})\n`);
+    }
+  }
+
+  return { hadEntry, overviewData, rendered };
+}
+
+/**
+ * Incrementally updates or inserts a single case record in _overview.json atomically.
+ * Backwards-compatible wrapper delegating to syncCaseOverview with render: false.
+ * @param {string} caseNumber Case ID (e.g. "08603854")
+ * @param {string} casesDir Directory containing case folders
+ * @returns {object} The updated overview data
+ */
+export function updateCaseOverview(caseNumber, casesDir = DEFAULT_CASES_DIR) {
+  const result = syncCaseOverview(caseNumber, {
+    action: 'upsert',
+    casesDir,
+    render: false,
+  });
+  return result.overviewData;
 }
 
 /**
