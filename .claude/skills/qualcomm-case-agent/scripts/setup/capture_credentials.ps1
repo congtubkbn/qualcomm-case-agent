@@ -24,15 +24,23 @@ $userFile = Join-Path $dir "qid.user"
 Add-Type -AssemblyName System.Security
 New-Item -ItemType Directory -Force $dir | Out-Null
 
-$defaultUser = "the.thoi@samsung.com"
-if ($env:QUALCOMM_USER) { $defaultUser = $env:QUALCOMM_USER }
-if (Test-Path $userFile) {
+$defaultUser = $null
+if ($env:QUALCOMM_USER) {
+  $defaultUser = $env:QUALCOMM_USER
+} elseif (Test-Path $userFile) {
   $defaultUser = (Get-Content $userFile -Raw).Trim()
 }
 
-$userInput = Read-Host "Qualcomm ID (email) [default: $defaultUser]"
-if (-not $userInput) { $userInput = $defaultUser }
-$userInput = $userInput.Trim()
+if ($defaultUser) {
+  $userInput = Read-Host "Qualcomm ID (email) [default: $defaultUser]"
+  if (-not $userInput) { $userInput = $defaultUser }
+} else {
+  $userInput = Read-Host "Qualcomm ID (email)"
+}
+
+if ($userInput) {
+  $userInput = $userInput.Trim()
+}
 
 if (-not $userInput) {
   Write-Error "Qualcomm ID (email) cannot be empty."
