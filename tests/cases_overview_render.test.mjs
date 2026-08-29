@@ -258,6 +258,28 @@ describe('cases_overview_render: renderDashboardHtml', () => {
     assert.ok(html.includes('ai-summary'));
   });
 
+  it('renders Two-Tier data grid layout with always-visible meta sublines', () => {
+    const data = createSampleOverviewData();
+    const html = renderDashboardHtml(data);
+
+    assert.ok(html.includes('Timeline (Always)'), 'Must render Timeline (Always) header');
+    assert.ok(html.includes('Status &amp; Priority') || html.includes('Status & Priority'), 'Must render Status & Priority header');
+    assert.ok(html.includes('Activity (Always)'), 'Must render Activity (Always) header');
+    assert.ok(html.includes('case-meta-subline'), 'Must render case-meta-subline');
+    assert.ok(html.includes('time-col'), 'Must render time-col');
+    assert.ok(html.includes('status-col'), 'Must render status-col');
+    assert.ok(html.includes('activity-col'), 'Must render activity-col');
+  });
+
+  it('renders collapsible Recent Updates section with comments toggle button', () => {
+    const data = createSampleOverviewData();
+    const html = renderDashboardHtml(data);
+
+    assert.ok(html.includes('comments-toggle-btn'), 'Must render comments-toggle-btn');
+    assert.ok(html.includes('comments-collapse-wrap'), 'Must render comments-collapse-wrap');
+    assert.ok(html.includes('comments-drawer'), 'Must render comments-drawer');
+  });
+
   it('renders auto-refresh icon toolbar with interval popover and manual refresh button', () => {
     const data = createSampleOverviewData();
     const html = renderDashboardHtml(data);
