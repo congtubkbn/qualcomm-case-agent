@@ -27,11 +27,11 @@ detects that `AUTH` state on the *first* sighting per run and attempts autofill 
 this is not a fully manual flow:
 
 1. **Password autofill**: `login_fill.js` (run via `CdpClient.eval()`, the same page-script
-   pattern as `readiness.js`/`expand_step.js`) fills the username/password fields from the
+   pattern as `expand_step.js`) fills the username/password fields from the
    DPAPI-protected secret at `data/.secrets/qid.bin`, retrying up to 3 times for transient
    failures (DOM not ready yet, a click that didn't register).
 2. **OTP handoff — the human's only remaining step**: once Okta accepts the password and asks for
-   the OTP, `run_case.mjs` polls for up to ~5 minutes (matching the OTP's own expiry) while the
+   the OTP, `fast_landing.mjs`'s `handleAuth()` polls for up to ~5 minutes (matching the OTP's own expiry) while the
    human retrieves the 6-digit code from the mailbox and enters it directly into the
    visible Chrome window on port 9773. As soon as Okta accepts it, the same invocation resumes
    capture automatically — **no second command needed**.
@@ -50,7 +50,7 @@ this is not a fully manual flow:
    {"status": "auth-required", "reason": "password-rejected", "code": "<CODE>"}
    ```
    The user must sign in fully by hand in the visible Chrome window (password + OTP), then run
-   `scripts/setup/capture_password.ps1` to recapture a fresh secret so future runs autofill again.
+   `scripts/setup/capture_credentials.ps1` (run via `npm run setup:credentials`) to recapture a fresh secret so future runs autofill again.
 5. **If there is no stored secret at all** (first run, or after a manual recapture hasn't happened
    yet), autofill is skipped and the run reports plain `auth-required` with the default reason
    *"Okta session lapsed — sign in once in the persistent Chrome profile (email OTP is
@@ -74,9 +74,9 @@ by hand, then re-run the capture.
 ## Profile Recovery / Reset
 
 If the profile becomes corrupted or stuck in an unrecoverable state:
-```bash
+```powershell
 # Terminate Chrome instances using CDP 9773 and remove the profile directory
 powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/recover_chrome.ps1"
-rm -rf "data/chrome-profile"
+Remove-Item -Recurse -Force "data/chrome-profile"
 ```
 Re-running `scripts/connect_chrome.ps1` will create a clean profile ready for a fresh manual sign-in.
