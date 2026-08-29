@@ -789,4 +789,53 @@ describe('run() fast landing & verdict integration', () => {
     assert.ok(screenshotCalls.some(p => p.endsWith('feed_switch_failed.png')));
     assert.equal(extractCallCount, 1);
   });
+
+  it('returns finalizeOut in error payload when finalize_case.mjs fails', async (t) => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603857';
+    const mockCdp = {
+      isConnected: () => true,
+      navigate: async () => {},
+      eval: async () => ({
+        state: 'ON_CASE',
+        href: targetUrl,
+        fields: { title: 'Finalize Failed Case', status: 'Open' },
+      }),
+      click: async () => true,
+      close: async () => {},
+    };
+
+    mockBrowser(t, (file, vars) => {
+      if (file === 'switch_tab.js') {
+        return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
+      }
+      if (file === 'expand_step.js') {
+        if (vars?.__PROBE) return { articles: 1, displayed: 1, anchorIdx: -1, top: { author: 'A', bodyStart: 'Initial' } };
+        return { clickedExpand: 0, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
+      }
+      if (file === 'check_collapsed.js') {
+        return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      }
+      if (file === 'extract_case.js') {
+        return {
+          caseNumber: '08603857',
+          title: 'Finalize Failed Case',
+          url: targetUrl,
+          comments: [
+            { author: 'A', body: 'some text Expand Post', timestamp: 'August 12, 2026' },
+          ],
+        };
+      }
+      throw new Error(`Unexpected evalFile: ${file}`);
+    }, mockCdp);
+
+    mkdirSync(join(process.env.QUALCOMM_ROOT, 'data', 'cases', '08603857'), { recursive: true });
+    const { run } = await importRunCase();
+    const v = await run('08603857', { mode: 'auto', cdp: mockCdp });
+
+    assert.equal(v.status, 'blocked');
+    assert.match(v.reason, /finalize_case\.mjs failed/i);
+    assert.ok(v.finalizeOut);
+    assert.equal(v.scrapeOut, undefined);
+  });
 });
+

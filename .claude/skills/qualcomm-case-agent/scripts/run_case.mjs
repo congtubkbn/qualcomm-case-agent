@@ -539,7 +539,7 @@ export async function run(code, opts = {}) {
     return {
       status: 'blocked',
       reason: `finalize_case.mjs failed: ${finalizeRes.err || finalizeRes.out}`,
-      scrapeOut: finalizeRes.out,
+      finalizeOut: finalizeRes.out,
       timing: { landingMs: landingDurationMs },
     };
   }
