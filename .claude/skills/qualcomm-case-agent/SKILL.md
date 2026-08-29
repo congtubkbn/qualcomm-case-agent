@@ -27,8 +27,8 @@ Scripts and references live under `.claude/skills/qualcomm-case-agent/`.
 |-----|-------|
 | Portal | `https://support.qualcomm.com` |
 | SSO | `https://account.qualcomm.com/...` (Okta — identifier-first two-step) |
-| Qualcomm ID | `the.thoi@samsung.com` |
-| MFA | **Email OTP** — 6-digit code to Samsung mailbox, expires ~5 min. |
+| Qualcomm ID | Configured locally in `data/.secrets/qid.user` (run `npm run setup:credentials`) |
+| MFA | **Email OTP** — 6-digit code to the user's configured mailbox, expires ~5 min. |
 | Browser | **real Google Chrome** on CDP `9773` via `scripts/connect_chrome.ps1` |
 | Session store | `data/chrome-profile/` — persistent `--user-data-dir`; git-ignored |
 | Case cache | per-case folder `data/cases/<CODE>/`: `case.json` · `case.md` |
@@ -55,8 +55,14 @@ Scripts and references live under `.claude/skills/qualcomm-case-agent/`.
 
 ---
 
-## Capture — one command
+## Capture — setup & run
 
+Before running the capture, configure your Qualcomm ID (email) and password by running:
+```bash
+npm run setup:credentials
+```
+
+To capture a case:
 ```bash
 node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE>
 ```

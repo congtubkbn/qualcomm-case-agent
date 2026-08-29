@@ -302,7 +302,7 @@ export async function fastLandOnCase(code, options = {}) {
           LOGIN_FILL_SCRIPT,
           {
             __PASSWORD: pw,
-            __USERNAME: username || 'the.thoi@samsung.com',
+            __USERNAME: username || null,
             __TIMEOUT: Math.min(timeout, 10000),
           },
           { awaitPromise: true, maxRetries: 3, retryDelay: 200 }

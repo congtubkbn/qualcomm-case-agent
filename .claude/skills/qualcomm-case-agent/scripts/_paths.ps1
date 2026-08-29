@@ -71,3 +71,12 @@ if ($env:QUALCOMM_SECRET) {
 }
 $QcProfileDir = Join-Path $QcProjectRoot 'data\chrome-profile'
 $QcDataDir    = Join-Path $QcProjectRoot 'data\cases'
+$QcUserPath   = Join-Path $QcProjectRoot 'data\.secrets\qid.user'
+
+if ($env:QUALCOMM_USER) {
+  $QcUser = $env:QUALCOMM_USER
+} elseif (Test-Path $QcUserPath) {
+  $QcUser = (Get-Content $QcUserPath -Raw).Trim()
+} else {
+  $QcUser = $null
+}

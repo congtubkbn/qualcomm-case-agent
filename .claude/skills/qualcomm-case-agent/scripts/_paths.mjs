@@ -62,3 +62,13 @@ export const DATA_DIR = join(PROJECT_ROOT, 'data', 'cases');
 export const SECRET_PATH =
   process.env.QUALCOMM_SECRET || join(PROJECT_ROOT, 'data', '.secrets', 'qid.bin');
 export const PROFILE_DIR = join(PROJECT_ROOT, 'data', 'chrome-profile');
+export const USER_PATH = join(PROJECT_ROOT, 'data', '.secrets', 'qid.user');
+
+// Resolve username
+let resolvedUser = process.env.QUALCOMM_USER || null;
+if (!resolvedUser && existsSync(USER_PATH)) {
+  try {
+    resolvedUser = readFileSync(USER_PATH, 'utf8').trim();
+  } catch {}
+}
+export const QUALCOMM_USER = resolvedUser;

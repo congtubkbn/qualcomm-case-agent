@@ -11,6 +11,7 @@
     "cases:overview": "node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs",
     "cases:dashboard": "node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --open",
     "setup:protocol": "powershell -ExecutionPolicy Bypass -File scripts/register_protocol.ps1",
+    "setup:credentials": "powershell -ExecutionPolicy Bypass -File .claude/skills/qualcomm-case-agent/scripts/setup/capture_credentials.ps1",
     "uninstall:protocol": "powershell -ExecutionPolicy Bypass -File scripts/unregister_protocol.ps1",
     "postinstall": "node scripts/ensure_protocol.mjs"
   },

@@ -30,7 +30,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DATA_DIR } from './_paths.mjs';
+import { DATA_DIR, QUALCOMM_USER, SECRET_PATH } from './_paths.mjs';
 import { intake } from './intake.mjs';
 import { acquireLockOrWaitForSameCode, releaseLock } from './lock.mjs';
 import { BrowserError, CDP_PORT, PortConflictError, ensureChrome, evalFile, evalFileViaCdp, getCdpClient, open, screenshot, sleep } from './browser.mjs';
@@ -188,7 +188,7 @@ export async function run(code, opts = {}) {
     cached,
     portalUrl: PORTAL,
     secretPath: opts.secretPath,
-    username: opts.username,
+    username: opts.username || QUALCOMM_USER,
     fillRetryLimit: opts.fillRetryLimit,
     otpTimeoutMs: opts.otpTimeoutMs,
     otpPollIntervalMs: opts.otpPollIntervalMs,
@@ -604,6 +604,7 @@ export function parseArgs(argv) {
   const opts = { mode: 'auto' };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--mode') opts.mode = argv[++i];
+    if (argv[i] === '--username' || argv[i] === '--user') opts.username = argv[++i];
   }
   return opts;
 }
@@ -624,6 +625,20 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const opts = parseArgs(process.argv.slice(3));
   if (!['auto', 'full', 'update'].includes(opts.mode)) {
     const verdict = formatVerdict(code, { status: 'error', reason: `bad --mode ${opts.mode}` }, started);
+    process.stdout.write(JSON.stringify(verdict) + '\n');
+    process.exit(1);
+  }
+
+  const resolvedUsername = opts.username || QUALCOMM_USER;
+  const resolvedSecretPath = opts.secretPath || SECRET_PATH;
+  if (!resolvedUsername || !existsSync(resolvedSecretPath)) {
+    const missing = [];
+    if (!resolvedUsername) missing.push('Qualcomm ID (username)');
+    if (!existsSync(resolvedSecretPath)) missing.push('Qualcomm ID password');
+    const verdict = formatVerdict(code, {
+      status: 'error',
+      reason: `Qualcomm credentials not configured (missing ${missing.join(', ')}). Please run: npm run setup:credentials`
+    }, started);
     process.stdout.write(JSON.stringify(verdict) + '\n');
     process.exit(1);
   }

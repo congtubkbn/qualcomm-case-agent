@@ -5,7 +5,7 @@
 //
 // Parameters (injected by caller / buildPayload):
 //   __PASSWORD  (string, required) - plaintext password
-//   __USERNAME  (string, optional) - username (default 'the.thoi@samsung.com')
+//   __USERNAME  (string, optional) - username
 //   __TIMEOUT   (number, optional) - max wait timeout in ms (default 10000)
 //
 // Returns:
@@ -13,7 +13,7 @@
 
 (function () {
   var password = (typeof __PASSWORD !== 'undefined') ? String(__PASSWORD) : '';
-  var username = (typeof __USERNAME !== 'undefined' && __USERNAME) ? String(__USERNAME) : 'the.thoi@samsung.com';
+  var username = (typeof __USERNAME !== 'undefined' && __USERNAME) ? String(__USERNAME) : '';
   var timeout = (typeof __TIMEOUT !== 'undefined') ? Number(__TIMEOUT) : 10000;
 
   function isHostAuthenticated() {

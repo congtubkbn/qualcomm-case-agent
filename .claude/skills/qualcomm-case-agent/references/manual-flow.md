@@ -48,21 +48,21 @@ mechanism) and only falls all the way back to a fully manual walkthrough when th
    - The stored secret was autofilled and Okta accepted it; the run waited ~5 min for the OTP and
      timed out.
    - Switch to the Chrome window on port 9773 (it's still on the OTP screen), retrieve the 6-digit
-     MFA OTP from Samsung email, and submit it.
+     MFA OTP from your email, and submit it.
    - Re-run `node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE>` — no need to
      redo the password step.
 2. **`auth-required` with `reason: password-rejected` — stored secret is stale**:
    - Okta rejected the autofilled password; `qid.bin` was deleted automatically (never retried
      unchanged, to avoid spending attempts against Okta's lockout threshold).
    - Sign in fully by hand in the visible Chrome window (password + OTP).
-   - Recapture the secret so future runs autofill again:
-     `powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/setup/capture_password.ps1"`.
+   - Recapture the credentials so future runs autofill again by running:
+     `npm run setup:credentials`.
 3. **`auth-required` with the default reason ("Okta session lapsed...") — no stored secret at all**:
    - Autofill was skipped entirely (first run, or secret never captured).
    - Sign in fully by hand in the visible Chrome window: enter credentials on
-     `account.qualcomm.com`, retrieve the MFA OTP from Samsung email (expires ~5 min), submit, and
+     `account.qualcomm.com`, retrieve the MFA OTP from your email (expires ~5 min), submit, and
      confirm navigation lands on `support.qualcomm.com`.
-   - Optionally run `scripts/setup/capture_password.ps1` afterward so the next lapse can autofill.
+   - Optionally run `npm run setup:credentials` afterward so the next lapse can autofill.
 4. **Resume execution** (all cases): run
    `node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE>`. New session cookies
    persist automatically in `data/chrome-profile/`.
