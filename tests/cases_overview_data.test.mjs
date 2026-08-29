@@ -13,7 +13,7 @@ import {
   extractCaseOverview,
   extractProductFromTitle,
   updateCaseOverview,
-} from '../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs';
+} from '../.claude/skills/qualcomm-case-overview/scripts/overview_store.mjs';
 
 const SCRIPT = fileURLToPath(
   new URL('../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs', import.meta.url)

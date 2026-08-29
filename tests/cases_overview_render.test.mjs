@@ -6,12 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import {
-  escapeHtml,
-  parseArgs,
-  renderCliTable,
-  renderDashboardHtml,
-} from '../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs';
+import { parseArgs } from '../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs';
+import { escapeHtml, renderDashboardHtml } from '../.claude/skills/qualcomm-case-overview/scripts/dashboard_renderer.mjs';
+import { renderCliTable } from '../.claude/skills/qualcomm-case-overview/scripts/cli_renderer.mjs';
 
 const SCRIPT = fileURLToPath(
   new URL('../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs', import.meta.url)
