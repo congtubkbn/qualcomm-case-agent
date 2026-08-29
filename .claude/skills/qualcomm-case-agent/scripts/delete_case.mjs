@@ -75,9 +75,9 @@ export function deleteCase(rawCode, dataDir = DATA_DIR, options = {}) {
 
   const syncFn = options.syncCaseOverview || syncCaseOverview;
   const { hadEntry: hadOverviewEntry } = syncFn(code, {
+    ...options,
     casesDir: dataDir,
     action: 'remove',
-    ...options,
   });
 
   if (!dirExisted && !hadIndexEntry && !hadOverviewEntry) {

@@ -192,6 +192,24 @@ describe('deleteCase', () => {
     assert.equal(syncCalledWith.opts.casesDir, dataDir);
   });
 
+  it('enforces action: "remove" and casesDir even if options specifies a conflicting action', () => {
+    const dataDir = createTempCasesDir();
+    seedCase(dataDir, '08603854');
+    let syncCalledWith = null;
+
+    deleteCase('08603854', dataDir, {
+      action: 'upsert',
+      casesDir: '/bogus/dir',
+      syncCaseOverview: (code, opts) => {
+        syncCalledWith = { code, opts };
+        return { hadEntry: true, overviewData: {}, rendered: true };
+      },
+    });
+
+    assert.equal(syncCalledWith.opts.action, 'remove');
+    assert.equal(syncCalledWith.opts.casesDir, dataDir);
+  });
+
   it('requesting deletion of a case absent from disk cache, index, and overview reports status: "not-found"', () => {
     const dataDir = createTempCasesDir();
 
