@@ -159,3 +159,7 @@ Default five canonical roles (`needs-triage`, `needs-info`, `ready-for-agent`, `
 
 Single-context: `CONTEXT.md` + `docs/adr/` at repo root. See
 `docs/agents/domain.md`.
+
+### Grilling
+
+- When grilling, ask one question at a time.
