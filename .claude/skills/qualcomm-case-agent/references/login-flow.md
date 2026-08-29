@@ -50,7 +50,7 @@ this is not a fully manual flow:
    {"status": "auth-required", "reason": "password-rejected", "code": "<CODE>"}
    ```
    The user must sign in fully by hand in the visible Chrome window (password + OTP), then run
-   `capture_password.ps1` to recapture a fresh secret so future runs autofill again.
+   `scripts/setup/capture_password.ps1` to recapture a fresh secret so future runs autofill again.
 5. **If there is no stored secret at all** (first run, or after a manual recapture hasn't happened
    yet), autofill is skipped and the run reports plain `auth-required` with the default reason
    *"Okta session lapsed — sign in once in the persistent Chrome profile (email OTP is
