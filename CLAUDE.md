@@ -108,7 +108,7 @@ generated/curated, not hand-summarized — read it directly for anything beyond 
 Runbooks (SKILL.md, .clinerules, references/*)
   → Orchestration (run_case.mjs)
     → Browser adapter (browser.mjs: argv-array spawn, eval -b, CDP attach)
-      → Page scripts (readiness.js, find_case_link.js, expand_step.js, extract_case.js — run INSIDE the tab)
+      → Page scripts (login_fill.js, expand_step.js, extract_case.js, switch_tab.js, check_collapsed.js — run INSIDE the tab)
     → Persistence + integrity (intake.mjs, scrape_case.mjs, lock.mjs, _paths.mjs)
       → Presentation (render_case.mjs → case.md)
 ```

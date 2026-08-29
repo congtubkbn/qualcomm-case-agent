@@ -100,7 +100,7 @@ graph TD
   A["Runbooks — SKILL.md · .clinerules · references/*<br/>harness-agnostic prose, loaded on demand"]
   B["Orchestration — run_case.mjs"]
   C["Browser adapter & Fast Landing — browser.mjs · cdp_client.mjs · fast_landing.mjs"]
-  D["Page scripts — readiness.js · find_case_link.js · expand_step.js · extract_case.js<br/>run INSIDE the tab, return small objects"]
+  D["Page scripts — login_fill.js · expand_step.js · extract_case.js · switch_tab.js · check_collapsed.js<br/>run INSIDE the tab, return small objects"]
   E["Persistence + integrity — intake.mjs · scrape_case.mjs · lock.mjs · _paths.mjs"]
   F["Presentation — render_case.mjs (case.md)"]
   A --> B --> C --> D
@@ -122,7 +122,7 @@ flowchart TD
 
   subgraph ĐiềuHướng["2. Tìm kiếm & Landing vào Case"]
     RunCase --> FastLanding["scripts/fast_landing.mjs<br/>(Điều hướng đến /s/global-search/&lt;CODE&gt;<br/>Dùng MutationObserver lấy SFID thật)"]
-    FastLanding -.->|Dự phòng khi mất CDP| Fallback["scripts/readiness.js<br/>+ scripts/find_case_link.js<br/>(CLI Fallback engine)"]
+    FastLanding -.->|Dự phòng khi mất CDP| Fallback["fast_landing.mjs CDP-native fallback"]
   end
 
   subgraph ThuThập["3. Mở rộng & Trích xuất dữ liệu"]
@@ -154,8 +154,7 @@ project's historical bugs were violations of them:
 | `browser.mjs` | Chrome lifecycle on CDP 9773, `eval -b` transport, error typing (`BrowserError`) | Knowing anything about cases |
 | `cdp_client.mjs` | Native lightweight WebSocket CDP client (zero external binary dependencies for core landing) | DOM logic or parsing |
 | `fast_landing.mjs` | Fast-path direct navigation (cached SFID) + event-driven DOM MutationObserver search landing | Scraping comment feeds |
-| `readiness.js` | Classify SPA page state into one enum: `AUTH/READY/EMPTY/BLANK/LOADING` | Waiting (the caller polls) |
-| `find_case_link.js` | Resolve search row → real `/s/case/<SFID>/…` URL **and** the header fields that exist only on that row | Navigating |
+| `login_fill.js` | Fill Okta username/password via CDP and classify outcome: AUTHENTICATED/OTP_REQUIRED/REJECTED | DOM parsing outside Okta |
 | `expand_step.js` | One expansion/pagination tick; doubles as the fast no-update probe | Extraction |
 | `extract_case.js` | Read the expanded DOM into the raw case object | Completeness policy |
 | `scrape_case.mjs` | Completeness gates, merge policy, SHA-256 identity, canonical write, index update | Browser, analysis |
@@ -226,76 +225,6 @@ written with the old positional ids (`c1`, `c2`, …) is migrated on read by `mi
 
 **Presentation order (2026-08-27, supersedes PRD #105-109).** The internal merge/dedup engine
 (`sortCommentsChronological`, `mergeComments`) still works in strict ascending order — that's
-load-bearing for its own tie-break/interpolation logic. `finalize()` then applies
-`orderCommentsForPresentation` as a final pass before persisting: newest-first overall, each Reply
-grouped immediately after its parent Post (also newest-first among siblings). This is what actually
-ends up in `case.json`/`case.md`. See ADR 0002's addendum and `CONTEXT.md`'s Capture/Reply entries.
-
-### 5.2 Everything else
-
-| File | Written by | Shape / role |
-|---|---|---|
-| `data/cases/_index.json` | `scrape_case.mjs` | `<CODE> → { syncedAt, commentCount, hash }` — the cross-case index incremental logic reads |
-| `data/.capture.lock` | `lock.mjs` | `{ pid, at }` — advisory, stale after 30 min or a dead PID |
-| `data/chrome-profile/` | Chrome | Persistent `--user-data-dir` — cookies/tokens for the Okta session. This is what makes sign-in one-time; no password is stored anywhere by this project (see §10) |
-| `data/cases/<CODE>/case.raw.json` | `run_case.mjs` | Scratch capture; deleted by `scrape_case.mjs` on the success path |
-
-All of `data/` is git-ignored (C3).
-
----
-
-## 6. Runtime flows
-
-### 6.1 Capture — the fast path
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant A as Agent / CLI
-  participant R as run_case.mjs
-  participant L as lock.mjs
-  participant B as browser.mjs → Chrome
-  participant P as page scripts
-  participant F as scrape_case.mjs
-  participant V as render_case.mjs
-
-  A->>R: node run_case.mjs <CODE> [--mode]
-  R->>R: intake() — 8 digits, cache dirs
-  R->>L: acquireLock() → else verdict busy (exit 6)
-  R->>R: read cache → mode auto: cached ? update : full
-  R->>B: ensureChrome() — CDP /json/version, launch if dead, attach ws://
-  R->>B: open /s/global-search/<CODE>
-  loop ≤ 8 × 2 s
-    R->>P: readiness.js → AUTH | READY | EMPTY | BLANK | LOADING
-  end
-  alt AUTH
-    R-->>A: auth-required (exit 3) — human does Okta + email OTP once
-  else EMPTY
-    R-->>A: not-found (exit 4)
-  else READY
-    R->>P: find_case_link.js → href + title/status/priority/customer + marks row (data-cq-hit)
-    R->>B: click "[data-cq-hit='1']" — trusted click; open(href) lands on Lightning stub /s/case/Case/Default
-    R->>P: expand_step.js (PROBE) → articles, displayed, anchorIdx, top
-    alt update run and anchor still on top and displayed unchanged
-      R-->>A: no-update (exit 0) — STOP, nothing written
-    else
-      loop ≤ 40 ticks
-        R->>P: expand_step.js → click Expand Post / View More / Description
-      end
-      R->>P: extract_case.js → raw case object
-      R->>F: scrape_case.mjs <CODE> raw.json [--merge] --title … --status …
-      F->>F: gates (0 comments · captured<displayed · empty title) → INCOMPLETE = blocked
-      F->>F: merge · computeHash · write case.json · update _index.json · rm raw
-      R->>V: render_case.mjs → case.md
-      R-->>A: created | updated (+ newComments, newCommentIds, hash, dir)
-    end
-  end
-```
-
-The agent reports the verdict — `created` / `updated` (with `newCommentIds`) or `no-update` — and
-the file paths to the user.
-
-### 6.2 Why the incremental probe is a *probe*, not a diff
 
 `isNoUpdate(probe, cached)` returns true only when **both** hold: the newest cached comment is
 still `articles[0]`, and the portal's own displayed total is unchanged. Anything else — a null
@@ -309,7 +238,7 @@ a failed probe read as unchanged"), and D11 is the policy behind it.
 <!-- BEGIN GENERATED: reference -->
 
 > Generated by `npm run docs` from the source tree — **do not edit by hand**.
-> Source fingerprint `9fb4c74c9813` over 67 files.
+> Source fingerprint `eab7b99d0fb6` over 65 files.
 > Stale block ⇒ `npm run docs:check` fails.
 
 #### Pipeline scripts
@@ -327,13 +256,11 @@ a failed probe read as unchanged"), and D11 is the policy behind it.
 | `.claude/skills/qualcomm-case-agent/scripts/expand_step.js` | 228 | PHASE 1.5 (A and B) as ONE browser-side tick, called in a loop from run_case.mjs. |
 | `.claude/skills/qualcomm-case-agent/scripts/extract_case.js` | 477 | Default case extractor for PHASE 2. |
 | `.claude/skills/qualcomm-case-agent/scripts/fast_landing.mjs` | 630 | — |
-| `.claude/skills/qualcomm-case-agent/scripts/find_case_link.js` | 96 | PHASE 1 "click the search result" — done browser-side instead of by the agent. |
 | `.claude/skills/qualcomm-case-agent/scripts/intake.mjs` | 62 | Intake guard: validate case code + prep cache dirs. |
 | `.claude/skills/qualcomm-case-agent/scripts/lock.mjs` | 79 | one capture at a time, machine-wide. |
 | `.claude/skills/qualcomm-case-agent/scripts/login_fill.js` | 156 | In-page script that drives Okta username & password fill steps and classifies the outcome: AUTHENTICATED, OTP_REQUIRED, REJECTED, or UNKNOWN. |
 | `.claude/skills/qualcomm-case-agent/scripts/migrate_case.mjs` | 310 | Re-sort comments chronologically, re-classify roles, sanitize comment schema, re-calculate case hash, and re-render case.md for cached cases. |
 | `.claude/skills/qualcomm-case-agent/scripts/migrate_case_detail.mjs` | 298 | Upgrade and migrate cached cases with Salesforce Detail tab metadata, re-render case.md with Detail fields, and update case index/overview. |
-| `.claude/skills/qualcomm-case-agent/scripts/readiness.js` | 62 | PHASE 1 readiness probe. |
 | `.claude/skills/qualcomm-case-agent/scripts/recover_chrome.ps1` | 66 | Recovery 0 as ONE script (was a raw PowerShell block pasted into SKILL.md, which errored when the agent ran it through the Bash tool: 'Where-Object' is not recognized ...). |
 | `.claude/skills/qualcomm-case-agent/scripts/render_case.mjs` | 210 | deterministic markdown renderer for the Qualcomm Case Management Agent. |
 | `.claude/skills/qualcomm-case-agent/scripts/run_case.mjs` | 664 | the whole capture pipeline as ONE deterministic command. |
@@ -696,9 +623,7 @@ tests and the doc freshness check (§12) — extend it with lint and coverage.
   no new comment returns `no-update` from the early probe, before `scrape_case.mjs` (which *does*
   compute `headerChanged`) ever runs. Fix: compare the search-row header fields against the cache in
   `run_case.mjs` before taking the early exit.
-- **I9. `readiness.js` detects auth by hostname only.** An interstitial served under
-  `support.qualcomm.com` reads as `LOADING` and ends as `blocked` after 16 s instead of the correct
-  `auth-required`. Fix: also treat a visible Okta username/password form as `AUTH`.
+- **I9. ~~`readiness.js` hostname-only auth detection~~** *(removed — `readiness.js` was dead code; auth detection is now handled inside `fast_landing.mjs` via CDP page state).*
 - **I10. Expansion exhaustion is invisible.** Hitting `EXPAND_ROUNDS = 40` looks the same as a
   finished expansion; only the downstream `countAssert` catches it, and the reason it reports is
   "captured < displayed". Fix: surface `expandExhausted` in the verdict.

@@ -27,7 +27,7 @@ detects that `AUTH` state on the *first* sighting per run and attempts autofill 
 this is not a fully manual flow:
 
 1. **Password autofill**: `login_fill.js` (run via `CdpClient.eval()`, the same page-script
-   pattern as `readiness.js`/`expand_step.js`) fills the username/password fields from the
+   pattern as `expand_step.js`) fills the username/password fields from the
    DPAPI-protected secret at `data/.secrets/qid.bin`, retrying up to 3 times for transient
    failures (DOM not ready yet, a click that didn't register).
 2. **OTP handoff — the human's only remaining step**: once Okta accepts the password and asks for
