@@ -87,7 +87,7 @@ Merges your batch into `summary.json` (preserving prior summaries untouched) and
 `data/cases/<CODE>/summary.json` (structured, owned exclusively by this skill) and
 `data/cases/<CODE>/summary.md` (human-readable, newest-first). Never written on a `no-delta` run.
 `finalize` carries `title`/`url`/`priority`/`product` through from `case.json` automatically (no
-agent action needed) into a header block at the top of `summary.md`; a blank scraped field falls
+agent action needed) into a header block at the top of `summary.md`; a blank captured field falls
 back to the last known value instead of blanking it out. The optional `executive` block, when
 present, renders as its own `## Executive Summary` section above `## Case Flow`.
 

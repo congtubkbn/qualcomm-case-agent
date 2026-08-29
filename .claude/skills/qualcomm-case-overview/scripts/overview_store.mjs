@@ -131,7 +131,7 @@ export function extractCaseOverview(caseDir, caseNumber = '') {
     const latestComments = [];
 
     if (rawComments.length > 0) {
-      // In case.json comments are newest-first (see scrape_case.mjs's
+      // In case.json comments are newest-first (see finalize_case.mjs's
       // orderCommentsForPresentation — supersedes the old Oldest -> Newest order).
       const newestComment = rawComments[0];
       lastCommentAt = newestComment.timestamp || '';

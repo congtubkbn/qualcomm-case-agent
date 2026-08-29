@@ -47,7 +47,7 @@ ask the user, STOP. A valid code never triggers a confirmation prompt.
 | Phase | Does | Guard / branch |
 |-------|------|----------------|
 | Pre-flight | Validate code (8 digits), check credentials (`data/.secrets/qid.bin` + username), acquire lock (`lock.mjs`, auto-wait up to 60s if same case code) | Missing credentials → exit 1 (`error`); lock busy → exit 6 (`busy`) |
-| Capture (`run_case.mjs`) | Attach persistent-profile Chrome (CDP 9773) · locate case via global search / direct URL · switch to Detail tab to extract Salesforce metadata (`extract_case.js`) · switch back to Feed tab · probe feed (fast no-update check) · expand Chatter feed (full for a new case, down to newest cached anchor for an update) · extract feed (`extract_case.js`) and merge Detail metadata · finalize with hash + index (`scrape_case.mjs`) · render (`render_case.mjs`) · self-verify QA gate (`verify_case.mjs`) | One JSON verdict line on stdout — see status table below |
+| Capture (`run_case.mjs`) | Attach persistent-profile Chrome (CDP 9773) · locate case via global search / direct URL · switch to Detail tab to extract Salesforce metadata (`extract_case.js`) · switch back to Feed tab · probe feed (fast no-update check) · expand Chatter feed (full for a new case, down to newest cached anchor for an update) · extract feed (`extract_case.js`) and merge Detail metadata · finalize with hash + index (`finalize_case.mjs`) · render (`render_case.mjs`) · self-verify QA gate (`verify_case.mjs`) | One JSON verdict line on stdout — see status table below |
 | Report | `render_case.mjs` → tell user counts (captured vs displayed), file paths | `no-update` skips straight to "no update", STOP |
 
 ## Verdict statuses (`run_case.mjs` stdout)
@@ -71,7 +71,7 @@ ask the user, STOP. A valid code never triggers a confirmation prompt.
 |------|----------|---------|
 | `case.json` | `run_case.mjs` (capture) | complete verbatim data — **source of truth** |
 | `case.md` | `render_case.mjs` | full render for human review |
-| `_index.json` (root) | `scrape_case.mjs` | `<CODE> → {syncedAt, commentCount, hash}` for incremental sync |
+| `_index.json` (root) | `finalize_case.mjs` | `<CODE> → {syncedAt, commentCount, hash}` for incremental sync |
 | `chrome-profile/` | real Chrome `--user-data-dir` | persistent auth profile (one-time login) |
 
 ## Logic backbone
@@ -86,7 +86,7 @@ ask the user, STOP. A valid code never triggers a confirmation prompt.
 4. **Expand + count assert** — accessibility-tree clicks reveal every post/reply/body; the
    `displayedCommentCount` assert guarantees nothing is missed or truncated before persisting.
 5. **Render before QA verification** — `render_case.mjs` writes `case.md` immediately after
-   `scrape_case.mjs` writes `case.json`; `verify_case.mjs` then inspects both persisted artifacts
+   `finalize_case.mjs` writes `case.json`; `verify_case.mjs` then inspects both persisted artifacts
    as the final QA gate before returning success.
 6. **Incremental** — an update run expands/extracts ONLY the new comments (`--merge` prepends them,
    everything cached is kept verbatim) and re-renders the output; an unchanged case is not

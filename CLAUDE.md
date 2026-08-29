@@ -82,7 +82,7 @@ code, search the portal, save the data. Nothing else.
 
 ```bash
 npm test                          # unit tests (node --test, no build step)
-node --test tests/scrape_case.test.mjs   # run a single test file
+node --test tests/finalize_case.test.mjs   # run a single test file
 npm run case -- 08603854          # capture one case (the main pipeline entry point)
 npm run docs                      # regenerate docs/DESIGN.md §7 (module/API ref) from source
 npm run docs:check                # fail if that generated section is stale (CI runs this)
@@ -109,7 +109,7 @@ Runbooks (SKILL.md, .clinerules, references/*)
   → Orchestration (run_case.mjs)
     → Browser adapter (browser.mjs: argv-array spawn, eval -b, CDP attach)
       → Page scripts (login_fill.js, expand_step.js, extract_case.js, switch_tab.js, check_collapsed.js — run INSIDE the tab)
-    → Persistence + integrity (intake.mjs, scrape_case.mjs, lock.mjs, _paths.mjs)
+    → Persistence + integrity (intake.mjs, finalize_case.mjs, lock.mjs, _paths.mjs)
       → Presentation (render_case.mjs → case.md)
 ```
 
@@ -127,7 +127,7 @@ non-success statuses are deliberate, expected outcomes, not crashes. Full contra
 `.claude/skills/qualcomm-case-agent/SKILL.md`.
 
 **One Claude Code skill** lives under `.claude/skills/`: `qualcomm-case-agent` — intake → login →
-scrape → render.
+finalize → render.
 
 **Session/auth:** Okta OAuth with email OTP, persisted in `data/chrome-profile/` (a real Chrome
 `--user-data-dir` attached over CDP 9773, not bundled Chromium). A lapsed session surfaces as

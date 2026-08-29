@@ -117,10 +117,10 @@ if (['created', 'updated', 'no-update'].includes(verdict.status)) {
   derived from verbatim comment text).
 - **Comments are newest-first.** Index 0 is the most recent comment; each reply (`parentId != null`)
   is grouped immediately after its parent Post (also newest-first among siblings) — see
-  `scrape_case.mjs`'s `orderCommentsForPresentation`.
+  `finalize_case.mjs`'s `orderCommentsForPresentation`.
 
 ## Full schema reference
 
 The fields above are the complete consumer-relevant shape. For the canonical persisted `case.json`
 layout (including internal fields like `capture`/`verified`), see `SKILL.md` (the "Output Artifacts"
-section), or read `scripts/scrape_case.mjs` / `scripts/render_case.mjs` directly — they are the source of truth.
+section), or read `scripts/finalize_case.mjs` / `scripts/render_case.mjs` directly — they are the source of truth.

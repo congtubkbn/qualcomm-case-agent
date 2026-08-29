@@ -8,7 +8,7 @@ allowed-tools: Bash(node:*), Bash(npm:*), Read, Write, Glob
 
 **Role.** Downstream aggregation engine and interactive dashboard for Qualcomm cases cached locally under `data/cases/`.
 
-**Downstream consumer.** Read-only consumer of `case.json` (produced by `qualcomm-case-agent`) and `summary.json` (produced by `qualcomm-case-summary`). Never modifies individual case files or scraping logic.
+**Downstream consumer.** Read-only consumer of `case.json` (produced by `qualcomm-case-agent`) and `summary.json` (produced by `qualcomm-case-summary`). Never modifies individual case files or capture logic.
 
 ---
 
@@ -77,7 +77,7 @@ node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --rebuild
 ## Auto-Sync Behavior
 
 `_overview.json` and `dashboard.html` are automatically kept fresh via incremental hooks:
-1. When a case is captured or updated by `qualcomm-case-agent` (`scrape_case.mjs`).
+1. When a case is captured or updated by `qualcomm-case-agent` (`finalize_case.mjs`).
 2. When a case is summarized by `qualcomm-case-summary` (`run_summary.mjs finalize`).
 
 ---

@@ -9,7 +9,7 @@ silently returns the literal string `"null"` on this Windows/PowerShell setup in
 (see manual-flow.md). The script's final expression is the case OBJECT (agent-browser serializes it
 once). There is no Node-side browser driving and no selector config file — the agent reads the live
 DOM, adapts the extractor if needed, evals, validates against the snapshot, then hands the raw JSON to
-`scrape_case.mjs` to finalize.
+`finalize_case.mjs` to finalize.
 
 > **Pre-condition — expansion is already done.** SKILL.md PHASE 1.5 fully expands the page via
 > `agent-browser snapshot → ref → click` (the proven flow): it clicks **"View More Posts"** to a
@@ -41,7 +41,7 @@ agent-browser eval --stdin`) silently returns the literal string `"null"` instea
 result (verified — an agent-browser/Windows-PowerShell stdin bug, not a script bug); bash-style `<`
 redirection is a reserved token in PowerShell (hard parse error). `-b` sidesteps both. Write the
 result straight to disk with .NET so it's guaranteed clean UTF-8 with no BOM (PowerShell's `>`
-redirect defaults to a BOM-prefixed encoding that corrupts the JSON `scrape_case.mjs` reads next):
+redirect defaults to a BOM-prefixed encoding that corrupts the JSON `finalize_case.mjs` reads next):
 
 ```powershell
 powershell -NoProfile -Command "$b64=[Convert]::ToBase64String([IO.File]::ReadAllBytes('.claude/skills/qualcomm-case-agent/scripts/extract_case.js')); $r = agent-browser eval -b $b64; [IO.File]::WriteAllText('data/cases/<CODE>/case.raw.json', $r, (New-Object Text.UTF8Encoding $false))"
@@ -64,14 +64,14 @@ Sanity-check the raw file, then finalize:
 
 ```bash
 node -e "const j=JSON.parse(require('fs').readFileSync('data/cases/<CODE>/case.raw.json','utf8')); console.log(j.caseNumber, j.comments.length, j.displayedCommentCount)"
-node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CODE> "data/cases/<CODE>/case.raw.json"
+node ".claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs" <CODE> "data/cases/<CODE>/case.raw.json"
 # on exit 0 the script deletes its own case.raw.json scratch file — no manual del/rm needed
 ```
 
-`scrape_case.mjs` rejects a 0-comment capture (wrong page / failed pull — never overwrites a good cache),
+`finalize_case.mjs` rejects a 0-comment capture (wrong page / failed pull — never overwrites a good cache),
 asserts `genuineCommentCount(comments, description) >= displayedCommentCount` (short → exit 5, expand more and re-extract),
 stamps the SHA-256 `hash` + `extractedAt`, writes `data/cases/<CODE>/case.json`, and updates the root
-`_index.json`. It never drives the browser. However, `scrape_case.mjs` **does transform and normalize**
+`_index.json`. It never drives the browser. However, `finalize_case.mjs` **does transform and normalize**
 fields before persisting: it rewrites comment IDs to stable content-derived hashes (`assignIds`),
 resolves/injects `parentId` from DOM-order `parentIndex`, normalizes relative timestamps into absolute
 ISO-8601 strings (preserving `rawTimestamp`), extracts preview summaries (`summary`), strips transient
@@ -86,7 +86,7 @@ PHASE 1.5B), the DOM holds the NEW posts fully expanded while old posts stay col
 Run the SAME extractor over that DOM, then finalize with `--merge`:
 
 ```bash
-node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CODE> "data/cases/<CODE>/case.raw.json" --merge --status "<STATUS>" --priority "<PRIORITY>"
+node ".claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs" <CODE> "data/cases/<CODE>/case.raw.json" --merge --status "<STATUS>" --priority "<PRIORITY>"
 ```
 
 What the merge does (all in code, deterministic):
@@ -112,7 +112,7 @@ What the merge does (all in code, deterministic):
 Project; note that `customer` was dropped as a synthesized duplicate per issue #108, and `accountName` is
 the canonical Detail tab field). `extract_case.js` leaves those fields `""`; fill them by editing the raw
 JSON from what PHASE 1 already captured, passing `--title`/`--status`/`--priority`/`--severity` flags to
-`scrape_case.mjs`, or clicking the "Detail" tab and re-reading before finalizing.
+`finalize_case.mjs`, or clicking the "Detail" tab and re-reading before finalizing.
 
 ## Selector lock-in & live DOM shapes (confirmed from cases 08550063 [2026-06-22] & 08642051 [2026-08-23])
 
@@ -318,17 +318,17 @@ every future run. Key shape it returns:
 
 ### Post-extraction: identity and comment-threading pipeline (#105-#109)
 
-The raw extractor output undergoes multi-stage processing inside `scrape_case.mjs` before writing canonical `case.json`:
+The raw extractor output undergoes multi-stage processing inside `finalize_case.mjs` before writing canonical `case.json`:
 
 1. **Content-derived comment IDs (`assignIds`)**:
    - Extractor-provided IDs (`c1`, `c2`, ...) are positional and drift across re-captures as threads grow.
-   - `scrape_case.mjs` assigns stable content IDs: `commentId(c) = 'c' + sha256(norm(author) + '|' + norm(body).slice(0, 120)).slice(0, 12)`.
+   - `finalize_case.mjs` assigns stable content IDs: `commentId(c) = 'c' + sha256(norm(author) + '|' + norm(body).slice(0, 120)).slice(0, 12)`.
    - Content IDs are position-independent and survive relative timestamp drift. Genuine duplicates (same author with matching 120-char prefix) receive a collision suffix (`-2`, `-3`) and are reported in the verdict.
    - Legacy caches with positional IDs are migrated on read (`migrateIds`), dropping any stale `enrichment` field.
 
 2. **`parentId` resolution ordering constraint**:
    - `extract_case.js` tags each comment with `isReply` (via `.cuf-comment` or within `ul.cuf-replies`) and `parentIndex` (pointing to `lastTopLevelIndex` in the initial DOM traversal order).
-   - In `scrape_case.mjs`, resolving `parentIndex` into `parentId` has a strict ordering constraint:
+   - In `finalize_case.mjs`, resolving `parentIndex` into `parentId` has a strict ordering constraint:
      - **Must run AFTER `assignIds`**: `fresh.comments[c.parentIndex].id` must resolve to the parent's newly assigned content ID.
      - **Must run BEFORE `sortCommentsChronological` / `mergeComments`**: reordering comments by timestamp destroys original DOM array indices. Resolving `parentIndex` against a reordered array would point to the wrong post or cause an out-of-bounds error.
    - Once resolved, `c.parentId` holds the parent post's content ID (or `null` for top-level posts and orphaned replies).
@@ -362,7 +362,7 @@ The raw extractor output undergoes multi-stage processing inside `scrape_case.mj
 ## Completeness cross-check (the strongest "got everything" signal)
 
 The portal shows a total (e.g. `status "N Chatter Feed Items"`). Capture it as **`displayedCommentCount`**
-in the raw JSON. `scrape_case.mjs` asserts:
+in the raw JSON. `finalize_case.mjs` asserts:
 
 ```
 genuineCommentCount(comments, description) >= displayedCommentCount   // else exit 5 — expand more / fix the extractor, re-extract
