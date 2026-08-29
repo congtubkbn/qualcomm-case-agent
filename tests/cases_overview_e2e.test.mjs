@@ -178,6 +178,10 @@ describe('cases_overview: End-to-End Pipeline & Auto-Sync Hooks', () => {
       assert.ok(record1AfterSummary.aiSummary.includes('Root cause: Under analysis'));
       assert.ok(record1AfterSummary.aiSummary.includes('Next: Customer uploading QXDM log with DE.3.1.4 mask'));
 
+      // dashboard.html must also refresh after a summary run (parity with capture/delete legs).
+      const dashboardHtmlAfterSummary = readFileSync(join(casesDir, 'dashboard.html'), 'utf8');
+      assert.ok(dashboardHtmlAfterSummary.includes('Resolution: Pending log analysis'));
+
       // 3. Second Case Capture (08701234)
       const rawCase2 = {
         title: '[SDX75] 5G SA Registration Reject 58',
@@ -259,6 +263,54 @@ describe('cases_overview: End-to-End Pipeline & Auto-Sync Hooks', () => {
       const rebuiltOverview = JSON.parse(readFileSync(join(casesDir, '_overview.json'), 'utf8'));
       assert.equal(rebuiltOverview.stats.total, 2);
       assert.equal(rebuiltOverview.cases.length, 2);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // #143: a rendering bug in dashboard_renderer.mjs must not turn run_summary's
+  // finalize step into a failure — _overview.json must still be written and the
+  // CLI must still exit 0, with the render failure surfaced only as a stderr warning.
+  it('still writes _overview.json and exits 0 when the dashboard render throws during summary finalize', () => {
+    const root = mkdtempSync(join(tmpdir(), 'qc-e2e-render-throw-'));
+    const casesDir = join(root, 'data', 'cases');
+    const caseDir = join(casesDir, '08603854');
+
+    try {
+      mkdirSync(caseDir, { recursive: true });
+      writeFileSync(join(caseDir, 'case.json'), JSON.stringify({
+        caseNumber: '08603854',
+        title: 'NR SA attach failure',
+        status: 'Open',
+        priority: 'P2',
+        product: 'SM7635',
+        url: 'https://support.qualcomm.com/s/case/500dK00000HZeVSQA1',
+        comments: [
+          { id: 'c1', author: 'Engineer A', timestamp: 'July 15, 2026 at 3:00 AM', body: 'Initial report.' },
+        ],
+      }, null, 2), 'utf8');
+
+      // dashboard.html pre-created as a directory forces renderDashboardHtml's
+      // writeFileSync to throw EISDIR — a real-world stand-in for any HTML
+      // rendering bug.
+      mkdirSync(join(casesDir, 'dashboard.html'), { recursive: true });
+
+      const summaryPayload = {
+        comments: [
+          { id: 'c1', author: 'Engineer A', kind: 'investigation-data', summary: 'Initial report.', impact: 'info-only', owner: 'customer' },
+        ],
+        flow: 'Investigation just started.',
+        executive: { ballInCourt: 'qualcomm', blockerOrNextMilestone: 'None yet', rootCause: 'Unknown', resolution: 'Pending' },
+      };
+
+      const summaryRes = runSummaryFinalize(root, '08603854', summaryPayload);
+      assert.equal(summaryRes.exit, 0, `run_summary finalize exit was ${summaryRes.exit}: ${summaryRes.stderr}`);
+      assert.match(summaryRes.stderr, /Warning: dashboard render failed/);
+      assert.ok(existsSync(join(caseDir, 'summary.json')));
+
+      const overview = JSON.parse(readFileSync(join(casesDir, '_overview.json'), 'utf8'));
+      assert.equal(overview.cases[0].caseNumber, '08603854');
+      assert.equal(overview.cases[0].hasSummary, true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

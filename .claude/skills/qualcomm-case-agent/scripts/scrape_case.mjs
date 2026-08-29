@@ -38,6 +38,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
 import { updateCaseOverview } from '../../qualcomm-case-overview/scripts/cases_overview.mjs';
+import { renderDashboardHtml } from '../../qualcomm-case-overview/scripts/dashboard_renderer.mjs';
 
 // ---- Exit codes (exported so tests can import) ----
 export const EXIT = {
@@ -946,7 +947,12 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
 
   // Auto-sync cases overview and dashboard
   try {
-    updateCaseOverview(caseCode, DATA_DIR);
+    const overviewData = updateCaseOverview(caseCode, DATA_DIR);
+    try {
+      renderDashboardHtml(overviewData, join(DATA_DIR, 'dashboard.html'));
+    } catch (e) {
+      process.stderr.write(`Warning: dashboard render failed (${e.message})\n`);
+    }
   } catch (e) {
     process.stderr.write(`Warning: overview auto-sync failed (${e.message})\n`);
   }

@@ -3,7 +3,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { renderDashboardHtml } from './dashboard_renderer.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -319,10 +318,6 @@ export function updateCaseOverview(caseNumber, casesDir = DEFAULT_CASES_DIR) {
   const tempPath = join(casesDir, `_overview.json.tmp.${process.pid}.${Date.now()}`);
   writeFileSync(tempPath, JSON.stringify(overviewData, null, 2), 'utf8');
   renameSync(tempPath, overviewPath);
-
-  // Also refresh dashboard.html
-  const dashboardPath = join(casesDir, 'dashboard.html');
-  renderDashboardHtml(overviewData, dashboardPath);
 
   return overviewData;
 }

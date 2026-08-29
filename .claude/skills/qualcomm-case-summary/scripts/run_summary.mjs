@@ -20,6 +20,7 @@ import { DATA_DIR } from '../../qualcomm-case-agent/scripts/_paths.mjs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { updateCaseOverview } from '../../qualcomm-case-overview/scripts/cases_overview.mjs';
+import { renderDashboardHtml } from '../../qualcomm-case-overview/scripts/dashboard_renderer.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -189,7 +190,12 @@ export function finalize(code, { comments: newComments, flow, executive }) {
   writeFileSync(summaryPath, JSON.stringify(merged, null, 2));
   writeFileSync(mdPath, renderSummaryMd(merged));
   try {
-    updateCaseOverview(code, DATA_DIR);
+    const overviewData = updateCaseOverview(code, DATA_DIR);
+    try {
+      renderDashboardHtml(overviewData, join(DATA_DIR, 'dashboard.html'));
+    } catch (e) {
+      process.stderr.write(`Warning: dashboard render failed (${e.message})\n`);
+    }
   } catch (e) {
     process.stderr.write(`Warning: overview auto-sync failed (${e.message})\n`);
   }

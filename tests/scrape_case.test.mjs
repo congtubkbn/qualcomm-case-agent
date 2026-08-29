@@ -1075,5 +1075,30 @@ describe('finalize (child process)', () => {
   });
 });
 
+describe('finalize (child process): dashboard render isolation', () => {
+  // dashboard.html pre-created as a directory forces renderDashboardHtml's
+  // writeFileSync to throw EISDIR — a real-world stand-in for any HTML
+  // rendering bug (#141/#143: render failures must not crash capture).
+  it('still writes _overview.json and succeeds when the dashboard render throws', () => {
+    const root = fixture();
+    mkdirSync(join(root, 'data', 'cases', 'dashboard.html'), { recursive: true });
+
+    const rawPath = join(root, 'data', 'cases', '08603854', 'case.raw.json');
+    writeFileSync(rawPath, JSON.stringify(RAW), 'utf8');
+    const r = spawnSync(process.execPath, [SCRIPT, '08603854', rawPath], {
+      encoding: 'utf8', env: { ...process.env, QUALCOMM_ROOT: root },
+    });
+    const line = (r.stdout || '').trim().split('\n').filter(Boolean).pop();
+    const verdict = JSON.parse(line || '{}');
+
+    assert.equal(r.status, m.EXIT.OK, r.stderr);
+    assert.equal(verdict.commentCount, 2);
+    assert.match(r.stderr, /Warning: dashboard render failed/);
+
+    const overview = JSON.parse(readFileSync(join(root, 'data', 'cases', '_overview.json'), 'utf8'));
+    assert.equal(overview.cases[0].caseNumber, '08603854');
+  });
+});
+
 
 

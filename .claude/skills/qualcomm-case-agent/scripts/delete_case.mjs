@@ -22,6 +22,7 @@ import { DATA_DIR } from './_paths.mjs';
 import { normalizeCaseCode } from './intake.mjs';
 import { acquireLock, releaseLock } from './lock.mjs';
 import { updateCaseOverview } from '../../qualcomm-case-overview/scripts/cases_overview.mjs';
+import { renderDashboardHtml } from '../../qualcomm-case-overview/scripts/dashboard_renderer.mjs';
 
 export const STATUS_EXIT = {
   deleted: 0, 'not-found': 4, busy: 6, error: 1,
@@ -85,7 +86,13 @@ export function deleteCase(rawCode, dataDir = DATA_DIR) {
     return { status: 'not-found', code, reason: `no local cache for case ${code}` };
   }
 
-  updateCaseOverview(code, dataDir);
+  const overviewData = updateCaseOverview(code, dataDir);
+
+  try {
+    renderDashboardHtml(overviewData, join(dataDir, 'dashboard.html'));
+  } catch (e) {
+    process.stderr.write(`Warning: dashboard render failed (${e.message})\n`);
+  }
 
   return { status: 'deleted', code };
 }

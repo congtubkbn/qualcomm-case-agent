@@ -147,4 +147,34 @@ describe('deleteCase', () => {
     assert.equal(existsSync(join(dataDir, '_index.json')), false);
     assert.equal(existsSync(join(dataDir, '_overview.json')), false);
   });
+
+  // #143: a rendering bug in dashboard_renderer.mjs must not turn a genuinely
+  // successful delete into a reported "error" — _overview.json write and the
+  // deletion itself must both survive the render throwing.
+  it('still writes _overview.json and reports "deleted" when the dashboard render throws', async (t) => {
+    const dataDir = createTempCasesDir();
+    const caseDir = seedCase(dataDir, '08603854');
+
+    const DASHBOARD_URL = new URL(
+      '../.claude/skills/qualcomm-case-overview/scripts/dashboard_renderer.mjs',
+      import.meta.url
+    );
+    t.mock.module(DASHBOARD_URL, {
+      exports: {
+        renderDashboardHtml: () => { throw new Error('boom: simulated render bug'); },
+      },
+    });
+
+    const { deleteCase: mockedDeleteCase } = await import(
+      new URL(`../.claude/skills/qualcomm-case-agent/scripts/delete_case.mjs?t=${Date.now()}`, import.meta.url)
+    );
+
+    const result = mockedDeleteCase('08603854', dataDir);
+
+    assert.equal(result.status, 'deleted');
+    assert.equal(existsSync(caseDir), false);
+
+    const overview = JSON.parse(readFileSync(join(dataDir, '_overview.json'), 'utf8'));
+    assert.equal(overview.cases.some(c => c.caseNumber === '08603854'), false);
+  });
 });
