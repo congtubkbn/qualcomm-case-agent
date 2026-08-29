@@ -21,8 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
 import { normalizeCaseCode } from './intake.mjs';
 import { acquireLock, releaseLock } from './lock.mjs';
-import { updateCaseOverview } from '../../qualcomm-case-overview/scripts/cases_overview.mjs';
-import { renderDashboardHtml } from '../../qualcomm-case-overview/scripts/dashboard_renderer.mjs';
+import { syncCaseOverview } from '../../qualcomm-case-overview/scripts/cases_overview.mjs';
 
 export const STATUS_EXIT = {
   deleted: 0, 'not-found': 4, busy: 6, error: 1,
@@ -39,9 +38,12 @@ export const STATUS_EXIT = {
  * it — in that case this still cleans up those stale entries and reports
  * "deleted", since the end state the caller wants (case gone everywhere,
  * including the dashboard) is reached either way.
+ * @param {string} rawCode
+ * @param {string} [dataDir=DATA_DIR]
+ * @param {object} [options={}] Optional configuration (e.g. dependency-injected syncCaseOverview, renderDashboard, onError)
  * @returns {{status: 'deleted'|'not-found'|'error', code?: string, reason?: string}}
  */
-export function deleteCase(rawCode, dataDir = DATA_DIR) {
+export function deleteCase(rawCode, dataDir = DATA_DIR, options = {}) {
   let code;
   try {
     code = normalizeCaseCode(rawCode);
@@ -71,27 +73,15 @@ export function deleteCase(rawCode, dataDir = DATA_DIR) {
     }
   }
 
-  const overviewPath = join(dataDir, '_overview.json');
-  let hadOverviewEntry = false;
-  if (existsSync(overviewPath)) {
-    try {
-      const overview = JSON.parse(readFileSync(overviewPath, 'utf8'));
-      hadOverviewEntry = Array.isArray(overview.cases) && overview.cases.some((c) => c.caseNumber === code);
-    } catch {
-      // Corrupt _overview.json: updateCaseOverview below rebuilds it anyway.
-    }
-  }
+  const syncFn = options.syncCaseOverview || syncCaseOverview;
+  const { hadEntry: hadOverviewEntry } = syncFn(code, {
+    casesDir: dataDir,
+    action: 'remove',
+    ...options,
+  });
 
   if (!dirExisted && !hadIndexEntry && !hadOverviewEntry) {
     return { status: 'not-found', code, reason: `no local cache for case ${code}` };
-  }
-
-  const overviewData = updateCaseOverview(code, dataDir);
-
-  try {
-    renderDashboardHtml(overviewData, join(dataDir, 'dashboard.html'));
-  } catch (e) {
-    process.stderr.write(`Warning: dashboard render failed (${e.message})\n`);
   }
 
   return { status: 'deleted', code };

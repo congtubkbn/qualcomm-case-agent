@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { deleteCase } from '../.claude/skills/qualcomm-case-agent/scripts/delete_case.mjs';
+import { syncCaseOverview } from '../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs';
 
 function createTempCasesDir() {
   return mkdtempSync(join(tmpdir(), 'qc-delete-test-'));
@@ -85,6 +86,8 @@ describe('deleteCase', () => {
     const dataDir = createTempCasesDir();
     seedCase(dataDir, '08603854');
     seedCase(dataDir, '08611111');
+    syncCaseOverview('08603854', { casesDir: dataDir, action: 'upsert' });
+    syncCaseOverview('08611111', { casesDir: dataDir, action: 'upsert' });
 
     deleteCase('08603854', dataDir);
 
@@ -151,30 +154,81 @@ describe('deleteCase', () => {
   // #143: a rendering bug in dashboard_renderer.mjs must not turn a genuinely
   // successful delete into a reported "error" — _overview.json write and the
   // deletion itself must both survive the render throwing.
-  it('still writes _overview.json and reports "deleted" when the dashboard render throws', async (t) => {
+  it('still writes _overview.json and reports "deleted" when the dashboard render throws', (t) => {
     const dataDir = createTempCasesDir();
     const caseDir = seedCase(dataDir, '08603854');
+    syncCaseOverview('08603854', { casesDir: dataDir, action: 'upsert' });
+    const writeSpy = t.mock.method(process.stderr, 'write');
 
-    const DASHBOARD_URL = new URL(
-      '../.claude/skills/qualcomm-case-overview/scripts/dashboard_renderer.mjs',
-      import.meta.url
-    );
-    t.mock.module(DASHBOARD_URL, {
-      exports: {
-        renderDashboardHtml: () => { throw new Error('boom: simulated render bug'); },
-      },
+    const result = deleteCase('08603854', dataDir, {
+      renderDashboard: () => { throw new Error('boom: simulated render bug'); },
     });
-
-    const { deleteCase: mockedDeleteCase } = await import(
-      new URL(`../.claude/skills/qualcomm-case-agent/scripts/delete_case.mjs?t=${Date.now()}`, import.meta.url)
-    );
-
-    const result = mockedDeleteCase('08603854', dataDir);
 
     assert.equal(result.status, 'deleted');
     assert.equal(existsSync(caseDir), false);
 
     const overview = JSON.parse(readFileSync(join(dataDir, '_overview.json'), 'utf8'));
     assert.equal(overview.cases.some(c => c.caseNumber === '08603854'), false);
+
+    const warnings = writeSpy.mock.calls.map((c) => c.arguments[0]).join('');
+    assert.match(warnings, /Warning: dashboard render failed \(boom: simulated render bug\)/);
+  });
+
+  it('delegates overview cache removal to dependency-injected syncCaseOverview option', () => {
+    const dataDir = createTempCasesDir();
+    seedCase(dataDir, '08603854');
+    let syncCalledWith = null;
+
+    const result = deleteCase('08603854', dataDir, {
+      syncCaseOverview: (code, opts) => {
+        syncCalledWith = { code, opts };
+        return { hadEntry: true, overviewData: {}, rendered: true };
+      },
+    });
+
+    assert.equal(result.status, 'deleted');
+    assert.equal(syncCalledWith.code, '08603854');
+    assert.equal(syncCalledWith.opts.action, 'remove');
+    assert.equal(syncCalledWith.opts.casesDir, dataDir);
+  });
+
+  it('requesting deletion of a case absent from disk cache, index, and overview reports status: "not-found"', () => {
+    const dataDir = createTempCasesDir();
+
+    const result = deleteCase('08699999', dataDir);
+
+    assert.deepEqual(result, {
+      status: 'not-found',
+      code: '08699999',
+      reason: 'no local cache for case 08699999',
+    });
+    assert.equal(existsSync(join(dataDir, '_index.json')), false);
+    assert.equal(existsSync(join(dataDir, '_overview.json')), false);
+    assert.equal(existsSync(join(dataDir, 'dashboard.html')), false);
+  });
+
+  it('requesting deletion of a case present in overview cache (even if directory was already deleted out-of-band) purges the overview entry, updates dashboard, and returns status: "deleted"', () => {
+    const dataDir = createTempCasesDir();
+    // Case present ONLY in _overview.json, no directory, no _index.json
+    writeFileSync(join(dataDir, '_overview.json'), JSON.stringify({
+      cases: [
+        { caseNumber: '08603854', title: 'Case 08603854', status: 'Open' },
+        { caseNumber: '08611111', title: 'Case 08611111', status: 'Open' },
+      ],
+      stats: { total: 2, byStatus: { Open: 2 }, lastUpdated: '2026-01-01T00:00:00.000Z' },
+    }, null, 2), 'utf8');
+
+    const result = deleteCase('08603854', dataDir);
+
+    assert.equal(result.status, 'deleted');
+    assert.equal(result.code, '08603854');
+
+    const overview = JSON.parse(readFileSync(join(dataDir, '_overview.json'), 'utf8'));
+    assert.equal(overview.cases.some(c => c.caseNumber === '08603854'), false);
+    assert.equal(overview.cases.some(c => c.caseNumber === '08611111'), true);
+
+    const dashboardHtml = readFileSync(join(dataDir, 'dashboard.html'), 'utf8');
+    assert.equal(dashboardHtml.includes('08603854'), false);
+    assert.equal(dashboardHtml.includes('08611111'), true);
   });
 });
