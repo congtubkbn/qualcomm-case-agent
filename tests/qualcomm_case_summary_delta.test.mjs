@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { computeDelta } from '../.claude/skills/qualcomm-case-summary/scripts/delta.mjs';
+import { computeDelta } from '../.claude/skills/qualcomm-case-summary/scripts/run_summary.mjs';
 
 describe('computeDelta', () => {
   it('first-ever run: no summarized ids yet -> delta is every comment', () => {

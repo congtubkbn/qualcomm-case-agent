@@ -3,8 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { mergeSummary } from '../.claude/skills/qualcomm-case-summary/scripts/merge.mjs';
-import { renderSummaryMd } from '../.claude/skills/qualcomm-case-summary/scripts/render_summary.mjs';
+import { mergeSummary, renderSummaryMd } from '../.claude/skills/qualcomm-case-summary/scripts/run_summary.mjs';
 
 describe('renderSummaryMd — case metadata header + executive summary', () => {
   it('full metadata + executive block renders all sections and links cleanly', () => {

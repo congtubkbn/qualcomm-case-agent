@@ -11,21 +11,40 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
+import child_process from 'node:child_process';
+import { promisify } from 'node:util';
+
 process.env.QUALCOMM_ROOT = mkdtempSync(join(tmpdir(), 'qc-summary-'));
 
 const SCRIPTS = new URL('../.claude/skills/qualcomm-case-summary/scripts/', import.meta.url);
-const DEPS_URL = new URL('deps.mjs', SCRIPTS);
 
 function mockDeps(t, captureResult) {
   const captureCalls = [];
-  t.mock.module(DEPS_URL, {
+  const mockExec = (file, args, cb) => {};
+  mockExec[promisify.custom] = async (file, args) => {
+    const code = args[1];
+    captureCalls.push(code);
+    const result = typeof captureResult === 'function' ? captureResult(code) : captureResult;
+    const stdout = JSON.stringify(result) + '\n';
+    
+    const exitCode = result.status === 'created' || result.status === 'updated' || result.status === 'no-update' ? 0 : 3;
+    if (exitCode === 0) {
+      return { stdout, stderr: '' };
+    } else {
+      const err = new Error(`Command failed`);
+      err.code = exitCode;
+      err.stdout = stdout;
+      throw err;
+    }
+  };
+
+  t.mock.module('node:child_process', {
     exports: {
-      captureCase: async (code) => {
-        captureCalls.push(code);
-        return typeof captureResult === 'function' ? captureResult(code) : captureResult;
-      },
+      ...child_process,
+      execFile: mockExec,
     },
   });
+
   return { captureCalls };
 }
 

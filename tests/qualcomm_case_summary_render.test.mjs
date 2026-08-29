@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { renderSummaryMd } from '../.claude/skills/qualcomm-case-summary/scripts/render_summary.mjs';
+import { renderSummaryMd } from '../.claude/skills/qualcomm-case-summary/scripts/run_summary.mjs';
 
 const summary = {
   caseNumber: '08633581',
