@@ -69,9 +69,15 @@ node ".claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs" <CODE> "data/c
 ```
 
 `scrape_case.mjs` rejects a 0-comment capture (wrong page / failed pull — never overwrites a good cache),
-asserts `comments.length >= displayedCommentCount` (short → exit 5, expand more and re-extract), stamps
-the SHA-256 `hash` + `extractedAt`, writes `data/cases/<CODE>/case.json`, and updates the root
-`_index.json`. It never drives the browser and never mutates your raw fields.
+asserts `genuineCommentCount(comments, description) >= displayedCommentCount` (short → exit 5, expand more and re-extract),
+stamps the SHA-256 `hash` + `extractedAt`, writes `data/cases/<CODE>/case.json`, and updates the root
+`_index.json`. It never drives the browser. However, `scrape_case.mjs` **does transform and normalize**
+fields before persisting: it rewrites comment IDs to stable content-derived hashes (`assignIds`),
+resolves/injects `parentId` from DOM-order `parentIndex`, normalizes relative timestamps into absolute
+ISO-8601 strings (preserving `rawTimestamp`), extracts preview summaries (`summary`), strips transient
+within-run extraction fields (`isReply`, `parentIndex`, `displayPosition`), and reorders comments
+for presentation (newest-first with replies grouped under their parent) before computing the content hash
+and writing canonical `case.json`.
 
 ## Update runs (`--merge`) — partial capture of a cached case
 
@@ -89,20 +95,24 @@ What the merge does (all in code, deterministic):
   on purpose — Chatter's relative times ("13h ago") drift between runs, and old posts arrive
   truncated; the prefix survives both. (Known limit: editing the first 120 chars of an old comment
   makes it look new.)
-- Comments not in the cache are **prepended** (feed is newest-first) with collision-free ids;
-  cached comments, `analysisLog`s and timestamps are kept **verbatim** — a truncated re-capture
-  never overwrites a full cached body.
-- `url` + `displayedCommentCount` are refreshed; `--status`/`--priority` flags override the cache
+- Comments are merged by stable content ID (`commentId`): cached comments and timestamps are kept
+  **verbatim** — a truncated re-capture never overwrites a full cached body. A legacy `enrichment`
+  field (if present in an older cache) is dropped on read rather than preserved. Merged comments
+  are presented newest-first, with replies grouped immediately under their parent post (see
+  threading pipeline below).
+- `url` + `displayedCommentCount` are refreshed; `--status`/`--priority`/`--severity` flags override the cache
   (fresh PHASE 1 row is the current truth); other raw fields only fill blanks. `--title` not needed.
 - Completeness assert runs on the MERGED set; the hash is recomputed over it.
 - Emits `newComments` / `newCommentIds` / `headerChanged` / `changed` — `newComments: 0` with
   nothing else changed = "no update".
 - `--merge` without an existing `data/cases/<CODE>/case.json` → exit 2 (run a full extraction).
 
-**Header metadata (title/status/priority/customer) is NOT on the Feed view** — it lives on the case
+**Header metadata (title/status/priority/severity) is NOT on the Feed view** — it lives on the case
 **Detail tab** and the **PHASE 1 search-results row** (which exposes Subject, Status, Priority, Customer
-Project). `extract_case.js` leaves those fields `""`; fill them by editing the raw JSON from what PHASE 1
-already captured, or click the "Detail" tab and re-read before finalizing.
+Project; note that `customer` was dropped as a synthesized duplicate per issue #108, and `accountName` is
+the canonical Detail tab field). `extract_case.js` leaves those fields `""`; fill them by editing the raw
+JSON from what PHASE 1 already captured, passing `--title`/`--status`/`--priority`/`--severity` flags to
+`scrape_case.mjs`, or clicking the "Detail" tab and re-reading before finalizing.
 
 ## Selector lock-in & live DOM shapes (confirmed from cases 08550063 [2026-06-22] & 08642051 [2026-08-23])
 
@@ -124,10 +134,10 @@ verified after login with a real Chrome session. These are the structures the `e
 | Description | Detail tab / synthesized first comment | 2026-08-23 | Original problem description from Detail tab; synthesized into chronological first comment |
 | Top-level Feed post | `article.cuf-feedItem:not(.cuf-comment)` | 2026-08-23 | Top-level post container. Direct child of feed list, NOT inside `ul.cuf-replies` |
 | Nested Chatter reply | `ul.cuf-replies article.cuf-comment` | 2026-08-23 | Distinctly marked with `.cuf-comment` and nested inside `.cuf-replies` |
-| → author | first `<a>` inside article (with `.cuf-actorName`) | 2026-08-23 | e.g. "Duc Hoang", "Sushmita Suresh Rao" |
-| → timestamp (top-level) | `span.cuf-timestamp[title]` / `a.cuf-timestamp` | 2026-08-23 | Top-level posts provide absolute date string (e.g. `"August 10, 2026 at 7:59 PM"`) in `title` attribute or link text |
-| → timestamp (nested reply) | `span.cuf-timestamp > a.cuf-timestamp` (no title attribute) | 2026-08-23 | Replies render relative text only (e.g. `"12 days ago"`), omitting absolute timestamp in `title`/`datetime` |
-| → body (clean) | **`.feedBodyInner`** (alias `.cuf-feedBodyText`) | 2026-08-23 | Just the post text — excludes author/timestamp header and action footer |
+| → author | first `<a>` inside article in DOM order | 2026-08-23 | e.g. "Duc Hoang", "Sushmita Suresh Rao" (happens to be actorName link; not selected by that class) |
+| → timestamp (top-level) | `span.cuf-timestamp[title]` / `a.cuf-timestamp` | 2026-08-23 | Top-level posts provide absolute date string (e.g. `"August 10, 2026 at 7:59 PM"`) in `title` attribute or link text (see `extractTimestamp()` in `extract_case.js` for full multi-tier fallback chain) |
+| → timestamp (nested reply) | `span.cuf-timestamp > a.cuf-timestamp` (no title attribute) | 2026-08-23 | Replies render relative text only (e.g. `"12 days ago"`), omitting absolute timestamp in `title`/`datetime`; normalized at capture time to absolute ISO strings |
+| → body (clean) | **`.feedBodyInner`** (alias `.cuf-feedBodyText`) | 2026-08-23 | Just post text (excludes header/footer). `domLines()` reconstructs structural line breaks (<p>/<div>/<br>) bypassing `innerText` layout dependency; `cleanBody()` strips Chatter separator mojibake |
 | Feed item count | `status "N Chatter Feed Items"` (role=status) | 2026-08-23 | Counts **top-level** feed items only (excluding nested replies). Match `/(\d+)\s+Chatter\s+Feed\s+Items?/i` |
 | Attachments | `.cuf-feedItemAttachments .slds-file` | 2026-08-23 | Cards containing download link `a[href*='/sfc/servlet.shepherd/version/download/']` and title `span.slds-file__text-title` |
 
@@ -293,7 +303,7 @@ verified after login with a real Chrome session. These are the structures the `e
 
 ## The extractor script
 
-The canonical extractor is **`scripts/extract_case.js`** (run via `--stdin`, see Step 2). It already
+The canonical extractor is **`scripts/extract_case.js`** (run via `eval -b`, see Step 2). It already
 encodes the three rules above (IIFE / return-object / shell-redirect) and the lock-in selectors, and it
 extracts from the already-expanded DOM with no expansion logic inside. Open it to see the exact logic;
 edit it in place when the live DOM differs rather than writing a throwaway extractor — fixes there help
@@ -306,14 +316,60 @@ every future run. Key shape it returns:
   comments: [ { id, timestamp, author, body, isReply, parentIndex, displayPosition, attachments } ] }
 ```
 
+### Post-extraction: identity and comment-threading pipeline (#105-#109)
+
+The raw extractor output undergoes multi-stage processing inside `scrape_case.mjs` before writing canonical `case.json`:
+
+1. **Content-derived comment IDs (`assignIds`)**:
+   - Extractor-provided IDs (`c1`, `c2`, ...) are positional and drift across re-captures as threads grow.
+   - `scrape_case.mjs` assigns stable content IDs: `commentId(c) = 'c' + sha256(norm(author) + '|' + norm(body).slice(0, 120)).slice(0, 12)`.
+   - Content IDs are position-independent and survive relative timestamp drift. Genuine duplicates (same author with matching 120-char prefix) receive a collision suffix (`-2`, `-3`) and are reported in the verdict.
+   - Legacy caches with positional IDs are migrated on read (`migrateIds`), dropping any stale `enrichment` field.
+
+2. **`parentId` resolution ordering constraint**:
+   - `extract_case.js` tags each comment with `isReply` (via `.cuf-comment` or within `ul.cuf-replies`) and `parentIndex` (pointing to `lastTopLevelIndex` in the initial DOM traversal order).
+   - In `scrape_case.mjs`, resolving `parentIndex` into `parentId` has a strict ordering constraint:
+     - **Must run AFTER `assignIds`**: `fresh.comments[c.parentIndex].id` must resolve to the parent's newly assigned content ID.
+     - **Must run BEFORE `sortCommentsChronological` / `mergeComments`**: reordering comments by timestamp destroys original DOM array indices. Resolving `parentIndex` against a reordered array would point to the wrong post or cause an out-of-bounds error.
+   - Once resolved, `c.parentId` holds the parent post's content ID (or `null` for top-level posts and orphaned replies).
+
+3. **Single-level-nesting invariant**:
+   - Salesforce Chatter enforces single-level nesting: feed items are either top-level posts (`article.cuf-feedItem:not(.cuf-comment)`) or direct replies (`ul.cuf-replies article.cuf-comment`).
+   - The hierarchy is strictly **Post → Reply only** (no Reply-to-Reply).
+   - In `case.json`, every reply's `parentId` points directly to a top-level post (never to another reply).
+
+4. **Chronological sorting & presentation ordering**:
+   - `sortCommentsChronological` sorts comments ascending (Oldest → Newest). Missing timestamps are interpolated between known sibling bounds, and ties are broken using `displayPosition` (`getBoundingClientRect().top`).
+   - `orderCommentsForPresentation` establishes the final persisted order in `case.json`: **newest activity first, with each reply grouped immediately after its parent post** (superseding PRD #105-#109's strict Oldest → Newest "Variant A"). Both top-level posts and same-thread replies are ordered newest-first.
+
+5. **Persisted comment schema vs raw extractor shape**:
+   - Transient extraction fields (`isReply`, `parentIndex`, `displayPosition`, and legacy `role`/`company`) are scrubbed before persistence.
+   - Previews (`summary`) are generated via `extractSummary(body)` (1-2 sentences, salutations and expand markers stripped).
+   - The canonical persisted comment shape in `case.json`:
+     ```js
+     {
+       id: string,              // Stable content-derived id (e.g. "ca1b2c3d4e5f6")
+       timestamp: string,       // ISO-8601 absolute timestamp string
+       rawTimestamp?: string,   // Preserved original relative text if normalized (e.g. "12 days ago")
+       author: string,          // Author display name
+       body: string,            // Cleaned comment body text
+       attachments: Array<{ name: string, url: string }>,
+       parentId: string | null, // Parent post content id, or null if top-level
+       summary: string          // Concise 1-2 sentence preview summary
+     }
+     ```
+
 ## Completeness cross-check (the strongest "got everything" signal)
 
 The portal shows a total (e.g. `status "N Chatter Feed Items"`). Capture it as **`displayedCommentCount`**
 in the raw JSON. `scrape_case.mjs` asserts:
 
 ```
-comments.length >= displayedCommentCount   // else exit 5 — expand more / fix the extractor, re-extract
+genuineCommentCount(comments, description) >= displayedCommentCount   // else exit 5 — expand more / fix the extractor, re-extract
 ```
+
+- **Genuine comments**: `genuineCommentCount()` excludes the synthesized description comment so it does not mask a missing Chatter post.
+- **Nested replies excess**: The Salesforce Chatter badge counts top-level posts only, while our extractor captures both top-level posts and nested replies. Therefore, `capturedCount > displayedCount` is an expected, passing outcome (passes with an informational warning). Only `capturedCount < displayedCount` triggers an under-capture exit 5 error.
 
 Store `displayedCommentCount` even when it matches — the renderer shows a ⚠ banner in
 `case.report.md` / `case.html` if a future run captures fewer than displayed.
