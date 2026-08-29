@@ -535,10 +535,7 @@ These are the properties a reviewer should check any change against. Most were p
 
 ## 10. Security and confidentiality model
 
-- **Password**: never captured, stored, or automated by this project. On an `auth-required`
-  verdict the user types the password and email OTP directly into the visible, real Chrome window
-  (`references/login-flow.md`) — no DPAPI, no credential file. This retired the earlier
-  `capture_password.ps1` / `okta_login.ps1` DPAPI flow (`b64de47`).
+- **Password**: encrypted locally using Windows DPAPI (CurrentUser scope) in `data/.secrets/qid.bin` via `npm run setup:credentials` (runs `capture_credentials.ps1`). It is read at runtime by `secret_store.mjs` to automatically fill the password field on the login page, avoiding manual typing on session expiry while keeping the secret safe on disk.
 - **OTP**: never stored, never automated (C2).
 - **Session**: lives in `data/chrome-profile/` (Chrome `--user-data-dir`), git-ignored, user-bound.
   A valid profile reloads the portal with no password and no OTP — that is the entire "don't ask
