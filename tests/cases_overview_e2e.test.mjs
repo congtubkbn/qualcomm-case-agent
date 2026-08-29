@@ -1,5 +1,5 @@
 // End-to-end integration tests for cases_overview:
-// 1. Scrape capture auto-sync hook -> _overview.json & dashboard.html
+// 1. Finalize capture auto-sync hook -> _overview.json & dashboard.html
 // 2. Qualcomm case summary finalize auto-sync hook -> enriched _overview.json & dashboard.html
 // 3. Multi-case stats aggregation, sorting, and CLI tool interactions
 import assert from 'node:assert/strict';
@@ -10,8 +10,8 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const SCRIPT_SCRAPE = fileURLToPath(
-  new URL('../.claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs', import.meta.url)
+const SCRIPT_FINALIZE = fileURLToPath(
+  new URL('../.claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs', import.meta.url)
 );
 const SCRIPT_SUMMARY = fileURLToPath(
   new URL('../.claude/skills/qualcomm-case-summary/scripts/run_summary.mjs', import.meta.url)
@@ -20,13 +20,13 @@ const SCRIPT_OVERVIEW = fileURLToPath(
   new URL('../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs', import.meta.url)
 );
 
-function runScrape(root, rawData, caseCode, flags = []) {
+function runFinalize(root, rawData, caseCode, flags = []) {
   const scratchPath = join(root, 'scratch_case.json');
   writeFileSync(scratchPath, JSON.stringify(rawData, null, 2), 'utf8');
 
   const res = spawnSync(
     process.execPath,
-    [SCRIPT_SCRAPE, caseCode, scratchPath, ...flags],
+    [SCRIPT_FINALIZE, caseCode, scratchPath, ...flags],
     {
       env: { ...process.env, QUALCOMM_ROOT: root },
       encoding: 'utf8',
@@ -78,12 +78,12 @@ function runOverviewCli(casesDir, args = []) {
 }
 
 describe('cases_overview: End-to-End Pipeline & Auto-Sync Hooks', () => {
-  it('triggers auto-sync hook on scrape capture, summary finalize, and serves CLI queries', () => {
+  it('triggers auto-sync hook on finalize capture, summary finalize, and serves CLI queries', () => {
     const root = mkdtempSync(join(tmpdir(), 'qc-e2e-pipeline-'));
     const casesDir = join(root, 'data', 'cases');
 
     try {
-      // 1. Initial Case Capture (08603854) via scrape_case.mjs
+      // 1. Initial Case Capture (08603854) via finalize_case.mjs
       const rawCase1 = {
         title: '[SM7635] EPS Fallback Failure during Emergency Call',
         status: 'Open',
@@ -109,13 +109,13 @@ describe('cases_overview: End-to-End Pipeline & Auto-Sync Hooks', () => {
         ],
       };
 
-      const scrapeRes1 = runScrape(root, rawCase1, '08603854', [
+      const finalizeRes1 = runFinalize(root, rawCase1, '08603854', [
         '--title', rawCase1.title,
         '--status', rawCase1.status,
         '--priority', rawCase1.priority,
       ]);
 
-      assert.equal(scrapeRes1.exit, 0, `scrape_case exit was ${scrapeRes1.exit}: ${scrapeRes1.stderr}`);
+      assert.equal(finalizeRes1.exit, 0, `finalize_case exit was ${finalizeRes1.exit}: ${finalizeRes1.stderr}`);
       assert.ok(existsSync(join(casesDir, '08603854', 'case.json')));
       assert.ok(existsSync(join(casesDir, '_overview.json')), '_overview.json should be auto-created on capture');
       assert.ok(existsSync(join(casesDir, 'dashboard.html')), 'dashboard.html should be auto-created on capture');
@@ -208,12 +208,12 @@ describe('cases_overview: End-to-End Pipeline & Auto-Sync Hooks', () => {
         ],
       };
 
-      const scrapeRes2 = runScrape(root, rawCase2, '08701234', [
+      const finalizeRes2 = runFinalize(root, rawCase2, '08701234', [
         '--title', rawCase2.title,
         '--status', rawCase2.status,
         '--priority', rawCase2.priority,
       ]);
-      assert.equal(scrapeRes2.exit, 0);
+      assert.equal(finalizeRes2.exit, 0);
 
       // Verify updated stats with 2 cases
       const overview2 = JSON.parse(readFileSync(join(casesDir, '_overview.json'), 'utf8'));

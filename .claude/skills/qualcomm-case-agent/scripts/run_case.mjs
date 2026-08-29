@@ -155,7 +155,7 @@ export async function run(code, opts = {}) {
   const caseDir = join(DATA_DIR, code);
   const casePath = join(caseDir, 'case.json');
   // Strip a possible leading BOM (e.g. a cache hand-edited on Windows) — same
-  // defensive read as scrape_case.mjs and render_case.mjs do for this same file.
+  // defensive read as finalize_case.mjs and render_case.mjs do for this same file.
   let cached = null;
   if (existsSync(casePath)) {
     const t = readFileSync(casePath, 'utf8');
@@ -534,17 +534,17 @@ export async function run(code, opts = {}) {
   if (header.priority) flags.push('--priority', header.priority);
   if (!merge && header.title) flags.push('--title', header.title);
 
-  const scrape = node('scrape_case.mjs', [code, rawPath, ...flags]);
-  if (scrape.code !== 0) {
+  const finalizeRes = node('finalize_case.mjs', [code, rawPath, ...flags]);
+  if (finalizeRes.code !== 0) {
     return {
       status: 'blocked',
-      reason: `scrape_case.mjs failed: ${scrape.err || scrape.out}`,
-      scrapeOut: scrape.out,
+      reason: `finalize_case.mjs failed: ${finalizeRes.err || finalizeRes.out}`,
+      scrapeOut: finalizeRes.out,
       timing: { landingMs: landingDurationMs },
     };
   }
 
-  const v = scrape.json || {};
+  const v = finalizeRes.json || {};
   const newComments = typeof v.newComments === 'number' ? v.newComments : (cached ? 0 : v.commentCount);
 
   // --- Render

@@ -16,9 +16,9 @@ import {
   extractSummary,
   assignIds,
   EXIT,
-} from '../.claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs';
+} from '../.claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs';
 
-const SCRAPE_SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs', import.meta.url));
+const FINALIZE_SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs', import.meta.url));
 const RENDER_SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/render_case.mjs', import.meta.url));
 
 function createTempEnv(caseCode = '08123456') {
@@ -28,10 +28,10 @@ function createTempEnv(caseCode = '08123456') {
   return { root, caseDir, caseCode };
 }
 
-function runScrape(root, rawObj, flags = [], caseCode = '08123456') {
+function runFinalize(root, rawObj, flags = [], caseCode = '08123456') {
   const rawPath = join(root, 'data', 'cases', caseCode, 'case.raw.json');
   writeFileSync(rawPath, JSON.stringify(rawObj, null, 2), 'utf8');
-  const args = [SCRAPE_SCRIPT, caseCode, rawPath, ...flags];
+  const args = [FINALIZE_SCRIPT, caseCode, rawPath, ...flags];
   const r = spawnSync(process.execPath, args, {
     cwd: root,
     encoding: 'utf8',
@@ -106,7 +106,7 @@ describe('1. Extraction & Ingestion: synthesizeDescriptionComment & hasDescripti
   });
 });
 
-describe('2. Ingestion & Ingestion Pipeline: scrape_case.mjs full capture', () => {
+describe('2. Ingestion & Ingestion Pipeline: finalize_case.mjs full capture', () => {
   it('injects description as Comment #1 into persisted case.json while preserving root description', () => {
     const { root } = createTempEnv();
     const raw = {
@@ -125,7 +125,7 @@ describe('2. Ingestion & Ingestion Pipeline: scrape_case.mjs full capture', () =
       ],
     };
 
-    const res = runScrape(root, raw);
+    const res = runFinalize(root, raw);
     assert.equal(res.exit, EXIT.OK);
     assert.equal(res.verdict.commentCount, 2); // 1 description + 1 chatter
 
@@ -163,7 +163,7 @@ describe('2. Ingestion & Ingestion Pipeline: scrape_case.mjs full capture', () =
       ],
     };
 
-    const res = runScrape(root, raw);
+    const res = runFinalize(root, raw);
     assert.equal(res.exit, EXIT.OK);
     assert.equal(res.verdict.commentCount, 1);
 
@@ -194,7 +194,7 @@ describe('2. Ingestion & Ingestion Pipeline: scrape_case.mjs full capture', () =
       ], // only 1 genuine comment actually captured
     };
 
-    const res = runScrape(root, raw);
+    const res = runFinalize(root, raw);
     assert.equal(res.exit, EXIT.INCOMPLETE);
     assert.equal(res.verdict.captured, 1, 'the synthesized description comment must not count');
     assert.equal(res.verdict.displayed, 2);
@@ -202,7 +202,7 @@ describe('2. Ingestion & Ingestion Pipeline: scrape_case.mjs full capture', () =
   });
 });
 
-describe('3. Dedup & Idempotency: scrape_case.mjs --merge', () => {
+describe('3. Dedup & Idempotency: finalize_case.mjs --merge', () => {
   it('does not duplicate description comment when updating case with --merge', () => {
     const { root } = createTempEnv();
     const initialRaw = {
@@ -222,7 +222,7 @@ describe('3. Dedup & Idempotency: scrape_case.mjs --merge', () => {
     };
 
     // 1. Initial capture
-    const r1 = runScrape(root, initialRaw);
+    const r1 = runFinalize(root, initialRaw);
     assert.equal(r1.exit, EXIT.OK);
     assert.equal(r1.verdict.commentCount, 2);
 
@@ -244,7 +244,7 @@ describe('3. Dedup & Idempotency: scrape_case.mjs --merge', () => {
       ],
     };
 
-    const r2 = runScrape(root, updateRaw, ['--merge']);
+    const r2 = runFinalize(root, updateRaw, ['--merge']);
     assert.equal(r2.exit, EXIT.OK);
     assert.equal(r2.verdict.newComments, 1);
 
@@ -255,7 +255,7 @@ describe('3. Dedup & Idempotency: scrape_case.mjs --merge', () => {
     assert.equal(descMatches.length, 1, 'Description comment must appear exactly once');
 
     // 3. Repeated merge with same data produces 0 new comments
-    const r3 = runScrape(root, updateRaw, ['--merge']);
+    const r3 = runFinalize(root, updateRaw, ['--merge']);
     assert.equal(r3.exit, EXIT.OK);
     assert.equal(r3.verdict.newComments, 0);
 

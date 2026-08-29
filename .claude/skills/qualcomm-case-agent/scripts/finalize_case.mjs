@@ -1,4 +1,4 @@
-// scripts/scrape_case.mjs
+// scripts/finalize_case.mjs
 //
 // Persistence post-processor for the AGENT-DRIVEN extraction.
 //
@@ -8,8 +8,8 @@
 // (selectors from references/extraction.md lock-in table). The agent writes
 // that raw JSON to a file and hands it here to be finalized:
 //
-//     node scrape_case.mjs <CASE_CODE> <rawJsonPath>              (full capture)
-//     node scrape_case.mjs <CASE_CODE> <rawJsonPath> --merge      (update run)
+//     node finalize_case.mjs <CASE_CODE> <rawJsonPath>              (full capture)
+//     node finalize_case.mjs <CASE_CODE> <rawJsonPath> --merge      (update run)
 //
 // Finalize = completeness assert -> stamp hash + extractedAt -> write the
 // canonical data/cases/<CODE>/case.json -> update root _index.json.
@@ -993,7 +993,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const caseCode = process.argv[2]?.trim().toUpperCase();
   const rawPath = process.argv[3]?.trim();
   if (!caseCode || !rawPath) {
-    emit({ code: EXIT.BAD_ARGS, reason: 'usage: node scrape_case.mjs <CASE_CODE> <rawJsonPath> [--merge] [--title "..." --status "..." --priority "..."]' });
+    emit({ code: EXIT.BAD_ARGS, reason: 'usage: node finalize_case.mjs <CASE_CODE> <rawJsonPath> [--merge] [--title "..." --status "..." --priority "..."]' });
     process.exit(EXIT.BAD_ARGS);
   }
   const rest = process.argv.slice(4);

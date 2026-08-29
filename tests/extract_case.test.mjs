@@ -544,7 +544,7 @@ test('extract_case.js DOM extraction engine', async (t) => {
   });
 
   // Issue #86: preview generation is owned solely by the finalize path
-  // (scrape_case.mjs) now — the page script can't share code with it (it
+  // (finalize_case.mjs) now — the page script can't share code with it (it
   // crosses as a base64 IIFE, no imports), which is what let two independent
   // implementations drift apart. So it stops computing one and returns the
   // comment verbatim (author/timestamp/body/attachments) with no preview

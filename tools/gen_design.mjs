@@ -160,13 +160,13 @@ async function build() {
   // Contract tables imported from the source of truth rather than transcribed.
   const SCRIPTS = pathToFileURL(join(ROOT, '.claude/skills/qualcomm-case-agent/scripts/'));
   const { STATUS_EXIT } = await import(new URL('run_case.mjs', SCRIPTS));
-  const { EXIT } = await import(new URL('scrape_case.mjs', SCRIPTS));
+  const { EXIT } = await import(new URL('finalize_case.mjs', SCRIPTS));
   sections.push(
     `#### Verdict contract — \`run_case.mjs\` stdout \`status\` → process exit\n\n` +
     table(['status', 'exit'], Object.entries(STATUS_EXIT).map(([k, v]) => [`\`${k}\``, v])),
   );
   sections.push(
-    `#### Finalizer exit codes — \`scrape_case.mjs\`\n\n` +
+    `#### Finalizer exit codes — \`finalize_case.mjs\`\n\n` +
     table(['name', 'exit'], Object.entries(EXIT).map(([k, v]) => [`\`${k}\``, v])),
   );
 

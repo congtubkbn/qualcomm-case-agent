@@ -7,14 +7,14 @@
 //   node render_case.mjs "data/cases/08550063/case.json"
 //
 // Input shape (see SKILL.md): comments are expected newest-first, with each reply
-// grouped immediately after its parent (scrape_case.mjs's orderCommentsForPresentation —
+// grouped immediately after its parent (finalize_case.mjs's orderCommentsForPresentation —
 // supersedes PRD #105-109's strict Oldest -> Newest order). This script just formats
 // whatever order is in the JSON into clean, human-readable Markdown; it does not sort.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { classifyRole } from './scrape_case.mjs';
+import { classifyRole } from './finalize_case.mjs';
 
 const S = v => (v == null ? '' : String(v));
 const arr = v => (Array.isArray(v) ? v : []);

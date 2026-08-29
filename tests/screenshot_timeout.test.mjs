@@ -1,7 +1,7 @@
 // tests/screenshot_timeout.test.mjs — Regression test for bounded screenshot() timeout.
 //
 // screenshot() runs synchronously right before case.json/case.md get written
-// (run_case.mjs shoot() -> raw.capture.screenshot, before scrape_case.mjs /
+// (run_case.mjs shoot() -> raw.capture.screenshot, before finalize_case.mjs /
 // render_case.mjs). It is best-effort evidence, never required for a correct
 // capture, so a stuck agent-browser daemon must not be able to hold up the
 // required output for the full previous 120s spawnSync timeout.

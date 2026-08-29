@@ -9,8 +9,8 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs', import.meta.url));
-const m = await import(new URL('../.claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs', import.meta.url));
+const SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs', import.meta.url));
+const m = await import(new URL('../.claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs', import.meta.url));
 
 const comment = (author, body, timestamp, extra = {}) => ({
   author,
@@ -254,12 +254,12 @@ describe('mergeComments chronological ordering', () => {
       comment('Alice', 'middle post', '3 days ago'),
     ]).comments;
 
-    const freshScraped = m.assignIds([
+    const freshFinalized = m.assignIds([
       comment('Carol', 'brand new update', '1 hour ago'),
       comment('Alice', 'middle post', '3 days ago'),
     ]).comments;
 
-    const { merged, newIds } = m.mergeComments(cached, freshScraped);
+    const { merged, newIds } = m.mergeComments(cached, freshFinalized);
     assert.equal(merged.length, 3);
     assert.deepEqual(newIds, [m.commentId(comment('Carol', 'brand new update', '1 hour ago'))]);
 

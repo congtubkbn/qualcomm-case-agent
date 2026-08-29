@@ -1,5 +1,5 @@
 // Tests for cases_overview.mjs's afterFinalize — the shared overview/dashboard sync
-// seam both scrape_case.mjs and run_summary.mjs call after a case finalizes.
+// seam both finalize_case.mjs and run_summary.mjs call after a case finalizes.
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

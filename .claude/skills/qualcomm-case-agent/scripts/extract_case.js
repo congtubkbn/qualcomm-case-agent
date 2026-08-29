@@ -16,7 +16,7 @@
 //      that the IIFE call evaluates to.
 //   2. It returns the OBJECT, not JSON.stringify(object). agent-browser serializes
 //      the result for you; returning a pre-stringified string double-encodes it
-//      (you get "{\"a\":1}" written to disk, which scrape_case.mjs then rejects).
+//      (you get "{\"a\":1}" written to disk, which finalize_case.mjs then rejects).
 //
 // This is a sensible DEFAULT keyed on the confirmed Salesforce Lightning structure
 // (see references/extraction.md lock-in table). If the live DOM differs and fields
@@ -390,7 +390,7 @@
     // Secondary ordering signal for comments whose parsed timestamps tie (e.g.
     // two posts both "15 days ago"): the article's on-page vertical position,
     // read independently of NodeList traversal order via getBoundingClientRect.
-    // Used only as a tiebreaker in sortCommentsChronological — see scrape_case.mjs.
+    // Used only as a tiebreaker in sortCommentsChronological — see finalize_case.mjs.
     const rect = a.getBoundingClientRect && a.getBoundingClientRect();
     const displayPosition = rect ? rect.top : null;
 

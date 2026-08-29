@@ -16,8 +16,8 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs', import.meta.url));
-const m = await import(new URL('../.claude/skills/qualcomm-case-agent/scripts/scrape_case.mjs', import.meta.url));
+const SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs', import.meta.url));
+const m = await import(new URL('../.claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs', import.meta.url));
 
 const comment = (author, body, extra = {}) => ({ author, body, timestamp: '2 days ago', ...extra });
 
@@ -72,7 +72,7 @@ describe('sortCommentsChronological', () => {
     assert.deepEqual(result.map(c => c.body), ['first', 'second']);
   });
 
-  // Persisted (cached) comments never carry displayPosition (scrape_case.mjs's
+  // Persisted (cached) comments never carry displayPosition (finalize_case.mjs's
   // finalize strips it — it's meaningless across page loads); only a
   // same-pass fresh extraction has it. A tie between one of each must not
   // compare incommensurable positions — fall back to originalIndex.

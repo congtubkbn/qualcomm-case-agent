@@ -81,7 +81,7 @@ describe('verifyCase capture evidence and artifacts', () => {
   });
 
   // case 08460319: 5 persisted comments but portal badge said "4 Chatter Feed
-  // Items" — comments[0] is scrape_case.mjs's synthesized description comment
+  // Items" — comments[0] is finalize_case.mjs's synthesized description comment
   // (synthesizeDescriptionComment), which the portal badge never counts. The
   // gate must compare against genuineCommentCount(), not raw comments.length.
   it('does not warn when the extra comment is the synthesized description', () => {

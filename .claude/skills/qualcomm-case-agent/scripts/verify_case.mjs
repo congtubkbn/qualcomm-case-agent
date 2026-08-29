@@ -17,7 +17,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
-import { genuineCommentCount } from './scrape_case.mjs';
+import { genuineCommentCount } from './finalize_case.mjs';
 
 const COLLAPSED_BODY_RE = /\bExpand Post\s*$/i;
 const MOJIBAKE_RE = /â”¬Ã¡|Â(?=[\s\n]|$)/;

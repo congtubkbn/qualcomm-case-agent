@@ -5,7 +5,7 @@
 // here means a bad code either crashes deeper in the pipeline with a worse
 // error, or (worst case) reaches a path/shell boundary unsanitized.
 //
-// Run as a child process (like scrape_case.test.mjs's finalize tests) so
+// Run as a child process (like finalize_case.test.mjs's finalize tests) so
 // each case gets an isolated QUALCOMM_ROOT and there is no ESM module-cache
 // interaction with _paths.mjs (which reads the env var once, at import time).
 
