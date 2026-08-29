@@ -6,9 +6,9 @@
 // and on Windows we build one cmd.exe line ourselves from metachar-free args.
 // No `--stdin` (broken on Windows), no `<` redirect, no nested quoting.
 //
-// It also owns the two things every caller needs:
-//   - evalFile(): base64 (`eval -b`) execution of a page script, with comment
-//     lines stripped first so the command line stays far below cmd.exe's 8191.
+// It also owns the core things every caller needs:
+//   - evalFileViaCdp(): execution of a page script directly over the CDP WebSocket
+//     (with comments stripped and wrapped in a parameter-injecting IIFE payload).
 //   - ensureChrome(): attach to the persistent-profile Chrome on CDP 9773,
 //     using the ws:// URL from /json/version (bare `connect 9773` hits the
 //     IPv6 ::1 mismatch → os error 10060). Before trusting/reusing whatever
@@ -44,15 +44,6 @@ export async function getCdpClient(options = {}) {
   const port = Number(options.port || CDP_PORT);
   _activeCdp = await CdpClient.connect({ host, port, ...options });
   return _activeCdp;
-}
-
-export async function closeCdpClient() {
-  if (_activeCdp) {
-    try {
-      await _activeCdp.close();
-    } catch {}
-    _activeCdp = null;
-  }
 }
 
 
@@ -111,24 +102,10 @@ function winLine(args) {
 }
 
 /**
- * Evaluate a page script in the attached tab and return its parsed result.
- * `vars` are injected as `var NAME = <json>;` above the script, which is how a
- * page script gets parameters without any string interpolation into the source.
- */
-export function evalFile(scriptPath, vars = {}, opts = {}) {
-  const src = stripComments(readFileSync(scriptPath, 'utf8'));
-  const b64 = Buffer.from(buildPayload(src, vars), 'utf8').toString('base64');
-  if (WIN && b64.length > 7000) {
-    throw new BrowserError(`page script too large for cmd.exe (${b64.length} b64 chars): ${scriptPath}`);
-  }
-  return parseResult(ab(['eval', '-b', b64], opts));
-}
-
-/**
- * Same page-script contract as evalFile (strip comments, wrap in the payload
- * IIFE), but sent straight over an already-open CDP WebSocket via `cdp.eval`
- * instead of shelling out through cmd.exe. Scripts of any size are safe here —
- * there is no command-line length to blow past.
+ * Evaluate a page script (strips comments, wraps in the payload IIFE) sent
+ * straight over an already-open CDP WebSocket via `cdp.eval` instead of
+ * shelling out through cmd.exe. Scripts of any size are safe here — there is
+ * no command-line length to blow past.
  */
 export async function evalFileViaCdp(cdp, scriptPath, vars = {}) {
   const src = stripComments(readFileSync(scriptPath, 'utf8'));
@@ -179,8 +156,6 @@ export function parseResult(stdout) {
 }
 
 export function open(url) { return ab(['open', url], { timeout: 180000 }); }
-export function click(selector) { return ab(['click', selector], { timeout: 30000 }); }
-export function pdf(path) { return ab(['pdf', path], { timeout: 180000 }); }
 
 /** Full-page PNG of the feed exactly as expansion left it — the visual evidence
  *  that every "Expand Post" / "More comments" really did get clicked. Written

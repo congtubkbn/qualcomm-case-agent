@@ -6,7 +6,7 @@
 // model has to read. Here the clicking happens in the page and only a small
 // counters object crosses the wire.
 //
-// Parameter: __ANCHOR (injected by browser.mjs evalFile)
+// Parameter: __ANCHOR (injected by browser.mjs evalFileViaCdp)
 //   null            -> 1.5A full expansion: paginate to the end, expand everything.
 //   {author, bodyStart} -> 1.5B incremental: stop paginating once the newest CACHED
 //                      comment is on screen, and expand only the posts above it.

@@ -42,7 +42,6 @@ function mockBrowser(t, handlerOrQueue, cdpOverride = null) {
       pdf: () => {},
       screenshot: (path) => { screenshotCalls.push(path); },
       getCdpClient: async () => cdpOverride || defaultMockCdp,
-      closeCdpClient: async () => {},
       CDP_PORT: 9773,
       BrowserError: class BrowserError extends Error {},
       PortConflictError: class PortConflictError extends Error {},

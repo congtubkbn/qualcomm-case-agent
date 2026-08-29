@@ -33,7 +33,7 @@ import { fileURLToPath } from 'node:url';
 import { DATA_DIR, QUALCOMM_USER, SECRET_PATH } from './_paths.mjs';
 import { intake } from './intake.mjs';
 import { acquireLockOrWaitForSameCode, releaseLock } from './lock.mjs';
-import { BrowserError, CDP_PORT, PortConflictError, ensureChrome, evalFile, evalFileViaCdp, getCdpClient, open, screenshot, sleep } from './browser.mjs';
+import { BrowserError, CDP_PORT, PortConflictError, ensureChrome, evalFileViaCdp, getCdpClient, open, screenshot, sleep } from './browser.mjs';
 import { fastLandOnCase } from './fast_landing.mjs';
 import { verifyCase } from './verify_case.mjs';
 import { ensureProtocolRegistered } from '../../../../scripts/ensure_protocol.mjs';
