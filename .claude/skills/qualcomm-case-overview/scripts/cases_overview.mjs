@@ -9,9 +9,30 @@ import { applyFilter, buildOverviewData, DEFAULT_CASES_DIR, updateCaseOverview }
 import { renderDashboardHtml } from './dashboard_renderer.mjs';
 import { renderCliTable } from './cli_renderer.mjs';
 
-// Kept for the three existing callers of updateCaseOverview
-// (scrape_case.mjs, delete_case.mjs, run_summary.mjs) that import it from this path.
+// Kept for delete_case.mjs, which still calls updateCaseOverview/renderDashboardHtml
+// directly — its delete-then-sync flow needs updateCaseOverview's result to decide
+// whether the case had an overview entry, before it separately renders the dashboard.
 export { updateCaseOverview };
+
+/**
+ * Syncs the cases overview and dashboard after a case finalizes (capture or summary).
+ * Never throws: overview/dashboard sync is a best-effort side effect, not part of the
+ * caller's own success/failure contract — failures are warned to stderr instead.
+ * @param {string} caseCode
+ * @param {string} dataDir
+ */
+export function afterFinalize(caseCode, dataDir) {
+  try {
+    const overviewData = updateCaseOverview(caseCode, dataDir);
+    try {
+      renderDashboardHtml(overviewData, join(dataDir, 'dashboard.html'));
+    } catch (e) {
+      process.stderr.write(`Warning: dashboard render failed (${e.message})\n`);
+    }
+  } catch (e) {
+    process.stderr.write(`Warning: overview auto-sync failed (${e.message})\n`);
+  }
+}
 
 const __filename = fileURLToPath(import.meta.url);
 
