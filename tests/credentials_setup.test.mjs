@@ -13,6 +13,7 @@ test('Credentials Setup and Config Resolution', async (t) => {
   // Save original environment
   const originalEnvUser = process.env.QUALCOMM_USER;
   const originalEnvSecret = process.env.QUALCOMM_SECRET;
+  const originalEnvRoot = process.env.QUALCOMM_ROOT;
 
   t.afterEach(() => {
     // Restore environment
@@ -21,6 +22,9 @@ test('Credentials Setup and Config Resolution', async (t) => {
 
     if (originalEnvSecret === undefined) delete process.env.QUALCOMM_SECRET;
     else process.env.QUALCOMM_SECRET = originalEnvSecret;
+
+    if (originalEnvRoot === undefined) delete process.env.QUALCOMM_ROOT;
+    else process.env.QUALCOMM_ROOT = originalEnvRoot;
 
     // Clean up test directory
     try {
@@ -44,14 +48,15 @@ test('Credentials Setup and Config Resolution', async (t) => {
   });
 
   await t.test('Config resolution prioritizes environment variables and local files', async () => {
-    // Create a mock user secrets file
-    try { rmSync(TEST_DIR, { recursive: true, force: true }); } catch {}
-    mkdirSync(TEST_DIR, { recursive: true });
-    const mockUserFile = join(TEST_DIR, 'qid.user');
-    writeFileSync(mockUserFile, 'file-user@samsung.com', 'utf8');
+    // Point secret path and project root to our test dir so we don't pollute the real workspace
+    process.env.QUALCOMM_ROOT = TEST_DIR;
+    process.env.QUALCOMM_SECRET = join(TEST_DIR, 'data', '.secrets', 'qid.bin');
 
-    // Point secret path to our test dir so we don't pollute the real workspace
-    process.env.QUALCOMM_SECRET = join(TEST_DIR, 'qid.bin');
+    // Create a mock user secrets file in the expected paths location
+    const secretsDir = join(TEST_DIR, 'data', '.secrets');
+    mkdirSync(secretsDir, { recursive: true });
+    const mockUserFile = join(secretsDir, 'qid.user');
+    writeFileSync(mockUserFile, 'file-user@samsung.com', 'utf8');
 
     // 1. Resolve from file
     // Set USER_PATH dynamically or override process.env for test paths
@@ -60,6 +65,7 @@ test('Credentials Setup and Config Resolution', async (t) => {
     
     // Set USER_PATH matching the test
     const paths = await import('../.claude/skills/qualcomm-case-agent/scripts/_paths.mjs?update=' + Date.now());
+    assert.equal(paths.QUALCOMM_USER, 'file-user@samsung.com');
     
     // If the test setup didn't override because of established constants, let's verify environment logic
     process.env.QUALCOMM_USER = 'env-user@samsung.com';

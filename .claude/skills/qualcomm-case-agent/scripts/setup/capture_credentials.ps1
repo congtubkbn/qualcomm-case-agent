@@ -16,7 +16,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-. "$PSScriptRoot\_paths.ps1"
+. "$PSScriptRoot\..\_paths.ps1"
 $out = $QcSecretPath
 $dir = Split-Path $out -Parent
 $userFile = Join-Path $dir "qid.user"
