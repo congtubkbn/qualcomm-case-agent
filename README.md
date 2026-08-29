@@ -67,9 +67,9 @@ The skills are **harness-agnostic** — they drive `node` through a terminal, so
 
 ## Login / MFA
 
-- Qualcomm ID: `the.thoi@samsung.com` (login id only — the password is never typed by the agent).
+- Qualcomm ID: Your email address, configured locally via `npm run setup:credentials` (login id only — the password is never typed by the agent).
 - Auth: Okta OAuth at `account.qualcomm.com`. A fresh session requires **email OTP** — a 6-digit
-  code emailed to the Samsung mailbox (expires ~5 min). The **user** pastes it in the browser.
+  code emailed to your registered mailbox (expires ~5 min). The **user** pastes it in the browser.
 - **No email access = no fresh login.** A still-valid profile session bypasses OTP; once it expires
   and the mailbox is unreachable, authentication can't complete — the run reports `auth-required`
   and stops.
