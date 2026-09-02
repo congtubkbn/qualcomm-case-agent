@@ -47,23 +47,14 @@ ask the user, STOP. A valid code never triggers a confirmation prompt.
 | Phase | Does | Guard / branch |
 |-------|------|----------------|
 | Pre-flight | Validate code (8 digits), check credentials (`data/.secrets/qid.bin` + username), acquire lock (`lock.mjs`, auto-wait up to 60s if same case code) | Missing credentials → exit 1 (`error`); lock busy → exit 6 (`busy`) |
-| Capture (`run_case.mjs`) | Attach persistent-profile Chrome (CDP 9773) · locate case via global search / direct URL · switch to Detail tab to extract Salesforce metadata (`extract_case.js`) · switch back to Feed tab · probe feed (fast no-update check) · expand Chatter feed (full for a new case, down to newest cached anchor for an update) · extract feed (`extract_case.js`) and merge Detail metadata · finalize with hash + index (`finalize_case.mjs`) · render (`render_case.mjs`) · self-verify QA gate (`verify_case.mjs`) | One JSON verdict line on stdout — see status table below |
+| Capture (`run_case.mjs`) | Attach persistent-profile Chrome (CDP 9773) · locate case via global search / direct URL · switch to Detail tab to extract Salesforce metadata (`extract_case.js`) · switch back to Feed tab · probe feed (fast no-update check) · expand Chatter feed (full for a new case, down to newest cached anchor for an update) · extract feed (`extract_case.js`) and merge Detail metadata · finalize with hash + index (`finalize_case.mjs`) · render (`render_case.mjs`) · self-verify QA gate (`verify_case.mjs`) | One JSON verdict line on stdout — see verdict table in [`SKILL.md`](../SKILL.md#step-3--branch-on-json-verdict) |
 | Report | `render_case.mjs` → tell user counts (captured vs displayed), file paths | `no-update` skips straight to "no update", STOP |
 
 ## Verdict statuses (`run_case.mjs` stdout)
 
-| `status` | exit | Meaning | Next step |
-|----------|------|---------|-----------|
-| `created` | 0 | new case captured | report to user |
-| `updated` | 0 | new comments merged | report to user |
-| `no-update` | 0 | nothing new since last capture | "no update", STOP |
-| `otp-timeout` | 2 | password autofilled, but OTP timed out | human enters OTP in open Chrome window (`references/login-flow.md` / `manual-flow.md` Recovery 1), then re-run — no need to redo password |
-| `auth-required` | 3 | saved Okta session lapsed (autofill retries exhausted or manual login needed) | finish login in open Chrome window (`references/login-flow.md` Recovery 1), then re-run |
-| `not-found` | 4 | search returned nothing | STOP — wrong code or account lacks access |
-| `blocked` | 5 | page never rendered / capture short / gate failed | if `retryable: true` (e.g. transient expand or verify glitch), retry `run_case.mjs`; otherwise `references/manual-flow.md` fallback |
-| `busy` | 6 | another capture holds the lock (`lock.mjs` auto-waited up to 60s for same code; returns immediately for different code) | wait ~30s, retry once; still busy → treat as blocked (`references/manual-flow.md` Recovery 4) |
-| `port-conflict` | 7 | CDP port held by non-project Chrome or foreign process | run `recover_chrome.ps1` (`references/manual-flow.md` Recovery 5) to inspect/free port; never auto-killed |
-| `error` | 1 | bad invocation, missing credentials, or script failure | fix per `reason` (e.g. `npm run setup:credentials`), don't retry blindly |
+`run_case.mjs` outputs exactly one JSON verdict line on stdout. The authoritative routing table and exit code contract are defined in [`SKILL.md`](../SKILL.md#step-3--branch-on-json-verdict).
+
+For recovery procedures on non-zero verdicts (`otp-timeout`, `auth-required`, `blocked`, `busy`, `port-conflict`), follow the actionable guides in [`manual-flow.md`](manual-flow.md) and [`login-flow.md`](login-flow.md).
 
 ## Output (per-case folder `data/cases/<CODE>/`)
 

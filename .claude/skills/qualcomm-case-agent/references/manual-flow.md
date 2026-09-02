@@ -4,17 +4,19 @@ Authoritative runbook for resolving pipeline blockers when `scripts/run_case.mjs
 
 ---
 
-## Verdict Routing & Actions
+## Recovery Index
 
-| Exit | Verdict `status` | Root Cause | Action |
-|------|------------------|------------|--------|
-| 2 | `otp-timeout` | Password autofilled OK; the ~5min OTP window elapsed before the human entered the code | → **Recovery 1 (enter OTP now, then re-run — no need to redo the password step)** |
-| 3 | `auth-required` | Okta SSO session expired (stored password was rejected, or autofill exhausted retries / AUTH re-encountered) | → **Recovery 1 (Okta Re-auth: autofill-first, manual fallback)** |
-| 4 | `not-found` | Case does not exist or account lacks access | → **Recovery 2 (Case Not Found / Authorization)** |
-| 5 | `blocked` | Feed expansion stuck / DOM unrendered (or CDP connection unavailable) | → **Recovery 3 (Stuck Page / DOM Recovery)**, or **Recovery 0** if reason indicates CDP connection unavailable |
-| 6 | `busy` | Lock file `data/.capture.lock` is held by an active capture | → **Recovery 4 (Lock Contention)** |
-| 7 | `port-conflict` | CDP port held by a process that isn't our Chrome | → **Recovery 5 (Port Conflict)** |
-| 1 | `error` / CDP Refused | Chrome crashed, port 9773 unreachable, or credentials unconfigured (`npm run setup:credentials`) | → **Recovery 0 (Chrome / CDP Port Reset)** or configure credentials |
+For the authoritative JSON verdict table and exit code contract, see [`SKILL.md`](../SKILL.md#step-3--branch-on-json-verdict). Use this index to route directly to the applicable recovery procedure:
+
+| Verdict `status` | Recovery Procedure |
+|------------------|-------------------|
+| `error` / CDP Refused | [Recovery 0: Chrome & CDP Port 9773 Reset](#recovery-0-chrome--cdp-port-9773-reset) (or `npm run setup:credentials` if credentials missing) |
+| `otp-timeout` | [Recovery 1: Okta Session Re-Authentication](#recovery-1-okta-session-re-authentication-otp-timeout--auth-required) (enter OTP in Chrome) |
+| `auth-required` | [Recovery 1: Okta Session Re-Authentication](#recovery-1-okta-session-re-authentication-otp-timeout--auth-required) (full Okta sign-in) |
+| `not-found` | [Recovery 2: Case Not Found / Authorization](#recovery-2-case-not-found--authorization-not-found) |
+| `blocked` | [Recovery 3: Stuck Page / Incomplete Expansion](#recovery-3-stuck-page--incomplete-expansion-blocked) (or [Recovery 0](#recovery-0-chrome--cdp-port-9773-reset) if CDP connection unavailable) |
+| `busy` | [Recovery 4: Lock Contention](#recovery-4-lock-contention-busy) |
+| `port-conflict` | [Recovery 5: Port Conflict](#recovery-5-port-conflict-port-conflict) |
 
 ---
 
