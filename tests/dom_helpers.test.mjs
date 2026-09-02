@@ -20,7 +20,7 @@ const SCRIPT_PATH = join(
 const HELPERS_SRC = stripComments(readFileSync(SCRIPT_PATH, 'utf8'));
 
 // Runs the real dom_helpers.js source inside a fresh jsdom window and
-// returns its five globals for the test to call directly.
+// returns its globals for the test to call directly.
 function loadHelpers(html = '<!doctype html><html><body></body></html>') {
   const dom = new JSDOM(html, { runScripts: 'outside-only', pretendToBeVisual: true });
   dom.window.eval(HELPERS_SRC);
@@ -32,6 +32,9 @@ function loadHelpers(html = '<!doctype html><html><body></body></html>') {
     isVisible: dom.window.isVisible,
     deepByText: dom.window.deepByText,
     fire: dom.window.fire,
+    bodyOf: dom.window.bodyOf,
+    findAnchorIdx: dom.window.findAnchorIdx,
+    skipAsCached: dom.window.skipAsCached,
   };
 }
 
@@ -123,5 +126,53 @@ test('dom_helpers.js', async (t) => {
     fire(el);
 
     assert.deepEqual(seen, ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']);
+  });
+
+  await t.test('bodyOf() prefers a nested feed-body element and falls back to the article itself', () => {
+    const { document, bodyOf } = loadHelpers(`<!doctype html><body>
+      <article id="withBody"><div class="feedBodyInner">  nested body text  </div></article>
+      <article id="withoutBody">  bare article text  </article>
+    </body>`);
+
+    assert.equal(bodyOf(document.getElementById('withBody')), 'nested body text');
+    assert.equal(bodyOf(document.getElementById('withoutBody')), 'bare article text');
+  });
+
+  await t.test('findAnchorIdx() matches the article whose body starts with the anchor bodyStart prefix', () => {
+    const { document, findAnchorIdx } = loadHelpers(`<!doctype html><body>
+      <article id="a0">first post body</article>
+      <article id="a1">second post body here, this is the anchor comment text padded out</article>
+      <article id="a2">third post body</article>
+    </body>`);
+    const articles = [
+      document.getElementById('a0'),
+      document.getElementById('a1'),
+      document.getElementById('a2'),
+    ];
+
+    assert.equal(findAnchorIdx(articles, { bodyStart: 'second post body here, this is the anchor' }), 1);
+    assert.equal(findAnchorIdx(articles, { bodyStart: 'no such post' }), -1);
+    assert.equal(findAnchorIdx(articles, null), -1);
+    assert.equal(findAnchorIdx(articles, {}), -1);
+  });
+
+  await t.test('skipAsCached() skips only baseline posts at/after the anchor, and treats a falsy baseline as "skip anything at/after anchor"', () => {
+    const { skipAsCached } = loadHelpers();
+    const prefixes = ['p0', 'p1', 'p2', 'p3'];
+    const baseline = ['p0', 'p1', 'p2'];
+    const anchorIdx = 1;
+
+    // Before the anchor: never skipped, regardless of baseline membership.
+    assert.equal(skipAsCached(0, anchorIdx, baseline, prefixes), false);
+    // At/after the anchor and present in baseline: skip.
+    assert.equal(skipAsCached(1, anchorIdx, baseline, prefixes), true);
+    assert.equal(skipAsCached(2, anchorIdx, baseline, prefixes), true);
+    // At/after the anchor but NOT in baseline (revealed by a "More comments" click): don't skip.
+    assert.equal(skipAsCached(3, anchorIdx, baseline, prefixes), false);
+    // No anchor found: never skip.
+    assert.equal(skipAsCached(2, -1, baseline, prefixes), false);
+    // Falsy baseline: skip anything at/after the anchor (null-safety guard).
+    assert.equal(skipAsCached(1, anchorIdx, null, prefixes), true);
+    assert.equal(skipAsCached(0, anchorIdx, null, prefixes), false);
   });
 });

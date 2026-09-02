@@ -17,32 +17,21 @@
   var ANCHOR = (typeof __ANCHOR !== 'undefined') ? __ANCHOR : null;
   var PROBE = (typeof __PROBE !== 'undefined') ? __PROBE : false;
 
-  var bodyOf = function (a) {
-    var b = a.querySelector(".feedBodyInner, .cuf-feedBodyText, [class*='feedBody']");
-    return txt(b || a);
-  };
   var byText = function (sel, re) {
     return qsa(sel).filter(function (e) { return re.test(txt(e)); });
   };
 
   var articles = qsa('article');
 
-  // Trigger LWC IntersectionObserver: Chatter lazy-mounts nested components 
+  // Trigger LWC IntersectionObserver: Chatter lazy-mounts nested components
   // (like "More comments") only when the parent article enters the viewport.
   // CDP doesn't trigger scroll naturally, so we force them into view.
   articles.forEach(function (a) {
     try { a.scrollIntoView({ behavior: 'instant', block: 'nearest' }); } catch(e) {}
   });
 
-  // Locate the cached anchor post. Match on a 40-char body prefix: relative
-  // timestamps ("2 days ago") drift between runs, body text does not.
-  var anchorIdx = -1;
-  if (ANCHOR && ANCHOR.bodyStart) {
-    var needle = String(ANCHOR.bodyStart).replace(/\s+/g, ' ').trim().slice(0, 40);
-    for (var i = 0; i < articles.length && needle; i++) {
-      if (bodyOf(articles[i]).indexOf(needle) === 0) { anchorIdx = i; break; }
-    }
-  }
+  // bodyOf/findAnchorIdx/skipAsCached are shared (see dom_helpers.js).
+  var anchorIdx = findAnchorIdx(articles, ANCHOR);
 
   // Same strict badge parse as extract_case.js: the count must PRECEDE the
   // phrase. Chatter's per-item "Chatter Feed Item <n>" status region otherwise
@@ -96,11 +85,14 @@
   if (PROBE || !window.__qcExpandBaseline) window.__qcExpandBaseline = prefixes.slice();
   var baseline = window.__qcExpandBaseline;
 
-  var skipAsCached = function (e) {
+  // Thin wrapper: converts a control element to its article index, then
+  // calls the shared skipAsCached(idx, ...) (see dom_helpers.js). Must NOT be
+  // named skipAsCached — a `var skipAsCached` here would shadow the shared
+  // global in this function scope (see dom_helpers.js's header comment).
+  var skipElAsCached = function (e) {
     var art = e.closest('article');
     var idx = art ? articles.indexOf(art) : -1;
-    if (!(anchorIdx >= 0 && idx >= anchorIdx)) return false;
-    return baseline.indexOf(prefixes[idx]) >= 0;
+    return skipAsCached(idx, anchorIdx, baseline, prefixes);
   };
 
   var result = {
@@ -111,7 +103,7 @@
     // Controls that still hide content THIS run is responsible for. The PROBE
     // tick reports them before clicking anything, which is what lets the fast
     // no-update check refuse to call a feed unchanged while content is hidden.
-    pendingExpand: expandControls.filter(function (e) { return !skipAsCached(e); }).length,
+    pendingExpand: expandControls.filter(function (e) { return !skipElAsCached(e); }).length,
     pendingMoreComments: moreCommentControls.length,
     clickedExpand: 0,
     clickedViewMore: 0,
@@ -124,7 +116,7 @@
   // Expand posts. Incremental run: only those ABOVE the anchor — old posts stay
   // collapsed and the --merge dedupe keeps their cached verbatim bodies.
   expandControls.forEach(function (e) {
-    if (skipAsCached(e)) { result.remainingExpand++; return; }
+    if (skipElAsCached(e)) { result.remainingExpand++; return; }
     fire(e);
     result.clickedExpand++;
   });

@@ -1,64 +1,36 @@
 # Qualcomm Support portal extraction — extractor script + selectors — reference
 
 **Normal runs never need this file** — `run_case.mjs` drives extraction in code. This is the
-selector/extractor reference for **manual-flow.md PHASE 2**: when a verdict comes back `blocked`
-and you're hand-driving the capture, or when the live DOM has changed and `scripts/extract_case.js`
-needs editing. The agent runs the bundled `scripts/extract_case.js` (or an edited copy) via
-`agent-browser eval -b` (base64) against the **already-expanded live DOM** — never `--stdin`, which
-silently returns the literal string `"null"` on this Windows/PowerShell setup instead of erroring
-(see manual-flow.md). The script's final expression is the case OBJECT (agent-browser serializes it
-once). There is no Node-side browser driving and no selector config file — the agent reads the live
-DOM, adapts the extractor if needed, evals, validates against the snapshot, then hands the raw JSON to
-`finalize_case.mjs` to finalize.
+selector/extractor reference for **manual-flow.md**: when a verdict comes back `blocked`
+and you're diagnosing the capture, or when the live DOM has changed and `scripts/extract_case.js`
+needs editing. The pipeline evaluates the bundled `scripts/extract_case.js` (or an edited copy) via
+CDP `Runtime.evaluate` (`CdpClient.eval()`) against the **already-expanded live DOM**. The script's
+final expression is the case OBJECT. There is no selector config file — the extractor inspects
+the live DOM, runs directly in browser context, and hands the raw JSON to `finalize_case.mjs` to finalize.
 
-> **Pre-condition — expansion is already done.** SKILL.md PHASE 1.5 fully expands the page via
-> `agent-browser snapshot → ref → click` (the proven flow): it clicks **"View More Posts"** to a
-> fixpoint, every **"Expand Post"** link (top-level + nested Chatter replies), and the **"Description"**
-> button. Do NOT re-expand here, and do NOT re-open / re-navigate the case URL — that would discard the
-> expanded DOM. Extract from the page exactly as PHASE 1.5 left it.
+> **Pre-condition — expansion is already done.** The expansion loop fully expands the page:
+> it clicks **"View More Posts"** to a fixpoint, every **"Expand Post"** link (top-level + nested
+> Chatter replies), and the **"Description"** button. Do not re-open / re-navigate the case URL — that
+> would discard the expanded DOM. Extract from the page in its fully expanded state.
 
 > **Do not blind-run the template.** The portal's DOM is only visible after login and changes over
-> time. The robust loop is: `snapshot -c` → read the REAL container/field structure → write the
-> extractor tailored to it → `eval` → validate against the snapshot → fix + re-run on mismatch.
+> time. The robust loop is: read the real container/field structure from the live DOM → adapt the
+> extractor if needed → evaluate in browser context → validate and finalize.
 
-## Step 1 — Confirm the page is fully expanded
-
-PHASE 1.5 already did this. One cheap confirmation before extracting:
-
-```bash
-agent-browser snapshot -c | grep -E "Expand Post|View More"
-# Expected: (empty). If anything remains, finish PHASE 1.5 first.
-```
-
-## Step 2 — Extract the whole case in ONE eval
+## Step 1 — Extract the case via extractor script
 
 A ready-made extractor is bundled at **`scripts/extract_case.js`** — a clean default keyed on the
 confirmed Salesforce Lightning structure (lock-in table below). The case folder already exists
-(`intake.mjs` created `data/cases/<CODE>/` up front — no `mkdir` line needed; a manual `mkdir -p`
-kept breaking under PowerShell, where `-p` is read as a dir name). Run the extractor via `eval -b`
-(base64) — **not `--stdin`, not `<` redirection**: piping through PowerShell (`Get-Content -Raw |
-agent-browser eval --stdin`) silently returns the literal string `"null"` instead of the evaluated
-result (verified — an agent-browser/Windows-PowerShell stdin bug, not a script bug); bash-style `<`
-redirection is a reserved token in PowerShell (hard parse error). `-b` sidesteps both. Write the
-result straight to disk with .NET so it's guaranteed clean UTF-8 with no BOM (PowerShell's `>`
-redirect defaults to a BOM-prefixed encoding that corrupts the JSON `finalize_case.mjs` reads next):
+(`intake.mjs` created `data/cases/<CODE>/` up front).
 
-```powershell
-powershell -NoProfile -Command "$b64=[Convert]::ToBase64String([IO.File]::ReadAllBytes('.claude/skills/qualcomm-case-agent/scripts/extract_case.js')); $r = agent-browser eval -b $b64; [IO.File]::WriteAllText('data/cases/<CODE>/case.raw.json', $r, (New-Object Text.UTF8Encoding $false))"
-```
-
-Three hard-won rules baked into that script — keep them if you hand-edit the extractor for a DOM that
+Three key rules baked into that script — keep them if you hand-edit the extractor for a DOM that
 differs:
 
-1. **Wrap in an IIFE; do NOT use a bare top-level `return`.** `agent-browser eval` runs in EXPRESSION
+1. **Wrap in an IIFE; do NOT use a bare top-level `return`.** Browser script evaluation runs in EXPRESSION
    context (like a REPL) — `return extractCase();` at the top level throws `SyntaxError: Illegal return
    statement`. Put the logic in a function and let the IIFE call be the final expression.
-2. **Return the OBJECT, not `JSON.stringify(object)`.** agent-browser serializes the result for you.
-   Returning a pre-stringified string double-encodes it — you get `"{\"a\":1}"` on disk, which the
-   finalizer rejects. (Verify: `eval "(function(){return {a:1}})()"` prints `{"a":1}`; the `JSON.stringify`
-   form prints `"{\"a\":1}"`.)
-3. **Write UTF-8 with no BOM** — a BOM-prefixed file breaks `JSON.parse` downstream; the `.NET
-   WriteAllText` call above with `UTF8Encoding($false)` guarantees this.
+2. **Return the OBJECT, not `JSON.stringify(object)`.** The evaluation runtime serializes the object.
+3. **Ensure UTF-8 clean output** when saving raw results to disk for finalization.
 
 Sanity-check the raw file, then finalize:
 
@@ -382,21 +354,18 @@ Store `displayedCommentCount` even when it matches — the renderer shows a ⚠ 
 
 ## Virtualized lists — when one eval can't hold everything
 
-If after full PHASE 1.5 expansion the eval still returns `comments.length < displayedCommentCount`, the
+If after full expansion the evaluation still returns `comments.length < displayedCommentCount`, the
 Feed is **virtualized** (off-screen rows unmount) — the full set is never in the DOM at once. Switch to
-**progressive extraction**: `agent-browser eval` to scroll a step (`window.scrollBy(0, 600)`), re-eval
+**progressive extraction**: scroll a step (`window.scrollBy(0, 600)`), re-evaluate
 the extractor, and merge comments into a `Map` keyed by a STABLE id (permalink / `id`, else
 `timestamp|author|first40(body)`). Repeat until `map.size === displayedCommentCount` or scrollHeight
 stops growing. Then assemble the merged comments into the raw JSON and finalize as usual.
 
 ## Large cases / token budget
 
-If the verbatim JSON is very large, have the eval write it to disk (download/clipboard path) or extract
+If the verbatim JSON is very large, have the evaluation write it directly to disk or extract
 in chunks, then assemble. Never truncate comment bodies or logs to save tokens.
 
 ## Attachments (optional)
 
-```bash
-agent-browser download "<attachment-link-sel-or-@ref>" \
-  "data/cases/<CODE>/attachments/<name>"
-```
+Attachment URLs captured in `comments[].attachments` point directly to portal download endpoints (`/s/sfc/servlet.shepherd/version/download/...`). These can be downloaded via authenticated session when required.

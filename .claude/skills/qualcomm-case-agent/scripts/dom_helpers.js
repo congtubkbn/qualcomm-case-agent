@@ -87,3 +87,34 @@ var fire = function (el) {
   });
   el.click();
 };
+
+// A post's comment body lives in one of a few Chatter markup shapes; fall
+// back to the article itself when none of them is present.
+var bodyOf = function (a) {
+  var b = a.querySelector(".feedBodyInner, .cuf-feedBodyText, [class*='feedBody']");
+  return txt(b || a);
+};
+
+// Locate the cached anchor post. Match on a 40-char body prefix: relative
+// timestamps ("2 days ago") drift between runs, body text does not.
+var findAnchorIdx = function (articles, anchor) {
+  var anchorIdx = -1;
+  if (anchor && anchor.bodyStart) {
+    var needle = String(anchor.bodyStart).replace(/\s+/g, ' ').trim().slice(0, 40);
+    for (var i = 0; i < articles.length && needle; i++) {
+      if (bodyOf(articles[i]).indexOf(needle) === 0) { anchorIdx = i; break; }
+    }
+  }
+  return anchorIdx;
+};
+
+// Cached-and-below-the-anchor is the only skip; a post absent from the run's
+// baseline was revealed by a "More comments" click and counts wherever it
+// sits. `!baseline` is a null-safety guard for a caller that runs before the
+// baseline is initialized — currently unreachable (expand_step.js's __PROBE
+// tick always sets window.__qcExpandBaseline before any caller needs it) but
+// kept as cheap insurance against a future change to that call order.
+var skipAsCached = function (idx, anchorIdx, baseline, prefixes) {
+  if (!(anchorIdx >= 0 && idx >= anchorIdx)) return false;
+  return !baseline || baseline.indexOf(prefixes[idx]) >= 0;
+};

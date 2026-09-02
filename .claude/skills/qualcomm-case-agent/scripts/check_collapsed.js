@@ -18,32 +18,15 @@
 (function () {
   var ANCHOR = (typeof __ANCHOR !== 'undefined') ? __ANCHOR : null;
 
-  var bodyOf = function (a) {
-    var b = a.querySelector(".feedBodyInner, .cuf-feedBodyText, [class*='feedBody']");
-    return txt(b || a);
-  };
-
   var articles = qsa('article');
 
-  var anchorIdx = -1;
-  if (ANCHOR && ANCHOR.bodyStart) {
-    var needle = String(ANCHOR.bodyStart).replace(/\s+/g, ' ').trim().slice(0, 40);
-    for (var i = 0; i < articles.length && needle; i++) {
-      if (bodyOf(articles[i]).indexOf(needle) === 0) { anchorIdx = i; break; }
-    }
-  }
-
-  // Mirror expand_step.js's skip rule exactly, or the settle check would keep
-  // demanding clicks for posts expand_step.js deliberately never clicks (or,
-  // worse, stay quiet about a revealed reply it DOES click). Cached-and-below-
-  // the-anchor is the only skip; a post absent from the run's baseline was
-  // revealed by a "More comments" click and counts wherever it sits.
+  // bodyOf/findAnchorIdx/skipAsCached are shared (see dom_helpers.js) — this
+  // mirrors expand_step.js's skip rule exactly, or the settle check would
+  // keep demanding clicks for posts expand_step.js deliberately never clicks
+  // (or, worse, stay quiet about a revealed reply it DOES click).
+  var anchorIdx = findAnchorIdx(articles, ANCHOR);
   var baseline = window.__qcExpandBaseline || null;
   var prefixes = articles.map(function (a) { return bodyOf(a).slice(0, 60); });
-  var skipAsCached = function (idx) {
-    if (!(anchorIdx >= 0 && idx >= anchorIdx)) return false;
-    return !baseline || baseline.indexOf(prefixes[idx]) >= 0;
-  };
 
   var isArticleCollapsed = function (art) {
     if (!art) return false;
@@ -57,7 +40,7 @@
   };
 
   var stillCollapsed = articles.reduce(function (n, art, idx) {
-    if (skipAsCached(idx)) return n;
+    if (skipAsCached(idx, anchorIdx, baseline, prefixes)) return n;
     return isArticleCollapsed(art) ? n + 1 : n;
   }, 0);
 
