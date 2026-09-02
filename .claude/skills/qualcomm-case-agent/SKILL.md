@@ -1,6 +1,6 @@
 ---
 name: qualcomm-case-agent
-description: "Capture complete Qualcomm support case from portal into structured cache (`data/cases/<CODE>/`). Triggers: Qualcomm case code (e.g. 08460319, CASE-08460319), 'qualcomm case', 'pull case', 'lấy case qualcomm'. Use when the user provides a Qualcomm case code and requests case capture or sync."
+description: "Capture or sync a Qualcomm support case into local cache data/cases/<CODE>/. Triggers on 8-digit case code (e.g. 08460319, CASE-08460319), 'qualcomm case', or 'pull/sync case'."
 allowed-tools: Bash(node:*), Bash(npm:*), Bash(powershell:*), PowerShell, Read, Write, Glob
 ---
 
