@@ -34,10 +34,10 @@ allowed-tools: Bash(node:*), Bash(npm:*), Bash(powershell:*), PowerShell, Read, 
 | `otp-timeout` | 2 | Password accepted; OTP window elapsed | Instruct user to enter OTP in open Chrome window, then re-run capture (`references/login-flow.md`) |
 | `auth-required` | 3 | Okta SSO session lapsed | Instruct user to complete sign-in in open Chrome window, then re-run capture (`references/login-flow.md`) |
 | `not-found` | 4 | Case does not exist or unviewable | Report case not found or access permission limitation to user, STOP |
-| `blocked` | 5 | Expansion / extraction stuck | Inspect `reason` in verdict; if `retryable: true`, retry once; otherwise consult `references/manual-flow.md` Recovery 1–3 |
-| `busy` | 6 | Capture lock held by another process | Wait 30s, retry once; if still busy, follow `references/manual-flow.md` Recovery 4 |
-| `port-conflict` | 7 | CDP port 9773 held by non-project process | Execute `references/manual-flow.md` Recovery 5 (`recover_chrome.ps1`) |
-| `error` | 1 | Unconfigured credentials or invocation error | Fix per `reason` (e.g. `npm run setup:credentials`), then retry |
+| `blocked` | 5 | Expansion / extraction stuck | Inspect `reason` in verdict; if `retryable: true`, retry once; otherwise consult `references/manual-flow.md` (`blocked`) |
+| `busy` | 6 | Capture lock held by another process | Wait 30s, retry once; if still busy, follow `references/manual-flow.md` (`busy`) |
+| `port-conflict` | 7 | CDP port 9773 held by non-project process | Execute `references/manual-flow.md` (`port-conflict` / `recover_chrome.ps1`) |
+| `error` | 1 | Unconfigured credentials or invocation error | Fix per `reason` (e.g. `npm run setup:credentials` or `references/manual-flow.md`), then retry |
 
 > **Structured Signal Rule**: Non-zero exit codes are structured status signals. Always branch on the `status` field in the stdout JSON line, never on generic shell exit labels.
 

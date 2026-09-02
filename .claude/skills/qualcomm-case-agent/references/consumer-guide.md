@@ -122,5 +122,5 @@ if (['created', 'updated', 'no-update'].includes(verdict.status)) {
 ## Full schema reference
 
 The fields above are the complete consumer-relevant shape. For the canonical persisted `case.json`
-layout (including internal fields like `capture`/`verified`), see `SKILL.md` (the "Output Artifacts"
-section), or read `scripts/finalize_case.mjs` / `scripts/render_case.mjs` directly — they are the source of truth.
+layout (including internal fields like `capture`/`verified`), see [`SKILL.md`](../SKILL.md#step-4--report-to-user),
+or read `scripts/finalize_case.mjs` / `scripts/render_case.mjs` directly — they are the source of truth.

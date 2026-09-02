@@ -18,12 +18,12 @@ flowchart TD
   V -->|created| REPORT["report to user"]
   V -->|updated| REPORT
   V -->|no-update| REPORT_NU["report 'no update', STOP"]
-  V -->|otp-timeout| OTP["Recovery 1 (login-flow.md)<br/>human: enter email OTP in Chrome<br/>then re-run run_case.mjs"]
-  V -->|auth-required| AUTH["Recovery 1 (login-flow.md)<br/>autofill / human manual login<br/>then re-run run_case.mjs"]
+  V -->|otp-timeout| OTP["otp-timeout (login-flow.md)<br/>human: enter email OTP in Chrome<br/>then re-run run_case.mjs"]
+  V -->|auth-required| AUTH["auth-required (login-flow.md)<br/>autofill / human manual login<br/>then re-run run_case.mjs"]
   V -->|not-found| S1(["STOP — wrong code / no access"])
-  V -->|blocked| MANUAL["manual-flow.md fallback<br/>(retryable: true → retry run_case.mjs;<br/>otherwise finish by hand)"]
-  V -->|busy| RETRY["wait ~30s, retry ONCE<br/>(lock.mjs auto-waits &le;60s for same code)<br/>still busy → treat as blocked"]
-  V -->|port-conflict| PORT["Recovery 5 (manual-flow.md)<br/>run recover_chrome.ps1<br/>free foreign process, then re-run"]
+  V -->|blocked| MANUAL["blocked (manual-flow.md)<br/>(retryable: true → retry run_case.mjs;<br/>otherwise inspect screenshot)"]
+  V -->|busy| RETRY["busy (manual-flow.md)<br/>wait ~30s, retry ONCE<br/>(lock.mjs auto-waits &le;60s for same code)"]
+  V -->|port-conflict| PORT["port-conflict (manual-flow.md)<br/>run recover_chrome.ps1<br/>free foreign process, then re-run"]
   OTP --> RUN
   AUTH --> RUN
   PORT --> RUN
@@ -54,7 +54,7 @@ ask the user, STOP. A valid code never triggers a confirmation prompt.
 
 `run_case.mjs` outputs exactly one JSON verdict line on stdout. The authoritative routing table and exit code contract are defined in [`SKILL.md`](../SKILL.md#step-3--branch-on-json-verdict).
 
-For recovery procedures on non-zero verdicts (`otp-timeout`, `auth-required`, `blocked`, `busy`, `port-conflict`), follow the actionable guides in [`manual-flow.md`](manual-flow.md) and [`login-flow.md`](login-flow.md).
+For recovery procedures on non-zero verdicts (`error`, `otp-timeout`, `auth-required`, `not-found`, `blocked`, `busy`, `port-conflict`), follow the actionable guides in [`manual-flow.md`](manual-flow.md) and [`login-flow.md`](login-flow.md).
 
 ## Output (per-case folder `data/cases/<CODE>/`)
 
