@@ -14,38 +14,32 @@ allowed-tools: Bash(node:*), Bash(npm:*), Read, Write, Glob
 
 ## Execution Workflow
 
-Four sequential steps. Deterministic CLI aggregates data and manages dashboard artifacts; agent presents structured summary to the user.
+Three sequential steps. Immediately run the CLI to build aggregates and auto-open the dashboard, then present the structured summary.
 
-### Step 1 — Resolve Invocation Mode & Filter
-Identify the user's intent to select the appropriate execution command:
+### Step 1 — Run Overview CLI (Immediate Fast-Path)
+Execute immediately upon invocation. Do NOT prompt the user for confirmation or step selection.
 
-| Intent | CLI Command |
-|---|---|
-| **Default Overview + Dashboard** (standard request) | `node ".claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs"` |
-| **Filtered by Status** (e.g. `open`, `closed`, `in_progress`) | `node ".claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs" --filter=<status>` |
-| **Terminal Only** (no browser popup / headless) | `node ".claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs" --no-open` |
-| **Dashboard Only** (explicit browser open) | `node ".claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs" --open` |
-| **Machine-Readable JSON** (data inspection / piping) | `node ".claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs" --json` |
-| **Full Cache Rebuild** (force re-scan all cases) | `node ".claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs" --rebuild` |
+Run the default command (scans cases, compiles `dashboard.html`, and auto-opens it in the default browser):
+```bash
+node ".claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs"
+```
+*(Only append flags if explicitly specified in the user's prompt: `--filter=<status>`, `--no-open` for headless/no browser popup, `--json` for machine output, or `--rebuild` for forced full cache re-scan).*
 
-### Step 2 — Execute Overview CLI
-Run the selected command in the workspace root.
+*Completion Criterion:* Command exits with code 0 and prints the formatted overview table.
 
-*Completion Criterion:* Command exits with code 0 and outputs the formatted overview table or JSON payload.
-
-### Step 3 — Verify Generated Artifacts
+### Step 2 — Verify Generated Artifacts
 Ensure the cached aggregates exist and are current:
 - `data/cases/_overview.json`: Atomic index containing case metadata and summary stats.
-- `data/cases/dashboard.html`: Self-contained interactive dashboard (re-rendered whenever overview changes or `--open` / `--rebuild` is requested).
+- `data/cases/dashboard.html`: Self-contained interactive dashboard.
 
 *Completion Criterion:* `_overview.json` and `dashboard.html` verified in `data/cases/`.
 
-### Step 4 — Report to User
+### Step 3 — Report to User
 Provide a clean snapshot in the response:
 1. **Summary Metrics**: Total case count and status breakdown (e.g. `In Progress`, `Customer Action`, `Closed`).
 2. **Key Cases**: Highlight active/open cases with case number, title, product, opener, and latest update / AI summary snippet.
 3. **Artifact Links**: Direct clickable links to:
-   - [Interactive Dashboard](file:///data/cases/dashboard.html) *(note if auto-opened in browser)*
+   - [Interactive Dashboard](file:///data/cases/dashboard.html) *(confirm auto-opened in browser)*
    - [Overview Index](file:///data/cases/_overview.json)
 
 ---
