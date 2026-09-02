@@ -1,124 +1,97 @@
-# Qualcomm Support portal extraction — extractor script + selectors — reference
+# Qualcomm Support Portal Extraction Reference
 
-**Normal runs never need this file** — `run_case.mjs` drives extraction in code. This is the
-selector/extractor reference for **manual-flow.md**: when a verdict comes back `blocked`
-and you're diagnosing the capture, or when the live DOM has changed and `scripts/extract_case.js`
-needs editing. The pipeline evaluates the bundled `scripts/extract_case.js` (or an edited copy) via
-CDP `Runtime.evaluate` (`CdpClient.eval()`) against the **already-expanded live DOM**. The script's
-final expression is the case OBJECT. There is no selector config file — the extractor inspects
-the live DOM, runs directly in browser context, and hands the raw JSON to `finalize_case.mjs` to finalize.
+**Normal runs never need this file** — `run_case.mjs` drives extraction automatically in code. This document serves as the selector and extractor reference for maintainers and recovery flows (e.g., when a verdict returns `blocked` during diagnosis, or when Salesforce Lightning DOM changes require updating `scripts/extract_case.js`).
 
-> **Pre-condition — expansion is already done.** The expansion loop fully expands the page:
-> it clicks **"View More Posts"** to a fixpoint, every **"Expand Post"** link (top-level + nested
-> Chatter replies), and the **"Description"** button. Do not re-open / re-navigate the case URL — that
-> would discard the expanded DOM. Extract from the page in its fully expanded state.
+The pipeline evaluates `scripts/extract_case.js` (or an updated copy) via Chrome DevTools Protocol (CDP) `Runtime.evaluate` (`CdpClient.eval()`) against the **already-expanded live DOM**. The script's final evaluated expression is the raw case object. The extractor inspects the live DOM directly in browser context and hands the resulting raw JSON to `finalize_case.mjs` for normalization, deduplication, and persistence.
 
-> **Do not blind-run the template.** The portal's DOM is only visible after login and changes over
-> time. The robust loop is: read the real container/field structure from the live DOM → adapt the
-> extractor if needed → evaluate in browser context → validate and finalize.
+> **Pre-condition — expansion is already done.** The expansion loop fully expands the page before extraction: it clicks **"View More Posts"** to a fixpoint, expands every **"Expand Post"** link (top-level and nested Chatter replies), and clicks the **"Description"** button. Do not re-navigate or reload the case URL — doing so discards the expanded DOM. Extract from the page in its fully expanded state.
 
-## Step 1 — Extract the case via extractor script
+> **Live DOM verification.** The portal's DOM is only accessible after authentication and may evolve over time. Maintainers should inspect the container/field structure from the live DOM, update `scripts/extract_case.js` as needed, evaluate in browser context, and validate via `finalize_case.mjs`.
 
-A ready-made extractor is bundled at **`scripts/extract_case.js`** — a clean default keyed on the
-confirmed Salesforce Lightning structure (lock-in table below). The case folder already exists
-(`intake.mjs` created `data/cases/<CODE>/` up front).
+## Step 1 — Extract the Case via Extractor Script
 
-Three key rules baked into that script — keep them if you hand-edit the extractor for a DOM that
-differs:
+The canonical extractor script is located at **`scripts/extract_case.js`**, configured for Salesforce Lightning structures. The target case folder (`data/cases/<CODE>/`) is prepared at the start of capture.
 
-1. **Wrap in an IIFE; do NOT use a bare top-level `return`.** Browser script evaluation runs in EXPRESSION
-   context (like a REPL) — `return extractCase();` at the top level throws `SyntaxError: Illegal return
-   statement`. Put the logic in a function and let the IIFE call be the final expression.
-2. **Return the OBJECT, not `JSON.stringify(object)`.** The evaluation runtime serializes the object.
-3. **Ensure UTF-8 clean output** when saving raw results to disk for finalization.
+Three essential rules govern browser script evaluation:
 
-Sanity-check the raw file, then finalize:
+1. **Wrap in an IIFE; do NOT use a bare top-level `return`.** CDP script evaluation runs in expression context (similar to a REPL). A bare `return extractCase();` at the top level throws `SyntaxError: Illegal return statement`. Encapsulate logic inside a function and let the IIFE execution be the final evaluated expression.
+2. **Return the Object, not `JSON.stringify(object)`.** The CDP evaluation runtime serializes the object automatically. Returning a stringified string causes redundant escaping.
+3. **Ensure UTF-8 clean output** when persisting raw capture results to disk for finalization.
+
+Sanity-check the raw extraction file, then finalize:
 
 ```bash
 node -e "const j=JSON.parse(require('fs').readFileSync('data/cases/<CODE>/case.raw.json','utf8')); console.log(j.caseNumber, j.comments.length, j.displayedCommentCount)"
 node ".claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs" <CODE> "data/cases/<CODE>/case.raw.json"
-# on exit 0 the script deletes its own case.raw.json scratch file — no manual del/rm needed
+# On exit 0, finalize_case.mjs cleans up its own case.raw.json scratch file
 ```
 
-`finalize_case.mjs` rejects a 0-comment capture (wrong page / failed pull — never overwrites a good cache),
-asserts `genuineCommentCount(comments, description) >= displayedCommentCount` (short → exit 5, expand more and re-extract),
-stamps the SHA-256 `hash` + `extractedAt`, writes `data/cases/<CODE>/case.json`, and updates the root
-`_index.json`. It never drives the browser. However, `finalize_case.mjs` **does transform and normalize**
-fields before persisting: it rewrites comment IDs to stable content-derived hashes (`assignIds`),
-resolves/injects `parentId` from DOM-order `parentIndex`, normalizes relative timestamps into absolute
-ISO-8601 strings (preserving `rawTimestamp`), extracts preview summaries (`summary`), strips transient
-within-run extraction fields (`isReply`, `parentIndex`, `displayPosition`), and reorders comments
-for presentation (newest-first with replies grouped under their parent) before computing the content hash
-and writing canonical `case.json`.
+`finalize_case.mjs` validates the extraction:
+- Rejects a 0-comment capture (protects existing valid cache from overwrite).
+- Asserts `genuineCommentCount(comments, description) >= displayedCommentCount` (insufficient count exits with code 5 to trigger further expansion/re-extraction).
+- Computes SHA-256 `hash` and timestamps `extractedAt`.
+- Persists canonical artifacts `data/cases/<CODE>/case.json` and `data/cases/<CODE>/case.md`, and updates root `_index.json`.
 
-## Update runs (`--merge`) — partial capture of a cached case
+`finalize_case.mjs` normalizes fields before persisting:
+- Assigns stable content-derived hashes for comment IDs (`assignIds`).
+- Resolves and injects `parentId` from DOM-order `parentIndex`.
+- Normalizes relative timestamps into absolute ISO-8601 strings (preserving original text in `rawTimestamp`).
+- Generates 1–2 sentence preview summaries (`summary`).
+- Strips transient extraction fields (`isReply`, `parentIndex`, `displayPosition`).
+- Reorders comments for presentation (newest activity first with replies grouped under parent posts).
 
-When the case is already cached and the user confirmed an update (SKILL.md Intake cache check +
-PHASE 1.5B), the DOM holds the NEW posts fully expanded while old posts stay collapsed/truncated.
-Run the SAME extractor over that DOM, then finalize with `--merge`:
+## Update Runs (`--merge`) — Incremental Capture of Cached Cases
+
+When updating an existing cached case (`--mode update` or auto-detected update mode), the DOM contains newly added posts fully expanded while older posts remain collapsed. Run the extractor over the DOM and finalize with `--merge`:
 
 ```bash
 node ".claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs" <CODE> "data/cases/<CODE>/case.raw.json" --merge --status "<STATUS>" --priority "<PRIORITY>"
 ```
 
-What the merge does (all in code, deterministic):
+### Deterministic Merge Mechanics
 
-- **Dedup key = author + whitespace-normalized first 120 chars of body.** Timestamps are excluded
-  on purpose — Chatter's relative times ("13h ago") drift between runs, and old posts arrive
-  truncated; the prefix survives both. (Known limit: editing the first 120 chars of an old comment
-  makes it look new.)
-- Comments are merged by stable content ID (`commentId`): cached comments and timestamps are kept
-  **verbatim** — a truncated re-capture never overwrites a full cached body. A legacy `enrichment`
-  field (if present in an older cache) is dropped on read rather than preserved. Merged comments
-  are presented newest-first, with replies grouped immediately under their parent post (see
-  threading pipeline below).
-- `url` + `displayedCommentCount` are refreshed; `--status`/`--priority`/`--severity` flags override the cache
-  (fresh PHASE 1 row is the current truth); other raw fields only fill blanks. `--title` not needed.
-- Completeness assert runs on the MERGED set; the hash is recomputed over it.
-- Emits `newComments` / `newCommentIds` / `headerChanged` / `changed` — `newComments: 0` with
-  nothing else changed = "no update".
-- `--merge` without an existing `data/cases/<CODE>/case.json` → exit 2 (run a full extraction).
+- **Deduplication Key:** `author` + whitespace-normalized first 120 characters of `body`. Relative timestamps are excluded from deduplication because Chatter's relative timestamps ("13h ago") drift across runs while text prefixes remain stable.
+- **Verbatim Preservation:** Existing comments are merged by stable content ID (`commentId`). Cached comment bodies and timestamps are preserved verbatim — a truncated re-capture never overwrites a full cached body. Legacy `enrichment` fields are dropped on read.
+- **Header Metadata Precedence:** `--status`, `--priority`, and `--severity` flags override cached values (the current search row or Detail tab reflects real-time status).
+- **Completeness Assertion:** The completeness check executes against the merged comment set before computing the content hash.
+- **Verdict Emission:** Outputs `newComments`, `newCommentIds`, `headerChanged`, and `changed`. If `newComments: 0` and no headers changed, the verdict reports `no-update`.
+- `--merge` invoked without an existing `data/cases/<CODE>/case.json` exits with code 2 to mandate a full capture.
 
-**Header metadata (title/status/priority/severity) is NOT on the Feed view** — it lives on the case
-**Detail tab** and the **PHASE 1 search-results row** (which exposes Subject, Status, Priority, Customer
-Project; note that `customer` was dropped as a synthesized duplicate per issue #108, and `accountName` is
-the canonical Detail tab field). `extract_case.js` leaves those fields `""`; fill them by editing the raw
-JSON from what PHASE 1 already captured, passing `--title`/`--status`/`--priority`/`--severity` flags to
-`finalize_case.mjs`, or clicking the "Detail" tab and re-reading before finalizing.
+**Header Metadata on Detail Tab:** Header fields (Title/Subject, Status, Priority, Severity, Customer Project, Account Name) reside on the case **Detail tab** and global search results row rather than the Chatter Feed view. `extract_case.js` initializes these fields to `""`; `run_case.mjs` switches to the Detail tab to extract them or accepts `--title`/`--status`/`--priority`/`--severity` flags.
 
-## Selector lock-in & live DOM shapes (confirmed from cases 08550063 [2026-06-22] & 08642051 [2026-08-23])
+## Selector Mappings & Salesforce Lightning DOM Structures
 
-Confirmed from live DOM inspections and accessibility trees of the Qualcomm Support portal (Salesforce Lightning),
-verified after login with a real Chrome session. These are the structures the `eval` extractor maps to.
+DOM structures and selector mappings for Qualcomm Support portal (Salesforce Lightning):
 
-| Field / Feature | Confirmed structure / pattern | Observation Date | Notes |
-|-----------------|------------------------------|------------------|-------|
-| Case URL pattern | `https://support.qualcomm.com/s/case/<SFID>/<slug>` | 2026-06-22 | real URL captured via `agent-browser eval "location.href"` after clicking search result |
-| Case number | `document.title` → `"Case: <CODE>"` | 2026-06-22 | **most reliable.** Match `/Case:\s*(\d[\w-]*)/` — require colon+digit so Cases list view title cannot false-match |
-| Subject (title) | Detail tab + PHASE 1 search row | 2026-06-22 | search results row exposes Subject; fill from there or Detail tab |
-| Status | Detail tab / search-results table `cell` | 2026-08-23 | Detail tab holds inline edit button `button.test-id__inline-edit-trigger` (`"Edit Status"`) inside `.slds-form-element__control` |
-| Priority | Detail tab / search-results table `cell` | 2026-06-22 | e.g. `"1 - Critical"` |
-| Chipset / Product / Customer Project / Account | Detail tab fields (`lightning-record-layout-item`) | 2026-08-23 | click "Detail" tab to read; field values wrapped in `lightning-formatted-text` / `lightning-formatted-lookup` |
-| Related CRs | Detail tab (`lightning-record-layout-item`) | 2026-08-23 | Label container carries `lightning-helptext` (`"Help Related CRs"`). If value is empty, assist text must not leak as value |
-| Affordance: Lookup Preview | Lookup fields & author links `a > span.slds-assistive-text` (`"Preview"`) | 2026-06-22 | Trailing `"Preview"` stripped from name/link text |
-| Affordance: Inline-edit trigger | Form element control `button.test-id__inline-edit-trigger` (`"Edit <Field>"`) | 2026-08-23 | Trailing `\nEdit <Field>` stripped from field values |
-| Affordance: Help tooltip prefix | Field label container `lightning-helptext` (`"Help <Field>"`) | 2026-08-23 | Leaked `"Help <Field>"` stripped / yields empty when field is empty |
-| Description | Detail tab / synthesized first comment | 2026-08-23 | Original problem description from Detail tab; synthesized into chronological first comment |
-| Top-level Feed post | `article.cuf-feedItem:not(.cuf-comment)` | 2026-08-23 | Top-level post container. Direct child of feed list, NOT inside `ul.cuf-replies` |
-| Nested Chatter reply | `ul.cuf-replies article.cuf-comment` | 2026-08-23 | Distinctly marked with `.cuf-comment` and nested inside `.cuf-replies` |
-| → author | first `<a>` inside article in DOM order | 2026-08-23 | e.g. "Duc Hoang", "Sushmita Suresh Rao" (happens to be actorName link; not selected by that class) |
-| → timestamp (top-level) | `span.cuf-timestamp[title]` / `a.cuf-timestamp` | 2026-08-23 | Top-level posts provide absolute date string (e.g. `"August 10, 2026 at 7:59 PM"`) in `title` attribute or link text (see `extractTimestamp()` in `extract_case.js` for full multi-tier fallback chain) |
-| → timestamp (nested reply) | `span.cuf-timestamp > a.cuf-timestamp` (no title attribute) | 2026-08-23 | Replies render relative text only (e.g. `"12 days ago"`), omitting absolute timestamp in `title`/`datetime`; normalized at capture time to absolute ISO strings |
-| → body (clean) | **`.feedBodyInner`** (alias `.cuf-feedBodyText`) | 2026-08-23 | Just post text (excludes header/footer). `domLines()` reconstructs structural line breaks (<p>/<div>/<br>) bypassing `innerText` layout dependency; `cleanBody()` strips Chatter separator mojibake |
-| Feed item count | `status "N Chatter Feed Items"` (role=status) | 2026-08-23 | Counts **top-level** feed items only (excluding nested replies). Match `/(\d+)\s+Chatter\s+Feed\s+Items?/i` |
-| Attachments | `.cuf-feedItemAttachments .slds-file` | 2026-08-23 | Cards containing download link `a[href*='/sfc/servlet.shepherd/version/download/']` and title `span.slds-file__text-title` |
+| Field / Feature | Confirmed Structure / Selector Pattern | Notes |
+|-----------------|----------------------------------------|-------|
+| Case URL pattern | `https://support.qualcomm.com/s/case/<SFID>/<slug>` | Resolved via global search results or direct navigation |
+| Case number | `document.title` → `"Case: <CODE>"` | Match `/Case:\s*(\d[\w-]*)/` with colon+digit to prevent false matches on list views |
+| Subject (title) | Detail tab / Search results row | Captured from global search hit or Detail tab `lightning-formatted-text` |
+| Status | Detail tab / Search results table cell | Detail tab contains inline edit button `button.test-id__inline-edit-trigger` (`"Edit Status"`) inside `.slds-form-element__control` |
+| Priority | Detail tab / Search results table cell | E.g. `"1 - Critical"` |
+| Chipset / Product / Customer Project / Account | Detail tab (`lightning-record-layout-item`) | Field values wrapped in `lightning-formatted-text` or `lightning-formatted-lookup` |
+| Related CRs | Detail tab (`lightning-record-layout-item`) | Label container carries `lightning-helptext` (`"Help Related CRs"`). Assistive text must not leak as field value |
+| Affordance: Lookup Preview | Lookup fields & author links `a > span.slds-assistive-text` (`"Preview"`) | Trailing `"Preview"` text stripped from name/link |
+| Affordance: Inline-edit trigger | Form control `button.test-id__inline-edit-trigger` (`"Edit <Field>"`) | Trailing `\nEdit <Field>` stripped from field values |
+| Affordance: Help tooltip prefix | Label container `lightning-helptext` (`"Help <Field>"`) | Leaked `"Help <Field>"` stripped; empty field yields empty string |
+| Description | Detail tab / synthesized first comment | Initial case problem description from Detail tab; synthesized into chronological first comment |
+| Top-level Feed post | `article.cuf-feedItem:not(.cuf-comment)` | Top-level post container. Direct child of feed list, NOT inside `ul.cuf-replies` |
+| Nested Chatter reply | `ul.cuf-replies article.cuf-comment` | Marked with `.cuf-comment` and nested within `ul.cuf-replies` |
+| → author | First `<a>` inside article in DOM order | Actor name link (e.g. "Duc Hoang", "Sushmita Suresh Rao") |
+| → timestamp (top-level) | `span.cuf-timestamp[title]` / `a.cuf-timestamp` | Top-level posts provide absolute date string (e.g. `"August 10, 2026 at 7:59 PM"`) in `title` attribute or link text (see fallback chain in `extract_case.js`) |
+| → timestamp (nested reply) | `span.cuf-timestamp > a.cuf-timestamp` (no `title`) | Replies render relative text only (e.g. `"12 days ago"`); normalized at capture time to absolute ISO strings |
+| → body (clean) | **`.feedBodyInner`** (alias `.cuf-feedBodyText`) | Post text excluding headers/footers. `domLines()` reconstructs structural line breaks (`<p>`, `<div>`, `<br>`) bypassing `innerText` layout dependencies; `cleanBody()` removes separator noise |
+| Feed item count | `status "N Chatter Feed Items"` (`role="status"`) | Counts **top-level** feed items only (excluding nested replies). Match `/(\d+)\s+Chatter\s+Feed\s+Items?/i` |
+| Attachments | `.cuf-feedItemAttachments .slds-file` | Attachment cards containing download link `a[href*='/sfc/servlet.shepherd/version/download/']` and title `span.slds-file__text-title` |
 
 ---
 
-### Detailed Live DOM Recordings (Observed 2026-08-23)
+### Salesforce Lightning DOM Patterns & Affordances
 
 #### 1. Field-Value Inline-Edit Affordance Markup
-*Observed on Detail tab in Case 08642051 (Status field).*
+
+Markup pattern on Detail tab (e.g. Status field):
 
 ```html
 <div class="slds-form-element slds-hint-parent">
@@ -139,13 +112,14 @@ verified after login with a real Chrome session. These are the structures the `e
 </div>
 ```
 
-- **Defect Cause:** Reading `innerText` of `.slds-form-element` or `.slds-form-element__control` concatenates the value text with the button assistive text `<span class="slds-assistive-text">Edit Status</span>`, producing `"Closed-Customer Requested\nEdit Status"`.
+- **Extraction Hazard:** Reading `innerText` of `.slds-form-element` or `.slds-form-element__control` concatenates the value text with button assistive text `<span class="slds-assistive-text">Edit Status</span>`, producing `"Closed-Customer Requested\nEdit Status"`.
 - **Target Seam:** Strip `button.test-id__inline-edit-trigger`, `.inline-edit-trigger`, `.slds-button_icon`, or remove trailing `\s*Edit\s+<Field>` / `.slds-assistive-text` nodes before extracting value.
 
 ---
 
-#### 2. Field-Label Help/Tooltip Affordance Markup
-*Observed on Detail tab in Case 08642051 (Related CRs field).*
+#### 2. Field-Label Help / Tooltip Affordance Markup
+
+Markup pattern on Detail tab (e.g. Related CRs field):
 
 ```html
 <div class="slds-form-element slds-hint-parent">
@@ -175,13 +149,12 @@ verified after login with a real Chrome session. These are the structures the `e
 </div>
 ```
 
-- **Defect Cause:** When the field value element is empty, `sectionValue` traverses the container looking for any non-label text element. It encounters the `<button>` or `<span class="slds-assistive-text">Help Related CRs</span>` inside `lightning-helptext`, extracting `"Help Related CRs"` as the value.
+- **Extraction Hazard:** When the field value element is empty, naive container traversal finds the nearest non-label text element: `<button>` or `<span class="slds-assistive-text">Help Related CRs</span>` inside `lightning-helptext`, falsely capturing `"Help Related CRs"` as the field value.
 - **Target Seam:** Exclude `lightning-helptext`, `button.slds-button_icon`, and `[class*='helptext']` from candidate value elements, or ignore text matching `/^Help\s+/i`.
 
 ---
 
-#### 3. Nested-Reply Timestamps vs Top-Level Post Timestamps
-*Observed on Feed view in Case 08642051.*
+#### 3. Top-Level Post Timestamps vs Nested-Reply Timestamps
 
 **Top-level post timestamp markup:**
 ```html
@@ -213,16 +186,16 @@ verified after login with a real Chrome session. These are the structures the `e
 </ul>
 ```
 
-- **Fallback Hypothesis Confirmation:**
-  - **Verdict: CONFIRMED.**
+- **Structural Differences:**
   - Top-level posts provide an absolute date string (e.g. `"August 10, 2026 at 7:59 PM"`) on `span.cuf-timestamp[title]` and in `a.cuf-timestamp` text.
-  - Nested replies in `.cuf-replies` render only the relative text link (`"12 days ago"`) and lack any `title` or `datetime` attribute containing an absolute timestamp.
-  - Consequently, nested replies always trigger the relative-text extraction path and require capture-time normalization to absolute ISO timestamps (as implemented in issue #87).
+  - Nested replies in `.cuf-replies` render only relative text (e.g. `"12 days ago"`) and lack `title` or `datetime` attributes containing absolute timestamps.
+  - Nested replies require capture-time timestamp normalization to absolute ISO-8601 strings based on capture execution time.
 
 ---
 
 #### 4. Comment Attachments Markup
-*Observed on Chatter Feed comments carrying `.zip` log bundles in Case 08642051.*
+
+Chatter Feed attachment markup:
 
 ```html
 <div class="cuf-feedItemAttachments slds-post__content slds-m-top_x-small">
@@ -245,127 +218,147 @@ verified after login with a real Chrome session. These are the structures the `e
 </div>
 ```
 
-- **Display Name Location:**
-  - `span.slds-file__text-title[title]` or inner text: `"FAILlog_X716B_SEAU_5G_IMS_Ecall_VoNR_redial_TC1_RTD.zip"`
+- **File Name Selectors:**
+  - `span.slds-file__text-title[title]` or text content
   - `a.slds-file__text[title]`
   - `a.cuf-attachmentThumbnail[download]` or `[title]`
-- **Resolvable Portal URL Location:**
+- **Portal URL Endpoints:**
   - Direct Download URL: `a.slds-file__crop[href]` / `a[href*='/sfc/servlet.shepherd/version/download/']`
   - Document Preview URL: `a.slds-file__text[href]` / `a[href*='/contentdocument/']`
 
 ---
 
-#### 5. Distinguishability of Nested Replies vs Top-Level Posts
-*Observed on Chatter Feed hierarchy in Case 08642051.*
+#### 5. Distinguishability of Top-Level Posts vs Nested Replies
 
 - **Top-Level Posts:**
-  - Render as `<article class="cuf-feedItem ...">` directly under the main feed feed-item container.
-  - Do NOT have the `.cuf-comment` class.
-  - Are NOT enclosed within `ul.cuf-replies` or `li.cuf-reply`.
+  - Render as `<article class="cuf-feedItem ...">` directly under the feed container.
+  - Do NOT contain `.cuf-comment`.
+  - Are NOT nested within `ul.cuf-replies` or `li.cuf-reply`.
 - **Nested Replies:**
   - Render as `<article class="cuf-comment cuf-feedItem" data-comment-id="...">`.
-  - ALWAYS have the class `.cuf-comment`.
-  - ALWAYS reside inside `ul.cuf-replies > li.cuf-reply` under their parent feed post.
-- **Count-Unit Resolution:**
-  - **Question:** The portal badge (`status "N Chatter Feed Items"`) counts top-level posts only (e.g. 3), whereas `document.querySelectorAll("article")` captures both top-level posts and nested replies (e.g. 4 total articles). Can the extractor distinguish them?
-  - **Answer: YES.** Top-level posts and nested replies are unequivocally distinguishable via `article.classList.contains('cuf-comment')` or `article.closest('ul.cuf-replies')`.
-  - **Impact on Gate Design:** The completeness gate can compare top-level posts directly against `displayedCommentCount`, and count nested replies separately, rather than treating any excess as an unassertable mismatch.
+  - Always have class `.cuf-comment`.
+  - Always reside inside `ul.cuf-replies > li.cuf-reply` under their parent feed post.
+- **Count-Unit Differentiation:**
+  - The portal badge (`status "N Chatter Feed Items"`) counts top-level posts only, whereas DOM queries like `document.querySelectorAll("article")` encounter both top-level posts and nested replies.
+  - Extractor distinguishes them via `article.classList.contains('cuf-comment')` or `article.closest('ul.cuf-replies')`.
+  - Completeness gate asserts top-level post count against `displayedCommentCount` without treating nested replies as count anomalies.
 
 ---
 
-## The extractor script
+## The Extractor Script
 
-The canonical extractor is **`scripts/extract_case.js`** (run via `eval -b`, see Step 2). It already
-encodes the three rules above (IIFE / return-object / shell-redirect) and the lock-in selectors, and it
-extracts from the already-expanded DOM with no expansion logic inside. Open it to see the exact logic;
-edit it in place when the live DOM differs rather than writing a throwaway extractor — fixes there help
-every future run. Key shape it returns:
+The canonical extractor is **`scripts/extract_case.js`**, evaluated via CDP `Runtime.evaluate` (`CdpClient.eval()`). It encapsulates the three execution rules (IIFE / return-object / UTF-8) and selector mappings, operating directly against the already-expanded DOM.
+
+### Raw Extractor Output Schema
 
 ```js
-{ caseNumber, title, status, priority, severity, product, accountName, contactName, customerProject,
-  customerTracking, relatedCRs, caseRecordType, openedAt, closedAt, updated,
-  description, url, displayedCommentCount,
-  comments: [ { id, timestamp, author, body, isReply, parentIndex, displayPosition, attachments } ] }
+{
+  caseNumber: string,
+  title: string,
+  status: string,
+  priority: string,
+  severity: string,
+  product: string,
+  accountName: string,
+  contactName: string,
+  customerProject: string,
+  customerTracking: string,
+  relatedCRs: string,
+  caseRecordType: string,
+  openedAt: string,
+  closedAt: string,
+  updated: string,
+  description: string,
+  url: string,
+  displayedCommentCount: number,
+  comments: Array<{
+    id: string,
+    timestamp: string,
+    author: string,
+    body: string,
+    isReply: boolean,
+    parentIndex: number | null,
+    displayPosition: number,
+    attachments: Array<{ name: string, url: string }>
+  }>
+}
 ```
 
-### Post-extraction: identity and comment-threading pipeline (#105-#109)
+### Post-Extraction: Identity & Comment Threading Pipeline
 
-The raw extractor output undergoes multi-stage processing inside `finalize_case.mjs` before writing canonical `case.json`:
+Raw extractor output undergoes multi-stage processing inside `finalize_case.mjs` before persisting canonical `case.json`:
 
-1. **Content-derived comment IDs (`assignIds`)**:
-   - Extractor-provided IDs (`c1`, `c2`, ...) are positional and drift across re-captures as threads grow.
-   - `finalize_case.mjs` assigns stable content IDs: `commentId(c) = 'c' + sha256(norm(author) + '|' + norm(body).slice(0, 120)).slice(0, 12)`.
-   - Content IDs are position-independent and survive relative timestamp drift. Genuine duplicates (same author with matching 120-char prefix) receive a collision suffix (`-2`, `-3`) and are reported in the verdict.
-   - Legacy caches with positional IDs are migrated on read (`migrateIds`), dropping any stale `enrichment` field.
+1. **Content-Derived Comment IDs (`assignIds`)**:
+   - Positional IDs (`c1`, `c2`, ...) drift across captures as comment threads grow.
+   - `finalize_case.mjs` computes stable content IDs:
+     `commentId(c) = 'c' + sha256(norm(author) + '|' + norm(body).slice(0, 120)).slice(0, 12)`.
+   - Content IDs are position-independent and survive relative timestamp drift. Genuine duplicates (same author with identical 120-character prefix) receive a collision suffix (`-2`, `-3`) and are noted in the verdict.
+   - Positional IDs in legacy caches are migrated on read (`migrateIds`), dropping stale `enrichment` fields.
 
-2. **`parentId` resolution ordering constraint**:
-   - `extract_case.js` tags each comment with `isReply` (via `.cuf-comment` or within `ul.cuf-replies`) and `parentIndex` (pointing to `lastTopLevelIndex` in the initial DOM traversal order).
-   - In `finalize_case.mjs`, resolving `parentIndex` into `parentId` has a strict ordering constraint:
-     - **Must run AFTER `assignIds`**: `fresh.comments[c.parentIndex].id` must resolve to the parent's newly assigned content ID.
-     - **Must run BEFORE `sortCommentsChronological` / `mergeComments`**: reordering comments by timestamp destroys original DOM array indices. Resolving `parentIndex` against a reordered array would point to the wrong post or cause an out-of-bounds error.
-   - Once resolved, `c.parentId` holds the parent post's content ID (or `null` for top-level posts and orphaned replies).
+2. **`parentId` Resolution Ordering Constraint**:
+   - `extract_case.js` tags each comment with `isReply` (via `.cuf-comment` or `ul.cuf-replies`) and `parentIndex` (referencing `lastTopLevelIndex` in initial DOM traversal order).
+   - Resolving `parentIndex` into `parentId` in `finalize_case.mjs` follows a strict sequence:
+     - **Must run AFTER `assignIds`**: `fresh.comments[c.parentIndex].id` must resolve to the parent post's assigned content ID.
+     - **Must run BEFORE `sortCommentsChronological` / `mergeComments`**: Reordering comments by timestamp changes array indices. Resolving `parentIndex` against a reordered array causes invalid parent references or out-of-bounds errors.
+   - Resolved `c.parentId` stores the parent post's content ID (`null` for top-level posts and orphaned replies).
 
-3. **Single-level-nesting invariant**:
+3. **Single-Level Nesting Invariant**:
    - Salesforce Chatter enforces single-level nesting: feed items are either top-level posts (`article.cuf-feedItem:not(.cuf-comment)`) or direct replies (`ul.cuf-replies article.cuf-comment`).
-   - The hierarchy is strictly **Post → Reply only** (no Reply-to-Reply).
-   - In `case.json`, every reply's `parentId` points directly to a top-level post (never to another reply).
+   - The hierarchy is strictly **Post → Reply only** (no reply-to-reply nesting).
+   - In `case.json`, every reply's `parentId` references a top-level post (never another reply).
 
-4. **Chronological sorting & presentation ordering**:
-   - `sortCommentsChronological` sorts comments ascending (Oldest → Newest). Missing timestamps are interpolated between known sibling bounds, and ties are broken using `displayPosition` (`getBoundingClientRect().top`).
-   - `orderCommentsForPresentation` establishes the final persisted order in `case.json`: **newest activity first, with each reply grouped immediately after its parent post** (superseding PRD #105-#109's strict Oldest → Newest "Variant A"). Both top-level posts and same-thread replies are ordered newest-first.
+4. **Chronological Sorting & Presentation Ordering**:
+   - `sortCommentsChronological` orders comments ascending (Oldest → Newest). Missing timestamps are interpolated between known sibling bounds, breaking ties with `displayPosition` (`getBoundingClientRect().top`).
+   - `orderCommentsForPresentation` establishes final persisted ordering in `case.json`: **newest activity first, with each reply grouped immediately after its parent post**. Both top-level posts and thread replies are ordered newest-first.
 
-5. **Persisted comment schema vs raw extractor shape**:
-   - Transient extraction fields (`isReply`, `parentIndex`, `displayPosition`, and legacy `role`/`company`) are scrubbed before persistence.
-   - Previews (`summary`) are generated via `extractSummary(body)` (1-2 sentences, salutations and expand markers stripped).
+5. **Canonical Persisted Comment Schema**:
+   - Transient extraction fields (`isReply`, `parentIndex`, `displayPosition`, and legacy `role`/`company`) are removed prior to persistence.
+   - Summaries (`summary`) are generated via `extractSummary(body)` (1–2 concise sentences with salutations and expand markers stripped).
    - The canonical persisted comment shape in `case.json`:
      ```js
      {
-       id: string,              // Stable content-derived id (e.g. "ca1b2c3d4e5f6")
+       id: string,              // Stable content-derived ID (e.g. "ca1b2c3d4e5f6")
        timestamp: string,       // ISO-8601 absolute timestamp string
        rawTimestamp?: string,   // Preserved original relative text if normalized (e.g. "12 days ago")
        author: string,          // Author display name
        body: string,            // Cleaned comment body text
        attachments: Array<{ name: string, url: string }>,
-       parentId: string | null, // Parent post content id, or null if top-level
+       parentId: string | null, // Parent post content ID, or null if top-level
        summary: string          // Concise 1-2 sentence preview summary
      }
      ```
 
-## Completeness cross-check (the strongest "got everything" signal)
+## Completeness Cross-Check
 
-The portal shows a total (e.g. `status "N Chatter Feed Items"`). Capture it as **`displayedCommentCount`**
-in the raw JSON. `finalize_case.mjs` asserts:
+The portal displays a total item count (e.g. `status "N Chatter Feed Items"`), captured as **`displayedCommentCount`** in raw extraction. `finalize_case.mjs` asserts:
 
 ```
-genuineCommentCount(comments, description) >= displayedCommentCount   // else exit 5 — expand more / fix the extractor, re-extract
+genuineCommentCount(comments, description) >= displayedCommentCount
 ```
 
-- **Genuine comments**: `genuineCommentCount()` excludes the synthesized description comment so it does not mask a missing Chatter post.
-- **Nested replies excess**: The Salesforce Chatter badge counts top-level posts only, while our extractor captures both top-level posts and nested replies. Therefore, `capturedCount > displayedCount` is an expected, passing outcome (passes with an informational warning). Only `capturedCount < displayedCount` triggers an under-capture exit 5 error.
+- **Genuine Comments:** `genuineCommentCount()` excludes the synthesized description comment so that initial problem description does not mask a missing Chatter post.
+- **Nested Replies Excess:** The Salesforce Chatter badge counts top-level posts only, while extraction captures both top-level posts and nested replies. Therefore, `capturedCount > displayedCount` is an expected, passing state (logged with an informational note). Only `capturedCount < displayedCount` triggers an under-capture exit code 5.
+- `displayedCommentCount` is persisted in `case.json` for integrity tracking; `render_case.mjs` generates a warning banner in `case.md` if captured count is fewer than displayed.
 
-Store `displayedCommentCount` even when it matches — the renderer shows a ⚠ banner in
-`case.report.md` / `case.html` if a future run captures fewer than displayed.
+## Validation Invariants
 
-## Validation (before trusting the JSON)
+Before accepting extracted data:
+- `comments.length` matches the count observed on the expanded page.
+- No comment contains an empty `body` when visibly populated on screen.
+- All timestamps parse to valid dates, sorting newest-first with stable ordering.
 
-- `comments.length` == the comment count seen in the confirming snapshot.
-- No comment whose `body` is empty but was visibly non-empty on screen.
-- Timestamps parse to dates → sort comments **newest-first** with a stable sort.
+## Virtualized Lists
 
-## Virtualized lists — when one eval can't hold everything
+If post-expansion extraction returns `comments.length < displayedCommentCount` due to DOM virtualization (off-screen rows unmounting):
+- Perform **progressive extraction**: scroll incrementally (`window.scrollBy(0, 600)`), re-evaluate extraction, and merge comments into a map keyed by stable content ID or `author|first40(body)`.
+- Repeat until all displayed items are captured or scroll height ceases growing.
+- Hand assembled raw JSON to `finalize_case.mjs`.
 
-If after full expansion the evaluation still returns `comments.length < displayedCommentCount`, the
-Feed is **virtualized** (off-screen rows unmount) — the full set is never in the DOM at once. Switch to
-**progressive extraction**: scroll a step (`window.scrollBy(0, 600)`), re-evaluate
-the extractor, and merge comments into a `Map` keyed by a STABLE id (permalink / `id`, else
-`timestamp|author|first40(body)`). Repeat until `map.size === displayedCommentCount` or scrollHeight
-stops growing. Then assemble the merged comments into the raw JSON and finalize as usual.
+## Large Cases & Token Budget
 
-## Large cases / token budget
+When case data is large, write raw JSON directly to disk or extract in stages. Do not truncate comment bodies or logs.
 
-If the verbatim JSON is very large, have the evaluation write it directly to disk or extract
-in chunks, then assemble. Never truncate comment bodies or logs to save tokens.
+## Attachments
 
-## Attachments (optional)
+Attachment endpoints in `comments[].attachments` point directly to portal download endpoints (`/s/sfc/servlet.shepherd/version/download/...`). These can be retrieved within an authenticated session when required.
 
-Attachment URLs captured in `comments[].attachments` point directly to portal download endpoints (`/s/sfc/servlet.shepherd/version/download/...`). These can be downloaded via authenticated session when required.
