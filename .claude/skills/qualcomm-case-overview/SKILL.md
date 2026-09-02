@@ -1,67 +1,52 @@
 ---
 name: qualcomm-case-overview
-description: "Multi-Case Overview & Interactive Dashboard for Qualcomm Cases. Aggregates all locally cached Qualcomm cases (`data/cases/<case_number>/`) into a fast summary table in the terminal or opens a modern, responsive, offline-capable interactive HTML dashboard (`data/cases/dashboard.html`). Allows filtering by status, searching by keywords/assignee/product, and previewing recent comments and AI executive summaries without opening individual case files. Triggers: 'list qualcomm cases', 'cases overview', 'show all cases', 'qualcomm dashboard', 'tổng quan các case', 'xem danh sách case'. Use whenever the user wants to see an overview, summary table, or dashboard of all managed Qualcomm cases."
+description: "Aggregated overview table and interactive offline HTML dashboard for all cached Qualcomm cases. Triggers: 'list qualcomm cases', 'qualcomm dashboard', 'cases overview', 'filter cases by status', 'tổng quan cases'."
 allowed-tools: Bash(node:*), Bash(npm:*), Read, Write, Glob
 ---
 
-# Qualcomm Cases Overview & Dashboard
+# Qualcomm Case Overview & Dashboard
 
-**Role.** Downstream aggregation engine and interactive dashboard for Qualcomm cases cached locally under `data/cases/`.
+**Role.** Aggregated multi-case reporting engine and interactive offline HTML dashboard for all Qualcomm cases cached under `data/cases/`.
 
-**Downstream consumer.** Read-only consumer of `case.json` (produced by `qualcomm-case-agent`) and `summary.json` (produced by `qualcomm-case-summary`). Never modifies individual case files or capture logic.
+**Downstream Consumer.** Read-only consumer of `case.json` (from `qualcomm-case-agent`) and `summary.json` (from `qualcomm-case-summary`). Never modifies individual case files or upstream capture logic.
 
 ---
 
-## Capabilities & Usage
+## Execution Workflow
 
-### 1. Terminal Case Summary & Auto-Launch Dashboard
-Shows all active cases, status breakdown, AI summaries, and latest comments directly in terminal, and automatically launches `data/cases/dashboard.html` in the user's browser:
+Four sequential steps. Deterministic CLI aggregates data and manages dashboard artifacts; agent presents structured summary to the user.
 
-```bash
-npm run cases:overview
-```
-or with status filtering:
-```bash
-node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --filter=open
-node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --filter=in_progress
-node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --filter=closed
-```
+### Step 1 — Resolve Invocation Mode & Filter
+Identify the user's intent to select the appropriate execution command:
 
-To run purely in terminal without automatically opening the browser:
-```bash
-node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --no-open
-```
+| Intent | CLI Command |
+|---|---|
+| **Default Overview + Dashboard** (standard request) | `node ".claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs"` |
+| **Filtered by Status** (e.g. `open`, `closed`, `in_progress`) | `node ".claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs" --filter=<status>` |
+| **Terminal Only** (no browser popup / headless) | `node ".claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs" --no-open` |
+| **Dashboard Only** (explicit browser open) | `node ".claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs" --open` |
+| **Machine-Readable JSON** (data inspection / piping) | `node ".claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs" --json` |
+| **Full Cache Rebuild** (force re-scan all cases) | `node ".claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs" --rebuild` |
 
-### 2. Interactive Offline HTML Dashboard
-Opens a self-contained, responsive dashboard in the default browser with:
-- **Direct Case Links**: Click on Case ID or title to open the case in Qualcomm Support Portal (`target="_blank"`).
-- **Hide / Unhide Cases**: Filter out completed/irrelevant cases into a dedicated "Hidden Cases" tab with 1-click restore.
-- **Configurable Auto-Refresh Timer**: Auto-reloads dashboard periodically (intervals: `Off`, `1m`, `2m`, `5m` [default], `10m`, `15m`) with live countdown ticker and manual "🔄 Refresh Now" button.
-- **State Persistence**: Active tab filters, search query, hidden cases, and auto-refresh settings survive page reloads via `localStorage`.
-- **Raised By Metadata**: Shows case opener/creator on cards.
-- **Comment Accordions & AI Summaries**: Expandable view for latest case updates.
+### Step 2 — Execute Overview CLI
+Run the selected command in the workspace root.
 
-```bash
-npm run cases:dashboard
-```
-or:
-```bash
-node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --open
-```
+*Completion Criterion:* Command exits with code 0 and outputs the formatted overview table or JSON payload.
 
-### 3. Machine-Readable JSON Output
-Emits normalized aggregated JSON payload to stdout:
+### Step 3 — Verify Generated Artifacts
+Ensure the cached aggregates exist and are current:
+- `data/cases/_overview.json`: Atomic index containing case metadata and summary stats.
+- `data/cases/dashboard.html`: Self-contained interactive dashboard (re-rendered whenever overview changes or `--open` / `--rebuild` is requested).
 
-```bash
-node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --json
-```
+*Completion Criterion:* `_overview.json` and `dashboard.html` verified in `data/cases/`.
 
-### 4. Full Cache Rebuild
-Forces a clean re-scan and regeneration of `data/cases/_overview.json` and `data/cases/dashboard.html`:
-
-```bash
-node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --rebuild
-```
+### Step 4 — Report to User
+Provide a clean snapshot in the response:
+1. **Summary Metrics**: Total case count and status breakdown (e.g. `In Progress`, `Customer Action`, `Closed`).
+2. **Key Cases**: Highlight active/open cases with case number, title, product, opener, and latest update / AI summary snippet.
+3. **Artifact Links**: Direct clickable links to:
+   - [Interactive Dashboard](file:///data/cases/dashboard.html) *(note if auto-opened in browser)*
+   - [Overview Index](file:///data/cases/_overview.json)
 
 ---
 
@@ -69,23 +54,22 @@ node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs --rebuild
 
 | Artifact | Path | Purpose |
 |---|---|---|
-| **Aggregated Overview Cache** | `data/cases/_overview.json` | Fast (<10ms) JSON index of all cases, status stats, and recent comment snippets. |
-| **Interactive Dashboard** | `data/cases/dashboard.html` | Self-contained, single-file HTML/CSS/JS dashboard. Zero server or CDN dependency. |
+| **Aggregated Overview Cache** | `data/cases/_overview.json` | Fast (<10ms) JSON index of all cases, status statistics, and recent comment snippets. |
+| **Interactive Dashboard** | `data/cases/dashboard.html` | Self-contained, single-file HTML/CSS/JS dashboard with zero server or CDN dependencies. |
 
 ---
 
-## Auto-Sync Behavior
+## Auto-Sync Integration
 
-`_overview.json` and `dashboard.html` are automatically kept fresh via incremental hooks:
-1. When a case is captured or updated by `qualcomm-case-agent` (`finalize_case.mjs`).
-2. When a case is summarized by `qualcomm-case-summary` (`run_summary.mjs finalize`).
+`_overview.json` and `dashboard.html` are automatically kept synchronized via downstream hooks:
+1. `qualcomm-case-agent` (`finalize_case.mjs` -> `afterFinalize`) upon capturing or updating any case.
+2. `qualcomm-case-summary` (`run_summary.mjs finalize` -> `afterFinalize`) upon generating or updating a case summary.
 
 ---
 
-## Reporting Guidance for Agents
+## Operational Guardrails
 
-When the user asks for a case overview or list of cases:
-1. Run `node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs` (or filter with `--filter=<status>`). This will output the summary and automatically launch the interactive dashboard in the user's browser.
-2. Present the formatted output or summary statistics.
-3. Inform the user that the dashboard is now open in their browser with auto-refresh and interactive filters.
-
+- **Read-only aggregation:** Read case data through `overview_store.mjs`; never edit raw `case.json` or `summary.json` files during overview generation.
+- **Cache-first efficiency:** Rely on `_overview.json` for fast response; invoke `--rebuild` only when explicitly requested or when cache corruption occurs.
+- **Confidentiality:** All case records and overview artifacts remain strictly inside the local workspace (`data/cases/`).
+- **Browser launch awareness:** In headless/automated test runs, use `--no-open` or `--json` to prevent unwanted browser spawns.
