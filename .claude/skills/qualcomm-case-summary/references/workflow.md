@@ -34,9 +34,9 @@ flowchart TD
     OUT_NEEDS --> STEP2["Step 2 (LLM Pass): Agent Summarization"]
     
     subgraph S2_AGENT ["Step 2 Agent Judgment (Single-Pass)"]
-        STEP2 --> SUM_COMMENTS["Summarize each comment in deltaComments:<br/>- issue / status / nextAction (as applicable)"]
+        STEP2 --> SUM_COMMENTS["Summarize each comment in deltaComments:<br/>- kind / summary / impact / owner / nextAction / references"]
         SUM_COMMENTS --> UPD_FLOW["Update case flow narrative (incremental based on priorFlow)"]
-        UPD_FLOW --> WRITE_TEMP["Write intermediate batch to scratch/temp JSON<br/>{ comments: [...], flow: '...' }"]
+        UPD_FLOW --> WRITE_TEMP["Write intermediate batch to scratch/temp JSON<br/>{ comments: [...], flow: '...', executive: {...} }"]
     end
     
     WRITE_TEMP --> STEP3["Step 3 (CLI): run_summary.mjs finalize &lt;CODE&gt; --input &lt;temp.json&gt;"]
@@ -70,7 +70,7 @@ flowchart TD
 
 ### Step 2: Agent Summarization (Model Pass)
 - Run within the active agent session for the `deltaComments` batch in one pass:
-  - Produces per-comment digest: `id`, `timestamp`, `author`, `issue` (optional), `status` (optional), `nextAction` (optional).
+  - Produces per-comment digest: `id`, `timestamp`, `author`, `kind`, `summary`, `impact`, `owner`, `nextAction`, `references` (as applicable).
   - Updates the `flow` narrative incrementally using `priorFlow` as context.
   - Optionally produces an `executive` object (`ballInCourt`, `blockerOrNextMilestone`, `rootCause`, `resolution`) — a standup-ready snapshot, updated incrementally like `flow`.
 - Saves payload `{ comments: [...], flow: "...", executive: {...} }` into a temporary JSON file (e.g. `temp/summary_<CODE>.json`); `executive` is optional.

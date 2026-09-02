@@ -1,110 +1,102 @@
 ---
 name: qualcomm-case-summary
-description: "Qualcomm Case Summary. Given ONE Qualcomm case code, ensures the case is captured (delegating to qualcomm-case-agent), reports its own Status field verbatim, and produces a compact per-comment technical summary plus a case-level flow narrative, newest-first, in a persisted `summary.json`/`summary.md`. Incremental: re-summarizes only comments new since the last run (a delta) — an unchanged case costs zero model calls. Downstream, read-only consumer of qualcomm-case-agent; never modifies case.json, comment order, or merge logic. Triggers: 'summarize qualcomm case <code>', 'case status <code>', 'what's the state of case <code>'. Use whenever the user wants a case's status and comment history summarized, not just captured."
+description: "Summarize Qualcomm case status, technical comment digest, and flow narrative. Triggers: 'summarize qualcomm case <CODE>' or 'case status <CODE>'."
 allowed-tools: Bash(node:*), Read, Write
 ---
 
 # Qualcomm Case Summary
 
-**Role.** Given one **case code**, report the case's own Status and a compact, newest-first
-summary of its comment history: a short technical digest per comment, plus a case-level flow
-narrative. Read-only downstream consumer of `qualcomm-case-agent`'s `case.json` — see
-`references/consumer-guide.md` in that skill.
+**Role.** Synthesize a Qualcomm support case into an executive snapshot, a chronological flow narrative, and a compact per-comment technical digest. Persists structured `summary.json` and human-readable `summary.md` (newest-first) in `data/cases/<CODE>/`.
 
-**Input contract.** Same as `qualcomm-case-agent`: one Qualcomm case code = exactly 8 digits
-(`CASE-` prefix accepted and stripped).
+**Input Contract.** Exactly one 8-digit case code (e.g. `08642051`). Strip optional `CASE-` prefix.
 
-**References** (`references/`) — load ON DEMAND: `references/workflow.md` (End-to-end flowchart & lifecycle reference).
-
+**References** (`references/` — load on demand):
+- [`references/workflow.md`](references/workflow.md): Flowchart, lifecycle, and architectural invariants.
 
 ---
 
-## Flow — two script steps, you summarize in between
+## Execution Workflow
 
-Everything mechanical (ensuring capture, computing what's new, writing files) is deterministic
-script. The summarization judgment — reading each new comment and the case flow so far, and
-producing the per-comment digest and updated narrative — is yours; that is the entire reason this
-is a skill and not a headless pipeline (see ADR 0002).
+Four sequential steps. Deterministic scripts handle cache/delta/persistence; agent judgment performs the single-pass technical summarization.
 
-**Step 1 — prepare:**
+### Step 1 — Prepare Delta
+Run the prepare CLI:
 ```bash
 node ".claude/skills/qualcomm-case-summary/scripts/run_summary.mjs" prepare <CODE>
 ```
-Prints one JSON line. Branch on `status`:
+Parse the stdout JSON line and branch strictly on `status`:
 
-| `status` | Meaning | Your next step |
-|----------|---------|----------------|
-| `needs-summary` | New comments since last run (`deltaComments`, `priorFlow`, `caseStatus`) | Go to Step 2 |
-| `no-delta` | Nothing new; `summary` is the cached result, `caseStatus` is the case's current status (may differ from `summary.status` if it changed with no new comments) | Report `caseStatus` (not `summary.status`) and the rest of `summary` as-is, STOP |
-| `created` / `updated` / `no-update` never appear here — those only gate whether capture succeeded | | |
-| `auth-required` / `not-found` / `blocked` / `busy` / `error` | `qualcomm-case-agent`'s capture didn't succeed cleanly (`capture` holds its verdict) | Surface that verdict's guidance as-is (see `qualcomm-case-agent`'s SKILL.md table). Do not attempt summarization. |
+| `status` | Meaning | Action |
+|---|---|---|
+| `needs-summary` | Unsummarized comments present (`deltaComments`, `priorFlow`, `caseStatus`) | Proceed to **Step 2** |
+| `no-delta` | Case unchanged since last summary | Report verbatim `caseStatus` and existing summary to user. **STOP** |
+| `auth-required` / `not-found` / `blocked` / `busy` / `error` | Upstream capture incomplete (`capture` payload holds reason) | Report capture verdict guidance as-is. Do not attempt summarization. **STOP** |
 
-**Step 2 — you summarize (only when `status` was `needs-summary`):**
+### Step 2 — Agent Summarization (Single-Pass Model Judgment)
+*Only execute when Step 1 returns `needs-summary`.*
 
-For every comment in `deltaComments`, using its verbatim `body` (never a truncated or
-pre-filtered version — the 20,000-char cap already applied is a pathological-input safety guard,
-not a summarization step), produce an object:
+1. **Per-Comment Digest**: For every comment in `deltaComments`, using its verbatim `body` (subject to 20k-char safety cap), produce a digest object:
 ```json
-{ "id": "<comment id>", "timestamp": "<comment timestamp>", "author": "<comment author>",
-  "kind": "<optional, one of: bug-report | acknowledgment | investigation-data | blocker | resolution | workaround | question | fyi>",
-  "summary": "<optional, free-text 1-2 sentence technical digest>",
-  "impact": "<optional, one of: blocker-introduced | blocker-resolved | investigation-started | hypothesis-narrowed | hypothesis-disproven | root-cause-found | awaiting-info | fyi>",
-  "owner": "<optional, one of: qualcomm | engineer | support | unassigned>",
-  "nextAction": "<optional, a concrete actor + action>",
-  "references": ["<optional, prior comment ids in the same case>"] }
+{
+  "id": "<comment id>",
+  "timestamp": "<comment timestamp>",
+  "author": "<comment author>",
+  "kind": "<optional: bug-report | acknowledgment | investigation-data | blocker | resolution | workaround | question | fyi>",
+  "summary": "<optional: 1-2 sentence technical digest>",
+  "impact": "<optional: blocker-introduced | blocker-resolved | investigation-started | hypothesis-narrowed | hypothesis-disproven | root-cause-found | awaiting-info | fyi>",
+  "owner": "<optional: qualcomm | engineer | support | unassigned>",
+  "nextAction": "<optional: concrete actor + action>",
+  "references": ["<optional: referenced prior comment ids>"]
+}
 ```
-Include only the dimensions that actually fit the comment's content — a plain acknowledgement may
-only have `kind` and `nextAction`, or none of the six. `summary` replaces the old `issue` field;
-`nextAction` is unchanged in spirit but should stay tight (concrete actor + action). Then, using
-`priorFlow` as context, write an updated one-paragraph (or short multi-paragraph) `flow` narrative —
-update it, don't regenerate it from scratch.
+*Populate only fields relevant to the comment.*
 
-Optionally, also produce an `executive` object — a 3-4 line standup snapshot, useful once the case
-has enough history to answer these questions:
+2. **Flow Narrative**: Incrementally update the 1-2 paragraph `flow` narrative using `priorFlow` as context.
+
+3. **Executive Summary** *(Optional, recommended once history allows)*:
 ```json
-{ "ballInCourt": "<one of: qualcomm | customer | closed | unassigned>",
-  "blockerOrNextMilestone": "<string — the immediate next blocker or milestone>",
-  "rootCause": "<optional string — once identified>",
-  "resolution": "<optional string — fix CRs, workaround, NV settings, once resolved>" }
+{
+  "ballInCourt": "<qualcomm | customer | closed | unassigned>",
+  "blockerOrNextMilestone": "<immediate next blocker or milestone>",
+  "rootCause": "<optional: root cause once identified>",
+  "resolution": "<optional: fix CRs, workaround, NV settings once resolved>"
+}
 ```
-Update it, don't regenerate from scratch, using the case's history as context — same spirit as
-`flow`. Omit it entirely on early-case runs where there's nothing yet to report.
 
-Write both into a JSON file (e.g. a scratch/temp path) shaped
-`{ "comments": [...], "flow": "...", "executive": {...} }` (`executive` optional).
+4. **Write Payload**: Save the batch to a temporary file (e.g. `.scratch/summary_<CODE>.json`):
+```json
+{
+  "comments": [...],
+  "flow": "...",
+  "executive": { ... }
+}
+```
 
-**Step 3 — finalize:**
+*Completion Criterion:* Temporary JSON written with all `deltaComments` processed.
+
+### Step 3 — Finalize & Persist
+Run the finalize CLI:
 ```bash
-node ".claude/skills/qualcomm-case-summary/scripts/run_summary.mjs" finalize <CODE> --input <path-to-your-json-file>
+node ".claude/skills/qualcomm-case-summary/scripts/run_summary.mjs" finalize <CODE> --input <path-to-temp-json>
 ```
-Merges your batch into `summary.json` (preserving prior summaries untouched) and renders
-`summary.md` newest-first. Prints `{ status: "summarized", summaryPath, mdPath, newCount }`.
+Script merges new summaries with historical records, carries case metadata from `case.json`, writes `data/cases/<CODE>/summary.json`, renders `data/cases/<CODE>/summary.md`, and triggers overview auto-sync.
+
+*Completion Criterion:* Finalize returns `{ status: "summarized", summaryPath, mdPath, newCount }`.
+
+### Step 4 — Report to User
+Report concise case highlights directly to the user:
+- **Status**: Verbatim portal status (e.g. `In Progress`, `Customer Action`).
+- **Executive Summary**: Ball in court, next milestone, root cause/resolution (if populated).
+- **Case Flow**: Current flow narrative.
+- **Recent Updates**: Highlights of the latest comment digests.
+- **Artifact Link**: Pointer to [summary.md](file:///data/cases/<CODE>/summary.md).
 
 ---
 
-## Output Artifacts
+## Operational Guardrails
 
-`data/cases/<CODE>/summary.json` (structured, owned exclusively by this skill) and
-`data/cases/<CODE>/summary.md` (human-readable, newest-first). Never written on a `no-delta` run.
-`finalize` carries `title`/`url`/`priority`/`product` through from `case.json` automatically (no
-agent action needed) into a header block at the top of `summary.md`; a blank captured field falls
-back to the last known value instead of blanking it out. The optional `executive` block, when
-present, renders as its own `## Executive Summary` section above `## Case Flow`.
-
-## Reporting
-
-Tell the user: the case's Status (verbatim), the case flow narrative, and the newest few comment
-summaries — point to `summary.md` for the full newest-first list.
-
-## Guardrails
-
-- **Read-only on `case.json`/`_index.json`.** Never write to them — those are owned by
-  `qualcomm-case-agent`.
-- **Confidentiality unchanged.** Comment bodies are still Qualcomm NDA content; you (the agent
-  running this skill) already have workspace access to them via `case.json` — never paste them to
-  an external service. Summarization happens in this same session, not via a script-initiated
-  network/API call.
-- **One model call per run.** Summarize the entire `deltaComments` batch in Step 2 in one pass, not
-  one comment at a time.
-- **Case Status is a verbatim passthrough** — never reclassified or inferred.
-- **Scope:** one case per invocation.
+- **Read-only consumer:** Read `case.json` through `run_summary.mjs`; never modify `case.json` or `_index.json`.
+- **Single model pass:** Process the entire `deltaComments` batch in one prompt pass.
+- **Verbatim Status passthrough:** Preserve case Status exactly as reported by portal without inference.
+- **Local confidentiality:** Retain all case data within local workspace (`data/cases/`).
+- **Single case scope:** One case per invocation.
