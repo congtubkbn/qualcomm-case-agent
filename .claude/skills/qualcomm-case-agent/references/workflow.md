@@ -1,13 +1,10 @@
-# Workflow — input, processing, output — reference
+# Workflow — Architecture, Data Flow & Concurrency Reference
 
-How the Qualcomm Case Management Agent runs end to end. Companion to `SKILL.md` (phase detail),
-`login-flow.md` (auth) and `manual-flow.md` (hand-driven fallback + selector/extraction detail).
+End-to-end execution and architectural reference for the Qualcomm Case Management Agent. Companion to [`SKILL.md`](../SKILL.md) (authoritative execution contract), [`login-flow.md`](login-flow.md) (authentication lifecycle), and [`manual-flow.md`](manual-flow.md) (recovery runbooks).
 
-**Capture is one command, not an interactive script.** A valid 8-digit code goes straight to
-`run_case.mjs` — no "update from portal?" question, no confirmation step. The cache decides
-new-vs-update on its own; the model only sees the verdict line.
+**Deterministic fast-path:** A valid 8-digit case code routes directly to `run_case.mjs` without interactive prompts. The local cache determines whether full capture or incremental synchronization is required, and stdout yields exactly one JSON verdict line.
 
-## Flow
+## Architecture & Data Flow
 
 ```mermaid
 flowchart TD
@@ -24,10 +21,12 @@ flowchart TD
   V -->|blocked| MANUAL["blocked (manual-flow.md)<br/>(retryable: true → retry run_case.mjs;<br/>otherwise inspect screenshot)"]
   V -->|busy| RETRY["busy (manual-flow.md)<br/>wait ~30s, retry ONCE<br/>(lock.mjs auto-waits &le;60s for same code)"]
   V -->|port-conflict| PORT["port-conflict (manual-flow.md)<br/>run recover_chrome.ps1<br/>free foreign process, then re-run"]
+  V -->|error| ERR["error (manual-flow.md)<br/>fix credentials / reset CDP<br/>then re-run run_case.mjs"]
   OTP --> RUN
   AUTH --> RUN
   PORT --> RUN
   RETRY --> RUN
+  ERR --> RUN
   MANUAL --> REPORT
   REPORT --> OUT
   subgraph OUT["outputs — data/cases/&lt;CODE&gt;/"]
@@ -37,55 +36,41 @@ flowchart TD
   end
 ```
 
-## Input
+## Input Contract
 
-One Qualcomm case code — exactly 8 digits, `CASE-` prefix accepted and stripped. Anything else →
-ask the user, STOP. A valid code never triggers a confirmation prompt.
+Exactly one 8-digit numeric Qualcomm case code (e.g. `08460319`). The optional `CASE-` prefix is automatically stripped. Invalid inputs prompt the user for a valid code and halt execution.
 
-## Processing (per phase)
+## Processing Phases
 
-| Phase | Does | Guard / branch |
-|-------|------|----------------|
-| Pre-flight | Validate code (8 digits), check credentials (`data/.secrets/qid.bin` + username), acquire lock (`lock.mjs`, auto-wait up to 60s if same case code) | Missing credentials → exit 1 (`error`); lock busy → exit 6 (`busy`) |
-| Capture (`run_case.mjs`) | Attach persistent-profile Chrome (CDP 9773) · locate case via global search / direct URL · switch to Detail tab to extract Salesforce metadata (`extract_case.js`) · switch back to Feed tab · probe feed (fast no-update check) · expand Chatter feed (full for a new case, down to newest cached anchor for an update) · extract feed (`extract_case.js`) and merge Detail metadata · finalize with hash + index (`finalize_case.mjs`) · render (`render_case.mjs`) · self-verify QA gate (`verify_case.mjs`) | One JSON verdict line on stdout — see verdict table in [`SKILL.md`](../SKILL.md#step-3--branch-on-json-verdict) |
-| Report | `render_case.mjs` → tell user counts (captured vs displayed), file paths | `no-update` skips straight to "no update", STOP |
+| Phase | Operation | Guard / Branch Contract |
+|-------|-----------|-------------------------|
+| **Pre-flight** | Validate 8-digit code, verify DPAPI credentials (`data/.secrets/qid.bin` + username), acquire capture lock (`lock.mjs`, auto-polling up to 60s for identical case code). | Missing credentials → exit 1 (`error`); lock busy → exit 6 (`busy`). |
+| **Capture (`run_case.mjs`)** | Attach persistent-profile Chrome (CDP 9773) · locate case via global search / cached direct URL · switch to Detail tab to extract Salesforce metadata (`extract_case.js`) · switch back to Feed tab · probe feed (fast no-update check) · expand Chatter feed (full for new cases, down to newest cached anchor for updates) · extract feed (`extract_case.js`) and merge Detail metadata · finalize with SHA-256 hash + index (`finalize_case.mjs`) · render (`render_case.mjs`) · verify QA invariants (`verify_case.mjs`). | Emits exactly one JSON verdict line on stdout — see authoritative table in [`SKILL.md`](../SKILL.md#step-3--branch-on-json-verdict). |
+| **Report** | Parse verdict payload and present case metadata, comment count, and artifact paths to user. | `no-update` delivers unchanged status notification, STOP. |
 
-## Verdict statuses (`run_case.mjs` stdout)
+## Verdict Routing & SSOT
 
-`run_case.mjs` outputs exactly one JSON verdict line on stdout. The authoritative routing table and exit code contract are defined in [`SKILL.md`](../SKILL.md#step-3--branch-on-json-verdict).
+`run_case.mjs` outputs exactly one JSON verdict line on stdout. The authoritative routing table, status definitions, and exit code contracts are defined in [`SKILL.md`](../SKILL.md#step-3--branch-on-json-verdict).
 
-For recovery procedures on non-zero verdicts (`error`, `otp-timeout`, `auth-required`, `not-found`, `blocked`, `busy`, `port-conflict`), follow the actionable guides in [`manual-flow.md`](manual-flow.md) and [`login-flow.md`](login-flow.md).
+For detailed recovery runbooks on non-zero verdicts (`error`, `otp-timeout`, `auth-required`, `not-found`, `blocked`, `busy`, `port-conflict`), follow [`manual-flow.md`](manual-flow.md) and [`login-flow.md`](login-flow.md).
 
-## Output (per-case folder `data/cases/<CODE>/`)
+## Output Artifacts (per-case folder `data/cases/<CODE>/`)
 
 | File | Producer | Purpose |
 |------|----------|---------|
-| `case.json` | `run_case.mjs` (capture) | complete verbatim data — **source of truth** |
-| `case.md` | `render_case.mjs` | full render for human review |
-| `_index.json` (root) | `finalize_case.mjs` | `<CODE> → {syncedAt, commentCount, hash}` for incremental sync |
-| `chrome-profile/` | real Chrome `--user-data-dir` | persistent auth profile (one-time login) |
+| `case.json` | `run_case.mjs` (`finalize_case.mjs`) | Complete structured verbatim data — **canonical machine source of truth** |
+| `case.md` | `render_case.mjs` | Full formatted render for human review (newest-first with replies grouped) |
+| `_index.json` (root) | `finalize_case.mjs` | Global sync index (`<CODE> → {syncedAt, commentCount, hash}`) for incremental sync |
+| `chrome-profile/` | Native Chrome `--user-data-dir` | Persistent authentication profile (reusable session cookies) |
 
-## Logic backbone
+## Concurrency & Architectural Invariants
 
-1. **Session > password** — log in once, reuse the Chrome `--user-data-dir` (real Chrome via CDP);
-   email OTP only when the session lapses, and only ever entered by the human.
-2. **One command, no ask** — a valid code always runs; the script itself decides new-vs-update from
-   `_index.json`.
-3. **Detail tab before Feed** — metadata fields (`contactName`, `openedAt`, `status`, etc.) are extracted
-   first by switching to the Salesforce Detail tab via `switch_tab.js`, before switching back to the
-   Feed tab to probe and expand Chatter posts.
-4. **Expand + count assert** — accessibility-tree clicks reveal every post/reply/body; the
-   `displayedCommentCount` assert guarantees nothing is missed or truncated before persisting.
-5. **Render before QA verification** — `render_case.mjs` writes `case.md` immediately after
-   `finalize_case.mjs` writes `case.json`; `verify_case.mjs` then inspects both persisted artifacts
-   as the final QA gate before returning success.
-6. **Incremental** — an update run expands/extracts ONLY the new comments (`--merge` prepends them,
-   everything cached is kept verbatim) and re-renders the output; an unchanged case is not
-   rewritten.
-7. **Lock-based concurrency** — single capture lock (`data/.capture.lock` via `lock.mjs`).
-   `acquireLockOrWaitForSameCode` automatically waits and polls up to 60s for an in-flight capture
-   of the *same* case code to complete; different-case collisions return `busy` (exit 6) immediately.
-8. **Role split** — the script owns capture + persistence (deterministic, token-cheap); the agent
-   reports the verdict to the user.
-9. **Fail-fast guards** — every non-`created`/`updated`/`no-update` verdict names its own recovery
-   path (with `retryable: true` marking transient glitches); never guess credentials, never fabricate data.
+1. **Session Longevity**: Authenticate once and persist session state in Chrome `--user-data-dir` via CDP port 9773. Email OTP is required only when the portal session lapses, and is entered directly by the human.
+2. **Autonomous Execution**: A valid case code executes immediately; `run_case.mjs` determines full capture vs incremental sync automatically from `_index.json`.
+3. **Tab Extraction Ordering**: Metadata fields (`contactName`, `openedAt`, `status`, `accountName`, etc.) are extracted first by switching to the Salesforce Detail tab (`switch_tab.js`), then returning to the Feed tab to probe and expand Chatter posts.
+4. **Complete Feed Expansion**: Accessibility-tree interactions expand every post, reply, and inline body. The `countAssert` and collapsed-body checks guarantee complete capture before persisting.
+5. **Render Before QA Gate**: `render_case.mjs` writes `case.md` immediately after `finalize_case.mjs` writes `case.json`; `verify_case.mjs` subsequently validates both artifacts against structural invariants.
+6. **Incremental Merging**: Sync runs expand and extract only newly posted comments, merging them onto cached history while keeping existing comments verbatim.
+7. **Machine-Wide Capture Lock**: `lock.mjs` enforces single-process capture via `data/.capture.lock`. `acquireLockOrWaitForSameCode` polls for up to 60s if another process is capturing the *same* case code, resolving contention gracefully once the active capture finishes. Cross-case collisions return `busy` (exit 6) immediately.
+8. **Role Boundary**: Node.js scripts own deterministic browser automation and artifact persistence; the agent synthesizes user summaries directly from the JSON verdict payload.
+9. **Deterministic Failure Routing**: Non-zero verdicts provide explicit diagnostic metadata (`reason`, `retryable`, `detailSwitchError`) to guide deterministic recovery.
