@@ -22,3 +22,6 @@ debug_*.mjs
 
 # npm deps
 node_modules/
+
+# Claude Code background-agent worktrees (transient, per-agent checkouts)
+.claude/worktrees/
