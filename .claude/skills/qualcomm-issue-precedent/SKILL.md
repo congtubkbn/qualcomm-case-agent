@@ -40,7 +40,7 @@ Parse the stdout JSON line: `{ status, query, candidates }`. Each candidate carr
 ### Step 2 — Select Signatures (Agent Judgment — Verbatim Only)
 For each candidate, look at its `signatures` list (already extracted verbatim in Step 1 — see #182). Choose which of *those exact strings* are worth cross-checking against the new issue's log, and which table (`signalling` or `trace`) each belongs to.
 
-**Hard rule:** never invent, paraphrase, or guess a signature — only strings that appear character-for-character in that candidate's own `signatures` list may be selected. A candidate with an empty `signatures` list has nothing to select: skip Step 3 for it and carry `verdict: "insufficient technical data to check"`, `checks: []` straight into Step 4.
+**Hard rule:** never invent, paraphrase, or guess a signature — only strings that appear character-for-character in that candidate's own `signatures` list may be selected. A candidate with an empty `signatures` list has nothing to select. The same applies whenever no signature is worth testing even though some exist (e.g. none look relevant to the repro) — in both cases, skip Step 3 for that candidate and carry `verdict: "insufficient technical data to check"`, `checks: []` straight into Step 4 (this matches Step 3's own behavior: an empty `selections` array resolves to the same verdict, so skipping is just short-circuiting a call that would come back the same way).
 
 ### Step 3 — Get a Verdict (Deterministic CLI, once per candidate with a selection)
 Write `{ candidate, selections, session }` to a temp JSON file and run:
