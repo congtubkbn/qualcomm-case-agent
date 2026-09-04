@@ -27,6 +27,7 @@ const GROUPS = [
   ['Pipeline scripts', '.claude/skills/qualcomm-case-agent/scripts'],
   ['Summary scripts', '.claude/skills/qualcomm-case-summary/scripts'],
   ['Overview scripts', '.claude/skills/qualcomm-case-overview/scripts'],
+  ['Precedent scripts', '.claude/skills/qualcomm-issue-precedent/scripts'],
   ['Dashboard', 'web'],
   ['Tests', 'tests'],
   ['Doc tooling', 'tools'],
