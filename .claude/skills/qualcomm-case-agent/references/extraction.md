@@ -35,7 +35,7 @@ node ".claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs" <CODE> "data
 `finalize_case.mjs` normalizes fields before persisting:
 - Assigns stable content-derived hashes for comment IDs (`assignIds`).
 - Resolves and injects `parentId` from DOM-order `parentIndex`.
-- Normalizes relative timestamps into absolute ISO-8601 strings (preserving original text in `rawTimestamp`).
+- Normalizes any relative or non-ISO absolute timestamp into an ISO-8601 string (preserving original text in `rawTimestamp`).
 - Generates 1–2 sentence preview summaries (`summary`).
 - Strips transient extraction fields (`isReply`, `parentIndex`, `displayPosition`).
 - Reorders comments for presentation (newest activity first with replies grouped under parent posts).

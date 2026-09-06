@@ -507,8 +507,9 @@ export function isRelativeTimestamp(ts) {
 }
 
 /**
- * Normalizes relative Chatter timestamp to absolute ISO-8601 string resolved
- * against capture reference date, retaining raw portal string in `rawTimestamp`.
+ * Normalizes any relative or non-ISO absolute Chatter timestamp to an ISO-8601
+ * string resolved against capture reference date, retaining raw portal string
+ * in `rawTimestamp`.
  */
 export function normalizeComment(comment, referenceDate = new Date()) {
   if (!comment || typeof comment !== 'object') return comment;
@@ -516,15 +517,13 @@ export function normalizeComment(comment, referenceDate = new Date()) {
   if (isBlacklistedTs(rawTs)) {
     return { ...comment, timestamp: '' };
   }
-  if (isRelativeTimestamp(rawTs)) {
-    const epoch = parseTimestamp(rawTs, referenceDate);
-    if (epoch > 0) {
-      return {
-        ...comment,
-        timestamp: new Date(epoch).toISOString(),
-        rawTimestamp: comment.rawTimestamp || rawTs,
-      };
-    }
+  const epoch = parseTimestamp(rawTs, referenceDate);
+  if (epoch > 0) {
+    return {
+      ...comment,
+      timestamp: new Date(epoch).toISOString(),
+      rawTimestamp: comment.rawTimestamp || rawTs,
+    };
   }
   return comment;
 }

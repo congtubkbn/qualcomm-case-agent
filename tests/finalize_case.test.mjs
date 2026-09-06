@@ -780,7 +780,8 @@ describe('finalize (child process)', () => {
       assert.equal(saved.comments.length, 3);
       const descComment = saved.comments[saved.comments.length - 1]; // Chronologically first -> now last (newest-first presentation order)
       assert.equal(descComment.author, 'Acme Corp');
-      assert.equal(descComment.timestamp, 'August 15, 2026 at 9:00 AM');
+      assert.equal(descComment.timestamp, new Date(Date.parse('August 15, 2026 9:00 AM')).toISOString());
+      assert.equal(descComment.rawTimestamp, 'August 15, 2026 at 9:00 AM');
       assert.equal(descComment.body, rawWithDesc.description);
       assert.equal(descComment.summary, 'Device crashes during 5G SA handover. Please find attached reproduction logs.');
       assert.deepEqual(descComment.attachments, []);
@@ -885,7 +886,8 @@ describe('finalize (child process)', () => {
       // Description comment author should be Contact Name — oldest -> now last (newest-first presentation order)
       const descComment = saved.comments[saved.comments.length - 1];
       assert.equal(descComment.author, 'Mai Ngoc');
-      assert.equal(descComment.timestamp, 'August 10, 2026 at 09:30 AM');
+      assert.equal(descComment.timestamp, new Date(Date.parse('August 10, 2026 09:30 AM')).toISOString());
+      assert.equal(descComment.rawTimestamp, 'August 10, 2026 at 09:30 AM');
     });
 
     it('preserves cached Detail metadata during partial update (--merge) runs', () => {

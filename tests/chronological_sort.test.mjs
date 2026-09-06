@@ -119,14 +119,30 @@ describe('isRelativeTimestamp & normalizeComment', () => {
     assert.deepEqual(normalizedAgainAtT2, normalizedAtT1);
   });
 
-  it('preserves already absolute timestamps without altering them', () => {
+  it('normalizes absolute non-ISO timestamps to ISO form and retains rawTimestamp (Issue #199)', () => {
     const absolute = comment('Alice', 'report', 'August 20, 2026 at 3:45 PM');
     const res1 = m.normalizeComment(absolute, refDate1);
     const res2 = m.normalizeComment(absolute, refDate2);
 
-    assert.equal(res1.timestamp, 'August 20, 2026 at 3:45 PM');
-    assert.equal(res2.timestamp, 'August 20, 2026 at 3:45 PM');
+    const expected = new Date(Date.parse('August 20, 2026 3:45 PM')).toISOString();
+    assert.equal(res1.timestamp, expected);
+    assert.equal(res1.rawTimestamp, 'August 20, 2026 at 3:45 PM');
     assert.deepEqual(res1, res2);
+  });
+
+  it('normalizes a Chatter-rendered absolute timestamp missing title/datetime attrs (Issue #199)', () => {
+    const raw = comment('Bob', 'log update', 'September 2, 2026 at 11:55 PM');
+    const normalized = m.normalizeComment(raw, refDate1);
+
+    assert.ok(!isNaN(Date.parse(normalized.timestamp)), 'timestamp should be a valid ISO string');
+    assert.equal(normalized.rawTimestamp, 'September 2, 2026 at 11:55 PM');
+  });
+
+  it('leaves already-ISO timestamps functionally unaffected', () => {
+    const iso = comment('Carol', 'update', '2026-08-20T10:30:00.000Z');
+    const normalized = m.normalizeComment(iso, refDate1);
+
+    assert.equal(Date.parse(normalized.timestamp), Date.parse('2026-08-20T10:30:00.000Z'));
   });
 });
 
