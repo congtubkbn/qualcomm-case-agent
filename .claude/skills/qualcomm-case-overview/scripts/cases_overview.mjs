@@ -27,10 +27,14 @@ export function afterFinalize(caseCode, dataDir, options = {}) {
     if (typeof options.updateCaseOverview === 'function') {
       options.updateCaseOverview(caseCode, dataDir);
     }
+    // action/casesDir override options rather than the reverse: both prior
+    // call sites (finalize_case.mjs, run_summary.mjs) always forced 'upsert'
+    // against the resolved dataDir regardless of what options carried, and
+    // routing them through this shared hook (#202) must preserve that.
     return syncFn(caseCode, {
+      ...options,
       casesDir: dataDir,
       action: 'upsert',
-      ...options,
     });
   } catch (e) {
     if (typeof options.onError === 'function') {

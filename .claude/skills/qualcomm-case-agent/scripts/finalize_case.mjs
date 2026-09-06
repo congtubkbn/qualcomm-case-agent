@@ -37,7 +37,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
-import { syncCaseOverview } from '../../qualcomm-case-overview/scripts/cases_overview.mjs';
+import { afterFinalize } from '../../qualcomm-case-overview/scripts/cases_overview.mjs';
 
 // ---- Exit codes (exported so tests can import) ----
 export const EXIT = {
@@ -944,19 +944,7 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
   writeFileSync(INDEX_PATH, JSON.stringify(index, null, 2), 'utf8');
 
   // Auto-sync cases overview and dashboard
-  try {
-    const syncFn = options.syncCaseOverview || syncCaseOverview;
-    syncFn(caseCode, {
-      ...options,
-      casesDir: options.casesDir || DATA_DIR,
-      action: 'upsert',
-    });
-  } catch (e) {
-    if (typeof options.onError === 'function') {
-      options.onError(e, 'overview');
-    }
-    process.stderr.write(`Warning: overview auto-sync failed (${e.message})\n`);
-  }
+  afterFinalize(caseCode, options.casesDir || DATA_DIR, options);
 
   // Verdict fields the agent branches on. Emitted whenever a cached case existed,
   // including a FULL re-capture of one — the agent sees exactly which comments
