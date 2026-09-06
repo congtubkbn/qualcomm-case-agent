@@ -1,6 +1,9 @@
 // Renders the self-contained, offline HTML dashboard for Qualcomm case overview data.
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { formatStaleness } from './staleness.mjs';
+
+export { formatStaleness };
 
 /**
  * Escapes HTML characters in string to prevent XSS.
@@ -18,11 +21,20 @@ export function escapeHtml(str) {
 }
 
 /**
- * Categorizes status for badge colors and filtering.
+ * Categorizes status for badge colors and filtering. `ballInCourt` (from
+ * summary.json's executive.ballInCourt, per #192's rubric: qualcomm | customer |
+ * closed | unassigned) takes priority over the status text when present, since
+ * it is the authoritative "who needs to act" signal; status-text matching is
+ * only a fallback for cases without a summary yet.
  * @param {string} status
- * @returns {'open'|'in_progress'|'closed'|'action_required'|'other'}
+ * @param {string|null} [ballInCourt]
+ * @returns {'open'|'in_progress'|'closed'|'action_required'|'pending_qualcomm'|'pending_customer'|'other'}
  */
-export function getStatusCategory(status) {
+export function getStatusCategory(status, ballInCourt) {
+  const bic = (ballInCourt || '').toLowerCase();
+  if (bic === 'qualcomm') return 'pending_qualcomm';
+  if (bic === 'customer') return 'pending_customer';
+
   if (!status) return 'other';
   const s = status.toLowerCase();
   if (s.includes('action') || s.includes('need info') || s.includes('waiting')) return 'action_required';
@@ -46,17 +58,21 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
   let progressCount = 0;
   let closedCount = 0;
   let actionCount = 0;
+  let pendingQualcommCount = 0;
+  let pendingCustomerCount = 0;
 
   for (const c of cases) {
-    const cat = getStatusCategory(c.status);
+    const cat = getStatusCategory(c.status, c.ballInCourt);
     if (cat === 'open') openCount++;
     else if (cat === 'in_progress') progressCount++;
     else if (cat === 'closed') closedCount++;
     else if (cat === 'action_required') actionCount++;
+    else if (cat === 'pending_qualcomm') pendingQualcommCount++;
+    else if (cat === 'pending_customer') pendingCustomerCount++;
   }
 
   const rowsHtml = cases.map((c) => {
-    const category = getStatusCategory(c.status);
+    const category = getStatusCategory(c.status, c.ballInCourt);
     const escapedCaseNum = escapeHtml(c.caseNumber);
     const escapedTitle = escapeHtml(c.title || 'Untitled Case');
     const escapedStatus = escapeHtml(c.status || 'Unknown');
@@ -153,6 +169,10 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     const openedDisplay = escapedOpenedAt || '-';
     const syncedDisplay = escapedSyncedAt ? escapedSyncedAt.slice(0, 10) : '-';
     const lastAuthorDisplay = c.lastCommentAuthor ? escapeHtml(c.lastCommentAuthor) : '-';
+    const stalenessLabel = formatStaleness(c.lastCommentAt);
+    const stalenessDisplay = stalenessLabel
+      ? `<span class="activity-staleness" title="${escapeHtml(c.lastCommentAt)}">🕒 ${escapeHtml(stalenessLabel)}</span>`
+      : '';
 
     return `
       <tr class="case-row" data-case-id="${escapedCaseNum}" data-status-category="${category}" data-search="${escapedSearchIndex}">
@@ -186,6 +206,7 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
           <div class="activity-col">
             <span>Latest by: <strong>${lastAuthorDisplay}</strong></span>
             <span class="activity-comm-count">💬 ${commentCount} comments</span>
+            ${stalenessDisplay}
           </div>
         </td>
         <td class="actions-cell">
@@ -229,6 +250,8 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       --badge-closed-text: #52525b;
       --badge-action-bg: #fef2f2;
       --badge-action-text: #b91c1c;
+      --badge-pending-qc-text: #7c3aed;
+      --badge-pending-cust-text: #0891b2;
       --badge-p1-bg: #fef2f2;
       --badge-p1-text: #b91c1c;
       --badge-p2-bg: #fff7ed;
@@ -260,6 +283,8 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       --badge-closed-text: #cbd5e1;
       --badge-action-bg: rgba(239, 68, 68, 0.15);
       --badge-action-text: #fca5a5;
+      --badge-pending-qc-text: #c4b5fd;
+      --badge-pending-cust-text: #67e8f9;
       --badge-p1-bg: rgba(239, 68, 68, 0.2);
       --badge-p1-text: #fca5a5;
       --badge-p2-bg: rgba(249, 115, 22, 0.2);
@@ -289,6 +314,8 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         --badge-closed-text: #cbd5e1;
         --badge-action-bg: rgba(239, 68, 68, 0.15);
         --badge-action-text: #fca5a5;
+        --badge-pending-qc-text: #c4b5fd;
+        --badge-pending-cust-text: #67e8f9;
         --badge-p1-bg: rgba(239, 68, 68, 0.2);
         --badge-p1-text: #fca5a5;
         --badge-p2-bg: rgba(249, 115, 22, 0.2);
@@ -638,6 +665,9 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     .activity-comm-count {
       color: var(--text-muted);
     }
+    .activity-staleness {
+      color: var(--text-muted);
+    }
     .actions-cell {
       display: flex;
       gap: 4px;
@@ -899,6 +929,8 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     .status-tag-in_progress { color: var(--badge-progress-text); }
     .status-tag-closed { color: var(--badge-closed-text); }
     .status-tag-action_required { color: var(--badge-action-text); }
+    .status-tag-pending_qualcomm { color: var(--badge-pending-qc-text); }
+    .status-tag-pending_customer { color: var(--badge-pending-cust-text); }
     .status-tag-other { color: var(--text-muted); }
     .ai-summary {
       background: var(--summary-bg);
@@ -1054,6 +1086,8 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         <button class="filter-tab active" data-filter="all" type="button">All (${stats.total})</button>
         <button class="filter-tab" data-filter="open" type="button">Open (${openCount})</button>
         <button class="filter-tab" data-filter="in_progress" type="button">In Progress (${progressCount})</button>
+        <button class="filter-tab" data-filter="pending_qualcomm" type="button">Pending Qualcomm (${pendingQualcommCount})</button>
+        <button class="filter-tab" data-filter="pending_customer" type="button">Pending Customer (${pendingCustomerCount})</button>
         <button class="filter-tab" data-filter="action_required" type="button">Action Required (${actionCount})</button>
         <button class="filter-tab" data-filter="closed" type="button">Closed (${closedCount})</button>
         <button class="filter-tab" data-filter="hidden" type="button">Hidden Cases (<span id="hiddenCount">0</span>)</button>

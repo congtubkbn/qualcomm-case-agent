@@ -128,6 +128,46 @@ describe('cases_overview: extractCaseOverview', () => {
     rmSync(casesDir, { recursive: true, force: true });
   });
 
+  it('propagates ballInCourt from summary.json executive into the overview record (#201)', () => {
+    const casesDir = createTempCasesDir();
+    const caseDir = join(casesDir, '08603855');
+    mkdirSync(caseDir, { recursive: true });
+
+    writeFileSync(
+      join(caseDir, 'case.json'),
+      JSON.stringify({ caseNumber: '08603855', title: 'Case with pending signal', status: 'Pending', comments: [] }),
+      'utf8'
+    );
+    writeFileSync(
+      join(caseDir, 'summary.json'),
+      JSON.stringify({ executive: { ballInCourt: 'customer', resolution: 'Pending log analysis' } }),
+      'utf8'
+    );
+
+    const result = extractCaseOverview(caseDir, '08603855');
+    assert.equal(result.ballInCourt, 'customer');
+
+    rmSync(casesDir, { recursive: true, force: true });
+  });
+
+  it('defaults ballInCourt to null when summary.json has no executive.ballInCourt', () => {
+    const casesDir = createTempCasesDir();
+    const caseDir = join(casesDir, '08603856');
+    mkdirSync(caseDir, { recursive: true });
+
+    writeFileSync(
+      join(caseDir, 'case.json'),
+      JSON.stringify({ caseNumber: '08603856', title: 'Case without executive', status: 'Open', comments: [] }),
+      'utf8'
+    );
+    writeFileSync(join(caseDir, 'summary.json'), JSON.stringify({ summary: 'Simple summary' }), 'utf8');
+
+    const result = extractCaseOverview(caseDir, '08603856');
+    assert.equal(result.ballInCourt, null);
+
+    rmSync(casesDir, { recursive: true, force: true });
+  });
+
   it('handles case with no summary.json gracefully', () => {
     const casesDir = createTempCasesDir();
     const caseDir = join(casesDir, '08123456');

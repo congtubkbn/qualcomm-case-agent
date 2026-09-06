@@ -1,5 +1,6 @@
 // Renders the terminal summary table for Qualcomm case overview data.
 import { applyFilter } from './overview_store.mjs';
+import { formatStaleness } from './staleness.mjs';
 
 /**
  * Renders formatted terminal summary and case table.
@@ -36,10 +37,16 @@ export function renderCliTable(overviewData, options = {}) {
     if (c.customerProject) metaParts.push(`Project: ${c.customerProject}`);
     if (c.raisedBy) metaParts.push(`Raised by: ${c.raisedBy}`);
     if (c.openedAt) metaParts.push(`Opened: ${c.openedAt}`);
+    if (c.ballInCourt) metaParts.push(`Pending On: ${c.ballInCourt}`);
     metaParts.push(`Comments: ${c.commentCount || 0}`);
 
     lines.push(`[${c.caseNumber}] ${c.title || 'Untitled case'}`);
     lines.push(`  ${metaParts.join(' | ')}`);
+
+    const staleness = formatStaleness(c.lastCommentAt);
+    if (staleness) {
+      lines.push(`  Last activity: ${staleness} (${c.lastCommentAt})`);
+    }
 
     if (c.aiSummary) {
       lines.push(`  Summary: ${c.aiSummary}`);

@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from '../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs';
-import { escapeHtml, renderDashboardHtml } from '../.claude/skills/qualcomm-case-overview/scripts/dashboard_renderer.mjs';
+import { escapeHtml, formatStaleness, getStatusCategory, renderDashboardHtml } from '../.claude/skills/qualcomm-case-overview/scripts/dashboard_renderer.mjs';
 import { renderCliTable } from '../.claude/skills/qualcomm-case-overview/scripts/cli_renderer.mjs';
 
 const SCRIPT = fileURLToPath(
@@ -78,6 +78,45 @@ function createSampleOverviewData() {
     },
   };
 }
+
+describe('cases_overview_render: getStatusCategory (#201)', () => {
+  it('distinguishes Pending Qualcomm vs Pending Customer into 2 separate categories via ballInCourt', () => {
+    assert.equal(getStatusCategory('Pending Qualcomm', 'qualcomm'), 'pending_qualcomm');
+    assert.equal(getStatusCategory('Pending Customer', 'customer'), 'pending_customer');
+    assert.notEqual(
+      getStatusCategory('Pending Qualcomm', 'qualcomm'),
+      getStatusCategory('Pending Customer', 'customer')
+    );
+  });
+
+  it('prioritizes ballInCourt over status text when present, regardless of the status string', () => {
+    assert.equal(getStatusCategory('In Progress', 'qualcomm'), 'pending_qualcomm');
+    assert.equal(getStatusCategory('In Progress', 'customer'), 'pending_customer');
+  });
+
+  it('falls back to prior status-text heuristics when ballInCourt is absent or unassigned (#193 bug: both collapsed into in_progress)', () => {
+    assert.equal(getStatusCategory('Open'), 'open');
+    assert.equal(getStatusCategory('Closed-Resolved'), 'closed');
+    assert.equal(getStatusCategory('Action Required'), 'action_required');
+    assert.equal(getStatusCategory('Pending Qualcomm'), 'in_progress');
+    assert.equal(getStatusCategory('Pending Customer'), 'in_progress');
+    assert.equal(getStatusCategory('In Progress', 'unassigned'), 'in_progress');
+    assert.equal(getStatusCategory(null), 'other');
+  });
+});
+
+describe('cases_overview_render: formatStaleness (#201)', () => {
+  it('formats relative day counts and handles edge cases', () => {
+    const now = new Date('2026-08-25T00:00:00.000Z');
+    assert.equal(formatStaleness('2026-08-25T00:00:00.000Z', now), 'Today');
+    assert.equal(formatStaleness('2026-08-24T00:00:00.000Z', now), '1 day ago');
+    assert.equal(formatStaleness('2026-08-15T00:00:00.000Z', now), '10 days ago');
+    assert.equal(formatStaleness('', now), '');
+    assert.equal(formatStaleness(null, now), '');
+    // Legacy non-ISO absolute text (pre-#199 normalization) is not Date-parseable.
+    assert.equal(formatStaleness('July 22, 2026 at 5:42 AM', now), '');
+  });
+});
 
 describe('cases_overview_render: escapeHtml helper', () => {
   it('escapes &, <, >, ", and \' characters properly', () => {
@@ -306,6 +345,58 @@ describe('cases_overview_render: renderDashboardHtml', () => {
     assert.ok(html.includes('qc_dashboard_refresh_interval'), 'Must include refresh interval storage key');
   });
 
+  it('renders distinct badge categories and filter tabs for Pending Qualcomm vs Pending Customer (#201)', () => {
+    const data = {
+      cases: [
+        {
+          caseNumber: '08111111',
+          title: 'Case waiting on Qualcomm',
+          status: 'Pending',
+          ballInCourt: 'qualcomm',
+          latestComments: [],
+        },
+        {
+          caseNumber: '08222222',
+          title: 'Case waiting on Customer',
+          status: 'Pending',
+          ballInCourt: 'customer',
+          latestComments: [],
+        },
+      ],
+      stats: { total: 2, byStatus: { Pending: 2 }, lastUpdated: '2026-08-23T06:00:00.000Z' },
+    };
+    const html = renderDashboardHtml(data);
+
+    assert.ok(html.includes('data-status-category="pending_qualcomm"'));
+    assert.ok(html.includes('data-status-category="pending_customer"'));
+    assert.ok(html.includes('status-tag-pending_qualcomm'));
+    assert.ok(html.includes('status-tag-pending_customer'));
+    assert.ok(html.includes('data-filter="pending_qualcomm"'));
+    assert.ok(html.includes('data-filter="pending_customer"'));
+    assert.ok(html.includes('Pending Qualcomm (1)'));
+    assert.ok(html.includes('Pending Customer (1)'));
+  });
+
+  it('renders a staleness label from lastCommentAt (#201)', () => {
+    const data = {
+      cases: [
+        {
+          caseNumber: '08333333',
+          title: 'Stale case',
+          status: 'Open',
+          lastCommentAt: '2020-01-01T00:00:00.000Z',
+          latestComments: [],
+        },
+      ],
+      stats: { total: 1, byStatus: { Open: 1 }, lastUpdated: '2026-08-23T06:00:00.000Z' },
+    };
+    const html = renderDashboardHtml(data);
+
+    assert.ok(html.includes('activity-staleness'));
+    assert.match(html, /\d+ days ago/);
+    assert.ok(html.includes('title="2020-01-01T00:00:00.000Z"'));
+  });
+
   it('writes HTML to disk when outputPath is provided', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'qc-dash-test-'));
     const outputPath = join(tempDir, 'dashboard.html');
@@ -380,6 +471,25 @@ describe('cases_overview_render: renderCliTable', () => {
     };
     const output = renderCliTable(data);
     assert.ok(output.includes('Raised by: John Creator'), 'Should contain Raised by: John Creator');
+  });
+
+  it('renders Pending On and staleness signal in CLI summary table (#201)', () => {
+    const data = {
+      cases: [
+        {
+          caseNumber: '08444444',
+          title: 'Stale customer-pending case',
+          status: 'Pending',
+          ballInCourt: 'customer',
+          lastCommentAt: '2020-01-01T00:00:00.000Z',
+          commentCount: 1,
+        },
+      ],
+      stats: { total: 1, byStatus: { Pending: 1 } },
+    };
+    const output = renderCliTable(data);
+    assert.ok(output.includes('Pending On: customer'), 'Should contain Pending On: customer');
+    assert.match(output, /Last activity: \d+ days ago \(2020-01-01T00:00:00\.000Z\)/);
   });
 
   it('renders Customer Project and opened timestamp in CLI summary table', () => {

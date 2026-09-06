@@ -163,16 +163,21 @@ export function extractCaseOverview(caseDir, caseNumber = '') {
     const summaryJsonPath = join(caseDir, 'summary.json');
     let hasSummary = false;
     let aiSummary = null;
+    let ballInCourt = null;
 
     if (existsSync(summaryJsonPath)) {
       try {
         const summaryRaw = readFileSync(summaryJsonPath, 'utf8');
         const summaryJson = JSON.parse(summaryRaw);
         aiSummary = extractAiSummary(summaryJson);
+        ballInCourt = (summaryJson.executive && typeof summaryJson.executive.ballInCourt === 'string')
+          ? summaryJson.executive.ballInCourt
+          : null;
         hasSummary = true;
       } catch {
         hasSummary = false;
         aiSummary = null;
+        ballInCourt = null;
       }
     }
 
@@ -195,6 +200,7 @@ export function extractCaseOverview(caseDir, caseNumber = '') {
       commentCount,
       hasSummary,
       aiSummary,
+      ballInCourt,
       latestComments,
     };
   } catch {
