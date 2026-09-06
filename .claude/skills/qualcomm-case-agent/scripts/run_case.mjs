@@ -26,7 +26,6 @@
 // `retryable: true` on a `blocked` verdict marks a transient capture glitch
 // (e.g. a stuck expand loop) worth retrying.
 
-import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,6 +34,8 @@ import { intake } from './intake.mjs';
 import { acquireLockOrWaitForSameCode, releaseLock } from './lock.mjs';
 import { BrowserError, CDP_PORT, PortConflictError, ensureChrome, evalFileViaCdp, getCdpClient, open, screenshot, sleep } from './browser.mjs';
 import { fastLandOnCase } from './fast_landing.mjs';
+import { finalize, EXIT as FINALIZE_EXIT } from './finalize_case.mjs';
+import { renderCase } from './render_case.mjs';
 import { verifyCase } from './verify_case.mjs';
 import { ensureProtocolRegistered } from '../../../../scripts/ensure_protocol.mjs';
 
@@ -139,16 +140,6 @@ function shoot(dir, name) {
     process.stderr.write(`screenshot failed (${name}): ${e.message}\n`);
     return null;
   }
-}
-
-function node(script, args) {
-  const r = spawnSync(process.execPath, [join(SCRIPTS, script), ...args], {
-    encoding: 'utf8', timeout: 300000,
-  });
-  const out = (r.stdout || '').trim();
-  let json = null;
-  try { json = JSON.parse(out.split('\n').filter(Boolean).pop() || 'null'); } catch { /* text output */ }
-  return { code: r.status, out, json, err: (r.stderr || '').trim() };
 }
 
 export async function run(code, opts = {}) {
@@ -528,31 +519,39 @@ export async function run(code, opts = {}) {
   writeFileSync(rawPath, JSON.stringify(raw, null, 2), 'utf8');
 
   // --- Finalize
-  const flags = [];
-  if (merge) flags.push('--merge');
-  if (header.status) flags.push('--status', header.status);
-  if (header.priority) flags.push('--priority', header.priority);
-  if (!merge && header.title) flags.push('--title', header.title);
-
-  const finalizeRes = node('finalize_case.mjs', [code, rawPath, ...flags]);
-  if (finalizeRes.code !== 0) {
+  // Same overrides a CLI-flags call would have produced: status/priority always
+  // win when present, but title is withheld on --merge (an update run trusts the
+  // already-cached title over a possibly-stale search-row value).
+  const headerOverride = {
+    ...(header.status ? { status: header.status } : {}),
+    ...(header.priority ? { priority: header.priority } : {}),
+    ...(!merge && header.title ? { title: header.title } : {}),
+  };
+  const result = finalize(code, rawPath, headerOverride, merge);
+  if (result.code !== FINALIZE_EXIT.OK) {
     return {
       status: 'blocked',
-      reason: `finalize_case.mjs failed: ${finalizeRes.err || finalizeRes.out}`,
-      finalizeOut: finalizeRes.out,
+      reason: result.reason || `finalize_case.mjs gate failed (code ${result.code})`,
+      finalizeCode: result.code,
       timing: { landingMs: landingDurationMs },
     };
   }
 
-  const v = finalizeRes.json || {};
+  const v = result;
   const newComments = typeof v.newComments === 'number' ? v.newComments : (cached ? 0 : v.commentCount);
 
   // --- Render
-  const render = node('render_case.mjs', [casePath]);
-  const artifacts = {
-    mdPath: join(caseDir, 'case.md'),
-    casePath,
-  };
+  let artifacts;
+  try {
+    const mdPath = renderCase(casePath);
+    artifacts = { mdPath, casePath };
+  } catch (e) {
+    return {
+      status: 'blocked',
+      reason: `render_case.mjs failed: ${e.message}`,
+      timing: { landingMs: landingDurationMs },
+    };
+  }
 
   // --- QA Gate
   const verified = verifyCase(code, caseDir);

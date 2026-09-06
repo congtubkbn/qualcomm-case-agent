@@ -705,8 +705,7 @@ const INDEX_PATH = join(DATA_DIR, '_index.json');
 // ---- Main ----
 export function finalize(caseCode, rawPath, header = {}, merge = false, options = {}) {
   if (!existsSync(rawPath)) {
-    emit({ code: EXIT.BAD_ARGS, reason: `raw JSON not found: ${rawPath}` });
-    process.exit(EXIT.BAD_ARGS);
+    return { code: EXIT.BAD_ARGS, reason: `raw JSON not found: ${rawPath}` };
   }
 
   const rawText = readFileSync(rawPath, 'utf8');
@@ -714,21 +713,18 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
   try {
     raw = JSON.parse(rawText.charCodeAt(0) === 0xFEFF ? rawText.slice(1) : rawText);
   } catch (e) {
-    emit({ code: EXIT.BAD_ARGS, reason: `raw JSON parse error: ${e.message}` });
-    process.exit(EXIT.BAD_ARGS);
+    return { code: EXIT.BAD_ARGS, reason: `raw JSON parse error: ${e.message}` };
   }
 
   if (!raw || !Array.isArray(raw.comments)) {
-    emit({ code: EXIT.BAD_ARGS, reason: 'raw.comments must be an array' });
-    process.exit(EXIT.BAD_ARGS);
+    return { code: EXIT.BAD_ARGS, reason: 'raw.comments must be an array' };
   }
 
   // A real Qualcomm case always has at least the opening post. Zero comments means
   // the extractor ran on the wrong view (Feed not loaded, drifted to the Cases list,
   // session expired) — reject so a failed pull never OVERWRITES a good cached case.
   if (raw.comments.length === 0) {
-    emit({ code: EXIT.INCOMPLETE, reason: 'extracted 0 comments — likely wrong page / failed capture; not persisting', caseCode });
-    process.exit(EXIT.INCOMPLETE);
+    return { code: EXIT.INCOMPLETE, reason: 'extracted 0 comments — likely wrong page / failed capture; not persisting', caseCode };
   }
 
   // Reference date for resolving relative Chatter timestamps (e.g. "12 days ago")
@@ -747,16 +743,14 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
       cached = migrateIds(JSON.parse(t.charCodeAt(0) === 0xFEFF ? t.slice(1) : t));
     } catch (e) {
       if (merge) {
-        emit({ code: EXIT.BAD_ARGS, reason: `cached case.json parse error: ${e.message}`, caseCode });
-        process.exit(EXIT.BAD_ARGS);
+        return { code: EXIT.BAD_ARGS, reason: `cached case.json parse error: ${e.message}`, caseCode };
       }
       // Full capture over an unreadable cache: the fresh pull replaces it wholesale.
       process.stderr.write(`Warning: cached case.json unreadable (${e.message}), replacing it\n`);
     }
   }
   if (merge && !cached) {
-    emit({ code: EXIT.BAD_ARGS, reason: `--merge but no cached case.json at ${casePath} — run a full extraction (no --merge) first`, caseCode });
-    process.exit(EXIT.BAD_ARGS);
+    return { code: EXIT.BAD_ARGS, reason: `--merge but no cached case.json at ${casePath} — run a full extraction (no --merge) first`, caseCode };
   }
 
   // Inject description as initial comment if non-empty and not already present.
@@ -841,13 +835,12 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
   // than a capture that fails loud and gets retried.
   const collapsed = findCollapsed(out.comments, newIds);
   if (collapsed.length) {
-    emit({
+    return {
       code: EXIT.INCOMPLETE,
       reason: `${collapsed.length} new comment(s) still show a collapsed "Expand Post" control — expansion incomplete, not persisting`,
       collapsedAuthors: collapsed.map(c => c.author),
       caseCode,
-    });
-    process.exit(EXIT.INCOMPLETE);
+    };
   }
 
   // Completeness gate BEFORE any write — a short capture is not persisted.
@@ -855,8 +848,7 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
   // not pad the count and mask one real Chatter comment missing.
   const assertion = countAssert(genuineCommentCount(out.comments, out.description), out.displayedCommentCount);
   if (!assertion.ok) {
-    emit({ code: EXIT.INCOMPLETE, ...assertion, caseCode });
-    process.exit(EXIT.INCOMPLETE);
+    return { code: EXIT.INCOMPLETE, ...assertion, caseCode };
   }
 
   // Header fields from CLI flags (PHASE 1 search row). Full capture: only fill
@@ -874,12 +866,11 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
   // (pass `--title`). An empty title is a failed pull dressed as success (the
   // renderer would fall back to "Untitled case"), so reject rather than persist.
   if (!String(out.title || '').trim()) {
-    emit({
+    return {
       code: EXIT.INCOMPLETE,
       reason: 'empty title — backfill header fields (title/status/priority) from the PHASE 1 search row before finalizing',
       caseCode,
-    });
-    process.exit(EXIT.INCOMPLETE);
+    };
   }
 
   // Soft signal for the remaining header fields — sometimes legitimately empty
@@ -963,7 +954,7 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
       }
     : {};
 
-  emit({
+  return {
     code: EXIT.OK,
     caseCode,
     commentCount: out.comments.length,
@@ -979,8 +970,7 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
       ? { warning: [assertion.warning, thinHeader.length ? `empty header fields: ${thinHeader.join(', ')}` : '']
           .filter(Boolean).join('; ') }
       : {}),
-  });
-  process.exit(EXIT.OK);
+  };
 }
 
 function emit(obj) {
@@ -996,5 +986,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.exit(EXIT.BAD_ARGS);
   }
   const rest = process.argv.slice(4);
-  finalize(caseCode, rawPath, parseHeaderFlags(rest), rest.includes('--merge'));
+  const result = finalize(caseCode, rawPath, parseHeaderFlags(rest), rest.includes('--merge'));
+  emit(result);
+  process.exit(result.code);
 }

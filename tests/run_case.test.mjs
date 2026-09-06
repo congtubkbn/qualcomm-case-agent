@@ -737,6 +737,58 @@ describe('run() fast landing & verdict integration', () => {
     assert.equal(caseData.comments.length, 1);
   });
 
+  it('surfaces a renderCase() failure as status:blocked without retryable (not the heuristic verify_case retry path)', async (t) => {
+    const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08700020';
+    const mockCdp = {
+      isConnected: () => true,
+      navigate: async () => {},
+      eval: async () => ({
+        state: 'ON_CASE',
+        href: targetUrl,
+        fields: { title: 'Render Failure Case', status: 'Open' },
+      }),
+      click: async () => true,
+      close: async () => {},
+    };
+
+    mockBrowser(t, (file, vars) => {
+      if (file === 'switch_tab.js') {
+        if (vars?.__TARGET_TAB === 'Detail') return { ok: false, reason: 'Detail tab not found in DOM' };
+        return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
+      }
+      if (file === 'expand_step.js') {
+        if (vars?.__PROBE) return { articles: 1, displayed: 1, anchorIdx: -1, top: { author: 'Alice', bodyStart: 'Comment' } };
+        return { clickedExpand: 0, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
+      }
+      if (file === 'check_collapsed.js') {
+        return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      }
+      if (file === 'extract_case.js') {
+        return {
+          caseNumber: '08700020',
+          title: 'Render Failure Case',
+          url: targetUrl,
+          comments: [{ author: 'Alice', body: 'Comment body', timestamp: 'August 12, 2026' }],
+        };
+      }
+      throw new Error(`Unexpected evalFile: ${file}`);
+    }, mockCdp);
+
+    t.mock.module(new URL('render_case.mjs', SCRIPTS), {
+      exports: {
+        renderCase: () => { throw new Error('disk full'); },
+      },
+    });
+
+    mkdirSync(join(process.env.QUALCOMM_ROOT, 'data', 'cases', '08700020'), { recursive: true });
+    const { run } = await importRunCase();
+    const v = await run('08700020', { mode: 'auto', cdp: mockCdp });
+
+    assert.equal(v.status, 'blocked');
+    assert.match(v.reason, /render_case\.mjs failed: disk full/);
+    assert.equal(v.retryable, undefined);
+  });
+
   it('blocks instead of extracting when switch-back to the Feed tab fails permanently (case 08637663: an unrecognized tab label — "Communication" — left Detail active during extraction, silently under-capturing 8 of 15 comments)', async (t) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/500dK00000ONSaTQAX/08637663';
     const mockCdp = {
@@ -790,7 +842,7 @@ describe('run() fast landing & verdict integration', () => {
     assert.equal(extractCallCount, 1);
   });
 
-  it('returns finalizeOut in error payload when finalize_case.mjs fails', async (t) => {
+  it('surfaces a finalize() gate failure as status:blocked with the real structured reason (in-process call, no subprocess text-scraping)', async (t) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603857';
     const mockCdp = {
       isConnected: () => true,
@@ -833,8 +885,10 @@ describe('run() fast landing & verdict integration', () => {
     const v = await run('08603857', { mode: 'auto', cdp: mockCdp });
 
     assert.equal(v.status, 'blocked');
-    assert.match(v.reason, /finalize_case\.mjs failed/i);
-    assert.ok(v.finalizeOut);
+    assert.match(v.reason, /collapsed "Expand Post" control/);
+    assert.equal(v.finalizeCode, 5); // EXIT.INCOMPLETE
+    assert.equal(v.retryable, undefined);
+    assert.equal(v.finalizeOut, undefined);
     assert.equal(v.scrapeOut, undefined);
   });
 });

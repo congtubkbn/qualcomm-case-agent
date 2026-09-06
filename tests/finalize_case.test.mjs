@@ -1,12 +1,16 @@
 // Tests for the finalizer — the module that decides what gets persisted.
 //     node --test tests/
 //
-// Two layers, because the risk sits in both:
+// Three layers, because the risk sits in all three:
 //   1. the pure helpers (identity, hashing, merging, gates), imported directly;
-//   2. finalize() itself, exercised by SPAWNING the script against a throwaway
-//      cache root. finalize() ends in process.exit, so a child process is the
-//      honest way to test it — and what it actually persists only shows up
-//      through the real file it writes.
+//   2. finalize()'s gate branches (BAD_ARGS/INCOMPLETE), called in-process and
+//      asserted on the returned verdict object directly — finalize() itself
+//      never calls process.exit; only the CLI entry-point guard at the bottom
+//      of finalize_case.mjs does, after finalize() returns;
+//   3. the documented manual CLI contract (`node finalize_case.mjs <CODE> ...`,
+//      references/extraction.md), exercised by SPAWNING the script against a
+//      throwaway cache root — what it actually persists only shows up through
+//      the real file it writes.
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -494,6 +498,93 @@ const RAW = {
   displayedCommentCount: 2,
   comments: [comment('Alice', 'RRC reject on n78', { timestamp: '2 days ago' }), comment('Bob', 'Initial report', { timestamp: '5 days ago' })],
 };
+
+describe('finalize() — in-process return value (gate branches)', () => {
+  // A case code no real Qualcomm case will ever have — these branches read
+  // (existsSync/readFileSync) from the real DATA_DIR before returning, since
+  // finalize() only accepts a rawPath override, not a full DATA_DIR override.
+  // None of them reach the write path (mkdirSync/writeFileSync), so using a
+  // nonce code here means these tests never touch anything on real disk.
+  const NONCE_CODE = 'TDD-GATE-TEST';
+
+  it('returns BAD_ARGS (not exit) when the raw JSON path does not exist', () => {
+    const root = fixture();
+    const result = m.finalize(NONCE_CODE, join(root, 'missing.json'));
+    assert.equal(result.code, m.EXIT.BAD_ARGS);
+    assert.match(result.reason, /raw JSON not found/);
+  });
+
+  it('returns BAD_ARGS on malformed raw JSON', () => {
+    const root = fixture();
+    const rawPath = join(root, 'case.raw.json');
+    writeFileSync(rawPath, '{not json', 'utf8');
+    const result = m.finalize(NONCE_CODE, rawPath);
+    assert.equal(result.code, m.EXIT.BAD_ARGS);
+    assert.match(result.reason, /raw JSON parse error/);
+  });
+
+  it('returns BAD_ARGS when raw.comments is not an array', () => {
+    const root = fixture();
+    const rawPath = join(root, 'case.raw.json');
+    writeFileSync(rawPath, JSON.stringify({ comments: 'nope' }), 'utf8');
+    const result = m.finalize(NONCE_CODE, rawPath);
+    assert.equal(result.code, m.EXIT.BAD_ARGS);
+    assert.match(result.reason, /must be an array/);
+  });
+
+  it('returns INCOMPLETE when the extraction has 0 comments', () => {
+    const root = fixture();
+    const rawPath = join(root, 'case.raw.json');
+    writeFileSync(rawPath, JSON.stringify({ comments: [] }), 'utf8');
+    const result = m.finalize(NONCE_CODE, rawPath);
+    assert.equal(result.code, m.EXIT.INCOMPLETE);
+    assert.match(result.reason, /extracted 0 comments/);
+  });
+
+  it('returns BAD_ARGS on --merge with no cached case', () => {
+    const root = fixture();
+    const rawPath = join(root, 'case.raw.json');
+    writeFileSync(rawPath, JSON.stringify(RAW), 'utf8');
+    const result = m.finalize(NONCE_CODE, rawPath, {}, true);
+    assert.equal(result.code, m.EXIT.BAD_ARGS);
+    assert.match(result.reason, /--merge but no cached case\.json/);
+  });
+
+  it('returns INCOMPLETE when a new comment is still collapsed ("Expand Post")', () => {
+    const root = fixture();
+    const rawPath = join(root, 'case.raw.json');
+    writeFileSync(rawPath, JSON.stringify({
+      ...RAW,
+      comments: [comment('Alice', 'long body...\n\nExpand Post')],
+    }), 'utf8');
+    const result = m.finalize(NONCE_CODE, rawPath);
+    assert.equal(result.code, m.EXIT.INCOMPLETE);
+    assert.equal(result.collapsedAuthors[0], 'Alice');
+  });
+
+  it('returns INCOMPLETE when captured comments fall short of the displayed count', () => {
+    const root = fixture();
+    const rawPath = join(root, 'case.raw.json');
+    writeFileSync(rawPath, JSON.stringify({
+      ...RAW,
+      displayedCommentCount: 5,
+      comments: [comment('Alice', 'only one comment captured')],
+    }), 'utf8');
+    const result = m.finalize(NONCE_CODE, rawPath);
+    assert.equal(result.code, m.EXIT.INCOMPLETE);
+    assert.equal(result.captured, 1);
+    assert.equal(result.displayed, 5);
+  });
+
+  it('returns INCOMPLETE when title is empty', () => {
+    const root = fixture();
+    const rawPath = join(root, 'case.raw.json');
+    writeFileSync(rawPath, JSON.stringify({ ...RAW, title: '' }), 'utf8');
+    const result = m.finalize(NONCE_CODE, rawPath);
+    assert.equal(result.code, m.EXIT.INCOMPLETE);
+    assert.match(result.reason, /empty title/);
+  });
+});
 
 describe('finalize (child process)', () => {
   it('writes the canonical case.json and indexes it', () => {
@@ -1121,27 +1212,21 @@ describe('finalize (child process): dashboard render isolation', () => {
     assert.equal(overview.cases[0].title, 'NR SA attach failure');
   });
 
-  it('invokes dependency-injected syncCaseOverview option when finalizing', (t) => {
+  it('invokes dependency-injected syncCaseOverview option when finalizing', () => {
     const root = fixture();
     const rawPath = join(root, 'data', 'cases', '08603854', 'case.raw.json');
     writeFileSync(rawPath, JSON.stringify(RAW), 'utf8');
 
     let syncCalledWith = null;
-    t.mock.method(process, 'exit', (code) => {
-      throw new Error(`process.exit:${code}`);
+    const result = m.finalize('08603854', rawPath, {}, false, {
+      casesDir: join(root, 'data', 'cases'),
+      syncCaseOverview: (code, opts) => {
+        syncCalledWith = { code, opts };
+        return { hadEntry: true, overviewData: {}, rendered: true };
+      },
     });
 
-    assert.throws(
-      () => m.finalize('08603854', rawPath, {}, false, {
-        casesDir: join(root, 'data', 'cases'),
-        syncCaseOverview: (code, opts) => {
-          syncCalledWith = { code, opts };
-          return { hadEntry: true, overviewData: {}, rendered: true };
-        },
-      }),
-      /process.exit:0/
-    );
-
+    assert.equal(result.code, m.EXIT.OK);
     assert.ok(syncCalledWith);
     assert.equal(syncCalledWith.code, '08603854');
     assert.equal(syncCalledWith.opts.action, 'upsert');
@@ -1154,20 +1239,14 @@ describe('finalize (child process): dashboard render isolation', () => {
     writeFileSync(rawPath, JSON.stringify(RAW), 'utf8');
     const writeSpy = t.mock.method(process.stderr, 'write');
 
-    t.mock.method(process, 'exit', (code) => {
-      throw new Error(`process.exit:${code}`);
+    const result = m.finalize('08603854', rawPath, {}, false, {
+      casesDir: join(root, 'data', 'cases'),
+      syncCaseOverview: () => {
+        throw new Error('simulated sync crash');
+      },
     });
 
-    assert.throws(
-      () => m.finalize('08603854', rawPath, {}, false, {
-        casesDir: join(root, 'data', 'cases'),
-        syncCaseOverview: () => {
-          throw new Error('simulated sync crash');
-        },
-      }),
-      /process.exit:0/
-    );
-
+    assert.equal(result.code, m.EXIT.OK);
     const warnings = writeSpy.mock.calls.map((c) => c.arguments[0]).join('');
     assert.match(warnings, /Warning: overview auto-sync failed \(simulated sync crash\)/);
   });
