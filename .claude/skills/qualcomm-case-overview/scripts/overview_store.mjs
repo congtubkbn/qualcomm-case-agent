@@ -1,9 +1,12 @@
 // Data/domain module: scans case directories, shapes overview records, computes stats,
 // and persists the aggregated _overview.json atomically.
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderDashboardHtml } from './dashboard_renderer.mjs';
+import { acquireOverviewLock, releaseOverviewLock, withOverviewLock } from './overview_lock.mjs';
+
+export { acquireOverviewLock, releaseOverviewLock };
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -269,92 +272,6 @@ export function buildOverviewData(casesDir = DEFAULT_CASES_DIR) {
   };
 }
 
-// mkdirSync throws EEXIST atomically (unlike exists-then-write), so two
-// syncCaseOverview calls racing on the SAME _overview.json — e.g. finalize_case.mjs
-// and run_summary.mjs finishing for two different cases at once (issue #202) — can't
-// both "win" the read-modify-write and clobber each other's upsert.
-const OVERVIEW_LOCK_STALE_MS = 10000; // a read-modify-write-rename never legitimately takes this long
-const OVERVIEW_LOCK_RETRY_MS = 20;
-const OVERVIEW_LOCK_TIMEOUT_MS = 5000;
-
-function blockingSleep(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-function randomToken() {
-  return `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-/**
- * Acquires the exclusive lock guarding _overview.json's read-modify-write-rename.
- * Exported so tests can exercise stale-takeover and timeout behavior directly
- * with tighter thresholds than the real defaults.
- *
- * Returns a { path, token } handle, not just the path: a stale-timeout takeover
- * replaces the lock dir's owner, so releaseOverviewLock needs the token to tell
- * "still mine" from "someone else took this over while I was slow" — otherwise
- * the original (slow but still-alive) holder would eventually call release and
- * delete a lock a different process now legitimately owns, reopening the exact
- * race this lock exists to close.
- *
- * @param {string} casesDir
- * @param {object} [opts={}]
- * @param {number} [opts.staleMs=OVERVIEW_LOCK_STALE_MS] Age after which a held lock is presumed abandoned and taken over
- * @param {number} [opts.retryMs=OVERVIEW_LOCK_RETRY_MS] Poll interval while waiting
- * @param {number} [opts.timeoutMs=OVERVIEW_LOCK_TIMEOUT_MS] Total time to wait before giving up
- * @returns {{ path: string, token: string }} lock handle — pass to releaseOverviewLock
- */
-export function acquireOverviewLock(casesDir, opts = {}) {
-  const staleMs = opts.staleMs ?? OVERVIEW_LOCK_STALE_MS;
-  const retryMs = opts.retryMs ?? OVERVIEW_LOCK_RETRY_MS;
-  const timeoutMs = opts.timeoutMs ?? OVERVIEW_LOCK_TIMEOUT_MS;
-  const path = join(casesDir, '.overview.lock');
-  const start = Date.now();
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    try {
-      mkdirSync(path);
-      const token = randomToken();
-      writeFileSync(join(path, 'owner'), token, 'utf8');
-      return { path, token };
-    } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-      let stale = false;
-      try {
-        stale = Date.now() - statSync(path).mtimeMs > staleMs;
-      } catch {
-        stale = true; // lock dir vanished between the failed mkdir and this stat
-      }
-      if (stale) {
-        try { rmSync(path, { recursive: true, force: true }); continue; } catch { /* another process just cleared it, retry */ }
-      }
-      if (Date.now() - start > timeoutMs) {
-        throw new Error(`overview lock timeout: ${path}`);
-      }
-      blockingSleep(retryMs);
-    }
-  }
-}
-
-/**
- * Releases a lock acquired by acquireOverviewLock. No-op if already gone, and
- * also a no-op (deliberately does NOT delete) if a stale-timeout takeover has
- * since handed the lock dir to a different holder — see acquireOverviewLock.
- * @param {{ path: string, token: string }} lock
- */
-export function releaseOverviewLock(lock) {
-  if (!lock) return;
-  const { path, token } = lock;
-  let owner;
-  try {
-    owner = readFileSync(join(path, 'owner'), 'utf8');
-  } catch {
-    return; // owner file gone — already reclaimed by someone else, nothing to do
-  }
-  if (owner !== token) return; // taken over while we held it; not ours to remove
-  try { rmSync(path, { recursive: true, force: true }); } catch { /* already gone */ }
-}
-
 /**
  * Unified, resilient synchronization seam for case overview cache and dashboard.
  * Supports both upserting and removing cases from the overview cache,
@@ -389,11 +306,11 @@ export function syncCaseOverview(caseNumber, options = {}) {
   let overviewData;
   let hadEntry = false;
 
-  // Lock the read-modify-write-rename below: two syncCaseOverview calls for
-  // different cases racing here would otherwise last-write-wins each other's
-  // upsert instead of merging (#202).
-  const lock = acquireOverviewLock(casesDir);
-  try {
+  // Lock the read-modify-write-rename below via overview_lock module: two
+  // syncCaseOverview calls racing on the SAME _overview.json — e.g. finalize_case.mjs
+  // and run_summary.mjs finishing for two different cases at once (issue #202) — can't
+  // both "win" the read-modify-write and clobber each other's upsert.
+  const syncResult = withOverviewLock(casesDir, () => {
     if (existsSync(overviewPath)) {
       try {
         overviewData = JSON.parse(readFileSync(overviewPath, 'utf8'));
@@ -413,7 +330,7 @@ export function syncCaseOverview(caseNumber, options = {}) {
 
     if (action === 'remove') {
       if (!hadEntry) {
-        return { hadEntry: false, overviewData, rendered: false };
+        return { earlyExit: true, hadEntry: false, overviewData };
       }
       overviewData.cases = overviewData.cases.filter((c) => c.caseNumber !== caseNumber);
     } else {
@@ -448,9 +365,15 @@ export function syncCaseOverview(caseNumber, options = {}) {
     const tempPath = join(casesDir, `_overview.json.tmp.${process.pid}.${Date.now()}`);
     writeFileSync(tempPath, JSON.stringify(overviewData, null, 2), 'utf8');
     renameSync(tempPath, overviewPath);
-  } finally {
-    releaseOverviewLock(lock);
+
+    return { earlyExit: false, hadEntry, overviewData };
+  });
+
+  if (syncResult.earlyExit) {
+    return { hadEntry: false, overviewData: syncResult.overviewData, rendered: false };
   }
+  overviewData = syncResult.overviewData;
+  hadEntry = syncResult.hadEntry;
 
   let rendered = false;
   if (render) {

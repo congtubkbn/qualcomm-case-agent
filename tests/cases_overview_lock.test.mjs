@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { acquireOverviewLock, releaseOverviewLock } from '../.claude/skills/qualcomm-case-overview/scripts/overview_store.mjs';
+import { withOverviewLock } from '../.claude/skills/qualcomm-case-overview/scripts/overview_lock.mjs';
 
 const STORE_URL = new URL('../.claude/skills/qualcomm-case-overview/scripts/overview_store.mjs', import.meta.url).href;
 
@@ -123,4 +124,38 @@ describe('overview_store: lock primitives', () => {
 
     releaseOverviewLock(stolen);
   });
+
+  it('withOverviewLock executes fn with lock acquired and returns its result', () => {
+    const casesDir = createTempCasesDir();
+    let lockInside = null;
+
+    const result = withOverviewLock(casesDir, (lock) => {
+      lockInside = lock;
+      assert.ok(statSync(lock.path).isDirectory(), 'lock dir must exist while inside fn');
+      assert.equal(readFileSync(join(lock.path, 'owner'), 'utf8'), lock.token);
+      return { success: true, count: 42 };
+    });
+
+    assert.deepEqual(result, { success: true, count: 42 });
+    assert.throws(() => statSync(lockInside.path), { code: 'ENOENT' }, 'lock dir must be released after fn completes');
+  });
+
+  it('withOverviewLock releases lock even when fn throws an error', () => {
+    const casesDir = createTempCasesDir();
+    let lockInside = null;
+
+    assert.throws(
+      () => {
+        withOverviewLock(casesDir, (lock) => {
+          lockInside = lock;
+          assert.ok(statSync(lock.path).isDirectory());
+          throw new Error('deliberate failure inside locked section');
+        });
+      },
+      /deliberate failure inside locked section/
+    );
+
+    assert.throws(() => statSync(lockInside.path), { code: 'ENOENT' }, 'lock dir must be released even after fn throws');
+  });
 });
+
