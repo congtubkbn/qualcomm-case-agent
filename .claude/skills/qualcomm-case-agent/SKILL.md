@@ -1,77 +1,78 @@
 ---
 name: qualcomm-case-agent
-description: "Capture or sync a Qualcomm support case on an 8-digit case code (e.g. 08460319, CASE-08460319), 'qualcomm case', or 'pull/sync case'."
+description: "Capture or sync Qualcomm support cases by 8-digit case code (e.g. 08460319, CASE-08460319), 'qualcomm case', or 'pull/sync case'."
 allowed-tools: Bash(node:*), Bash(npm:*), Bash(powershell:*), PowerShell, Read, Write, Glob
 ---
 
 # Qualcomm Case Management Agent
 
-**Role.** Retrieve the complete case from the Qualcomm Support portal (support.qualcomm.com), preserve verbatim comments ordered newest-first with replies grouped under their parent, and produce structured `case.json` and `case.md` artifacts in local cache `data/cases/<CODE>/`.
+**Role.** Retrieve complete case records from Qualcomm Support (support.qualcomm.com), preserve verbatim threaded comments, and maintain cached `case.json` and `case.md` artifacts under `data/cases/<CODE>/`.
 
-## Execution Workflow
+---
 
-### Step 1 — Input Contract
-- **Input:** Exactly one 8-digit case code (e.g. `08460319`). Strip leading `CASE-` prefix if present.
-- **Validation:** If input is missing or not an 8-digit code, request a valid 8-digit case code from the user, then STOP.
-- **Completion Criterion:** Exactly one sanitized 8-digit numeric case code is identified. Proceed directly to Step 2 without asking for user confirmation.
+## Execution Flow
 
-### Step 2 — Run Capture
-- **Action:** Execute the deterministic headless capture pipeline:
-  ```bash
-  node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE>
-  ```
-  *(Optional flag: `--mode full` or `--mode update` to override automatic cache detection).*
-- **Completion Criterion:** The process finishes and outputs exactly one JSON verdict line on stdout. Proceed directly to Step 3.
+### Step 1 — Input Sanitization
+Extract and sanitize the 8-digit numeric case code from user input (strip optional `CASE-` prefix).
+- If valid code found: Proceed immediately to Step 2.
+- If invalid or missing: Prompt user for an 8-digit case code, then stop.
+
+*Completion Criterion:* Exactly one 8-digit numeric case code is identified.
+
+### Step 2 — Run Capture Pipeline
+Execute the deterministic capture CLI:
+```bash
+node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE>
+```
+*(Append `--mode full` or `--mode update` only when explicitly specified).*
+
+*Completion Criterion:* Command completes and prints a single JSON verdict line on `stdout`.
 
 ### Step 3 — Branch on JSON Verdict
-- **Action:** Parse the single stdout JSON verdict line and branch strictly on its `status` field per the authoritative table below:
+Parse the `stdout` JSON verdict line and branch on `status`:
 
-| `status` | Exit | Meaning | Action |
-|----------|------|---------|--------|
-| `created` | 0 | New case captured | Report case metadata & artifacts to user (Step 4) |
-| `updated` | 0 | New comments merged (`newComments`, `newCommentIds`) | Report updated comments & artifacts to user (Step 4) |
-| `no-update` | 0 | Unchanged since last sync | Report unchanged status to user, STOP |
-| `otp-timeout` | 2 | Password accepted; OTP window elapsed | Instruct user to enter OTP in open Chrome window, then re-run capture (`references/login-flow.md`) |
-| `auth-required` | 3 | Okta SSO session lapsed | Instruct user to complete sign-in in open Chrome window, then re-run capture (`references/login-flow.md`) |
-| `not-found` | 4 | Case does not exist or unviewable | Report case not found or access permission limitation to user, STOP |
-| `blocked` | 5 | Expansion / extraction stuck | Inspect `reason` in verdict; if `retryable: true`, retry once; otherwise consult `references/manual-flow.md` (`blocked`) |
-| `busy` | 6 | Capture lock held by another process | Wait 30s, retry once; if still busy, follow `references/manual-flow.md` (`busy`) |
-| `port-conflict` | 7 | CDP port 9773 held by non-project process | Execute `references/manual-flow.md` (`port-conflict` / `recover_chrome.ps1`) |
-| `error` | 1 | Unconfigured credentials or invocation error | Fix per `reason` (e.g. `npm run setup:credentials` or `references/manual-flow.md`), then retry |
+| `status` | Exit | Meaning | Next Action |
+|---|---|---|---|
+| `created` | 0 | New case captured | Proceed to Step 4 |
+| `updated` | 0 | New comments merged | Proceed to Step 4 |
+| `no-update` | 0 | Unchanged since last sync | Report unchanged status, stop |
+| `otp-timeout` | 2 | OTP window elapsed | Load `references/login-flow.md`, instruct OTP entry |
+| `auth-required` | 3 | SSO session expired | Load `references/login-flow.md`, instruct login |
+| `not-found` | 4 | Case unviewable / missing | Report missing/unauthorized case to user, stop |
+| `blocked` | 5 | Extraction stuck | Retry once if `retryable: true`; else load `references/manual-flow.md` |
+| `busy` | 6 | Lock held by another process | Wait 30s, retry once; else load `references/manual-flow.md` |
+| `port-conflict` | 7 | CDP port 9773 occupied | Load `references/manual-flow.md` (`recover_chrome.ps1`) |
+| `error` | 1 | Credential/execution failure | Fix per `reason` in verdict line, retry once |
 
-> **Structured Signal Rule**: Non-zero exit codes are structured status signals. Always branch on the `status` field in the stdout JSON line, never on generic shell exit labels.
+*Completion Criterion:* Action for verdict `status` is selected and initiated.
 
-- **Completion Criterion:**
-  - For exit 0 statuses (`created`, `updated`): Proceed directly to Step 4.
-  - For exit 0 status (`no-update`): Render unchanged notification to user and stop execution.
-  - For non-zero statuses: Execute the specific recovery action mapped above (retrying once if indicated, or prompting user action). Do not proceed to Step 4.
+### Step 4 — Render Capture Report
+Synthesize summary directly from the stdout JSON verdict payload fields (`caseNumber`, `title`, `caseStatus`, `commentCount`, `newComments`, `caseJsonPath`, `caseMdPath`):
+1. **Header**: Case number, title, case status.
+2. **Comment Stats**: Total comment count (and new comment count if update).
+3. **Artifacts**: Direct file links:
+   - [`case.json`](file:///e:/the.thoi/Project/access-qualcomm/data/cases/<CODE>/case.json)
+   - [`case.md`](file:///e:/the.thoi/Project/access-qualcomm/data/cases/<CODE>/case.md)
 
-### Step 4 — Report to User
-- **Action:** Synthesize the capture report using only the stdout JSON verdict payload fields (`caseNumber`, `title`, `caseStatus`, `commentCount`, `newComments`, `caseJsonPath`, `caseMdPath`):
-  - Case number, title, and case status.
-  - Total comments captured (including count of newly added comments on updates).
-  - Artifact locations: `data/cases/<CODE>/case.json` and `data/cases/<CODE>/case.md`.
-- **Redundant Reads Guardrail:** Rely directly on the stdout JSON verdict line for metadata and paths. Do not open or read `case.json` or `case.md`.
-- **Completion Criterion:** Final summary displayed to user with case metadata, comment counts, and artifact paths.
+*Completion Criterion:* Final summary displayed to user with payload metadata and artifact links without reading disk files.
 
 ---
 
-## Disclosed References (Load on Demand)
+## Disclosed References
 
-Load reference documents only when specific trigger conditions are met:
+Load reference documents on demand when specific verdict triggers occur:
 
-- [`references/login-flow.md`](references/login-flow.md): Load on `auth-required` (exit 3) or `otp-timeout` (exit 2) to guide authentication, credential setup, and manual OTP flow.
-- [`references/manual-flow.md`](references/manual-flow.md): Load on `blocked` (exit 5), `busy` (exit 6), or `port-conflict` (exit 7) to execute recovery runbooks.
-- [`references/consumer-guide.md`](references/consumer-guide.md): Load when downstream agents or tools need data schemas, field types, or NDA boundaries for consuming `case.json`.
-- [`references/extraction.md`](references/extraction.md): Load when diagnosing DOM selectors, Chatter feed expansion loops, or tab switching during extraction maintenance.
-- [`references/workflow.md`](references/workflow.md): Load when reviewing architectural state machines, CDP session lifecycles, or lock concurrency models.
+- [`references/login-flow.md`](references/login-flow.md): Reached on `auth-required` (exit 3) or `otp-timeout` (exit 2). Guides SSO sign-in and OTP input.
+- [`references/manual-flow.md`](references/manual-flow.md): Reached on `blocked` (exit 5), `busy` (exit 6), or `port-conflict` (exit 7). Provides manual recovery procedures.
+- [`references/consumer-guide.md`](references/consumer-guide.md): Reached when downstream agents require schema specifications or NDA boundaries for `case.json`.
+- [`references/extraction.md`](references/extraction.md): Reached when diagnosing DOM selector failures or Chatter feed expansion issues.
+- [`references/workflow.md`](references/workflow.md): Reached when reviewing state machines, CDP session lifecycles, or file lock models.
 
 ---
 
-## Operational Guardrails
+## Operational Principles
 
-- **Fast-path first:** Let `run_case.mjs` handle capture autonomously; consult references only on non-zero verdicts.
-- **Verbatim fidelity:** Preserve comment bodies, timestamps, authors, and attachments verbatim without truncation or redaction.
-- **Confidentiality:** Keep all case artifacts and logs inside local `data/` directory to maintain Qualcomm NDA compliance.
-- **Single case scope:** Process exactly one case code per command invocation.
-- **Canonical URL resolution:** Resolve case URLs via portal global search matching `/s/case/<SFID>/<slug>`.
+- **Tight fast-path**: Execute `run_case.mjs` directly; consult reference files only when triggered by non-zero verdicts.
+- **Verdict payload reliance**: Rely on the `stdout` verdict JSON line for metadata; disk reads of `case.json` during reporting are redundant.
+- **Verbatim preservation**: Keep comment bodies, timestamps, authors, and attachment links intact.
+- **NDA compliance**: Restrict all artifacts and debug logs to local workspace `data/` directory.
