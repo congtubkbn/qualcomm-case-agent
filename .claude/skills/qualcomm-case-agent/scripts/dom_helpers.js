@@ -95,14 +95,31 @@ var bodyOf = function (a) {
   return txt(b || a);
 };
 
+// A post's author lives in the first anchor tag inside the article.
+var authorOf = function (a) {
+  return txt(a.querySelector('a'));
+};
+
 // Locate the cached anchor post. Match on a 40-char body prefix: relative
-// timestamps ("2 days ago") drift between runs, body text does not.
+// timestamps ("2 days ago") drift between runs, body text does not. Also
+// require the author to match whenever the cached anchor carries an `author`
+// key — a new comment from a different author that happens to open with the
+// same boilerplate (e.g. "Dear QC,") would otherwise false-match position 0
+// and short-circuit the whole run into a false `no-update` (issue #200).
+// Checked by key presence, not truthiness: extract_case.js's `author` is
+// `named[0] || ""`, so a real cached comment can carry author: "" — treating
+// that the same as "no author field" would silently skip the very check this
+// guards against. `!('author' in anchor)` stays as legacy-shape insurance for
+// a cache.json written before the `author` field existed at all.
 var findAnchorIdx = function (articles, anchor) {
   var anchorIdx = -1;
   if (anchor && anchor.bodyStart) {
     var needle = String(anchor.bodyStart).replace(/\s+/g, ' ').trim().slice(0, 40);
     for (var i = 0; i < articles.length && needle; i++) {
-      if (bodyOf(articles[i]).indexOf(needle) === 0) { anchorIdx = i; break; }
+      if (bodyOf(articles[i]).indexOf(needle) !== 0) continue;
+      if ('author' in anchor && authorOf(articles[i]) !== anchor.author) continue;
+      anchorIdx = i;
+      break;
     }
   }
   return anchorIdx;

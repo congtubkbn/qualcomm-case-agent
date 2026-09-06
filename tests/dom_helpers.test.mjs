@@ -33,6 +33,7 @@ function loadHelpers(html = '<!doctype html><html><body></body></html>') {
     deepByText: dom.window.deepByText,
     fire: dom.window.fire,
     bodyOf: dom.window.bodyOf,
+    authorOf: dom.window.authorOf,
     findAnchorIdx: dom.window.findAnchorIdx,
     skipAsCached: dom.window.skipAsCached,
   };
@@ -154,6 +155,35 @@ test('dom_helpers.js', async (t) => {
     assert.equal(findAnchorIdx(articles, { bodyStart: 'no such post' }), -1);
     assert.equal(findAnchorIdx(articles, null), -1);
     assert.equal(findAnchorIdx(articles, {}), -1);
+  });
+
+  await t.test('findAnchorIdx() also requires the author to match when the anchor carries one, so a new comment from a different author cannot false-match a shared body prefix', () => {
+    const { document, findAnchorIdx } = loadHelpers(`<!doctype html><body>
+      <article id="a0"><a href="#">Author B</a><div class="feedBodyInner">Dear QC, this is a fresh comment from a different author entirely</div></article>
+      <article id="a1"><a href="#">Author A</a><div class="feedBodyInner">Dear QC, this is a fresh comment from a different author but older</div></article>
+    </body>`);
+    const articles = [document.getElementById('a0'), document.getElementById('a1')];
+    const anchor = { author: 'Author A', bodyStart: 'Dear QC, this is a fresh comment from a different' };
+
+    // Position 0 shares the 40-char prefix but is authored by B, not the cached anchor's A — must not match.
+    assert.notEqual(findAnchorIdx(articles, anchor), 0);
+    // Position 1 matches both prefix and author — must match.
+    assert.equal(findAnchorIdx(articles, anchor), 1);
+
+    // Anchor without an author (older cache shape) keeps matching on prefix alone.
+    assert.equal(findAnchorIdx(articles, { bodyStart: 'Dear QC, this is a fresh comment from a different' }), 0);
+  });
+
+  await t.test('findAnchorIdx() treats a cached author of "" (extract_case.js author-extraction failure) as a real value to match, not as "no author field"', () => {
+    const { document, findAnchorIdx } = loadHelpers(`<!doctype html><body>
+      <article id="a0"><a href="#">Real Author</a><div class="feedBodyInner">Dear QC, this is a fresh comment from a different author entirely</div></article>
+    </body>`);
+    const articles = [document.getElementById('a0')];
+    // Cached anchor's author extraction failed and stored "" (see extract_case.js:375) —
+    // it must NOT be treated the same as an anchor with no `author` key at all.
+    const anchor = { author: '', bodyStart: 'Dear QC, this is a fresh comment from a different' };
+
+    assert.equal(findAnchorIdx(articles, anchor), -1);
   });
 
   await t.test('skipAsCached() skips only baseline posts at/after the anchor, and treats a falsy baseline as "skip anything at/after anchor"', () => {

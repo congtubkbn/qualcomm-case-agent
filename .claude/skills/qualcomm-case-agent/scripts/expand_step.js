@@ -44,7 +44,7 @@
   }
 
   var top = articles[0]
-    ? { author: txt(articles[0].querySelector('a')), bodyStart: bodyOf(articles[0]).slice(0, 80) }
+    ? { author: authorOf(articles[0]), bodyStart: bodyOf(articles[0]).slice(0, 80) }
     : null;
 
   // Filter expand controls to genuinely visible and active controls inside an article.
