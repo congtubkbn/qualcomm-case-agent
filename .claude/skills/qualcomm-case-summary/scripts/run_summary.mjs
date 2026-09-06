@@ -59,8 +59,38 @@ export async function captureCase(code) {
   return JSON.parse(line);
 }
 
+// Places each new digest next to its parent's already-summarized entry (mirrors
+// finalize_case.mjs's orderCommentsForPresentation for case.json) instead of blindly
+// prepending the whole batch — a reply to an old post must land beside that post, not
+// at the array head. A digest with no known parent (or whose parent isn't summarized
+// yet) is genuinely new top-level content, so it keeps the old prepend/newest-first
+// placement.
+//
+// newComments arrives oldest-first (delta preserves case.json's chronological order),
+// so a parent always precedes its own reply in the loop below. Inserting each comment
+// immediately after its parent's *current* position — rather than after the last
+// sibling already placed — means: (1) a reply to a same-batch (not-yet-summarized)
+// parent finds that parent already spliced into `working`, so chains nest correctly;
+// (2) processing oldest-to-newest with "insert right after parent" pushes each earlier
+// sibling one slot further down, so siblings end up newest-first under the parent —
+// matching the newest-first convention without a separate reverse step.
+function insertCommentsByParent(priorComments, newComments, parentIdOf) {
+  const working = [...priorComments];
+  const topLevel = [];
+  for (const c of newComments) {
+    const parentId = parentIdOf?.[c.id];
+    const parentIdx = parentId != null ? working.findIndex((r) => r.id === parentId) : -1;
+    if (parentIdx === -1) {
+      topLevel.push(c);
+    } else {
+      working.splice(parentIdx + 1, 0, c);
+    }
+  }
+  return [...topLevel, ...working];
+}
+
 // ---- merge.mjs inline ----
-export function mergeSummary(prior, { caseNumber, title, url, priority, product, status, newComments, flow, executive, now }) {
+export function mergeSummary(prior, { caseNumber, title, url, priority, product, status, newComments, parentIdOf, flow, executive, now }) {
   const priorIds = prior?.summarizedCommentIds ?? [];
   const priorComments = prior?.comments ?? [];
   const mergedTitle = title || prior?.title;
@@ -77,7 +107,7 @@ export function mergeSummary(prior, { caseNumber, title, url, priority, product,
     status,
     ...(mergedExecutive && { executive: mergedExecutive }),
     summarizedCommentIds: [...priorIds, ...newComments.map((c) => c.id)],
-    comments: [...newComments, ...priorComments],
+    comments: insertCommentsByParent(priorComments, newComments, parentIdOf),
     flow,
     lastSummarizedAt: now ?? new Date().toISOString(),
   };
@@ -175,6 +205,11 @@ export function finalize(code, { comments: newComments, flow, executive }, optio
   const { casePath, summaryPath, mdPath } = paths(code);
   const caseJson = readJson(casePath);
   const prior = readJson(summaryPath);
+  const parentIdOf = Object.fromEntries(
+    (caseJson.comments ?? [])
+      .filter((c) => c.parentId != null)
+      .map((c) => [c.id, c.parentId]),
+  );
   const merged = mergeSummary(prior, {
     caseNumber: caseJson.caseNumber,
     title: caseJson.title,
@@ -183,6 +218,7 @@ export function finalize(code, { comments: newComments, flow, executive }, optio
     product: caseJson.product,
     status: caseJson.status,
     newComments,
+    parentIdOf,
     flow,
     executive,
   });
