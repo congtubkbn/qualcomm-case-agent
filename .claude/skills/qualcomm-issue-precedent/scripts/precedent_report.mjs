@@ -42,7 +42,7 @@ function renderCheckLine(check) {
   if (result && result.matched === true) {
     outcome = `matched (evidence: ${result.evidence?.length ? result.evidence.join('; ') : 'none listed'})`;
   } else if (result && result.matched === false) {
-    outcome = 'not matched';
+    outcome = `not matched (evidence: ${result.evidence?.length ? result.evidence.join('; ') : 'none listed'})`;
   } else if (result && result.unavailable) {
     outcome = `unavailable (${result.reason})`;
   } else if (result && result.error) {
@@ -55,11 +55,13 @@ function renderCheckLine(check) {
 
 function renderCandidate(candidate) {
   const {
-    caseNumber, title, url, product, rootCause, resolution, flow,
+    caseNumber, title, url, product, rootCause, resolution, flow, score, lowConfidence,
     signatures = [], checks = [], verdict = VERDICT_INSUFFICIENT,
   } = candidate;
 
   const lines = [`### [${caseNumber}] ${title || '(untitled case)'} — ${verdict}`, ''];
+  if (typeof score === 'number') lines.push(`- **Score**: ${score}`);
+  if (lowConfidence) lines.push('- **Low confidence**: no meaningful keyword overlap with the issue text — suggested for completeness, not ranked as a strong match.');
   if (product) lines.push(`- **Product**: ${product}`);
   if (url) lines.push(`- **Portal**: ${url}`);
   if (rootCause) lines.push(`- **Root Cause**: ${rootCause}`);

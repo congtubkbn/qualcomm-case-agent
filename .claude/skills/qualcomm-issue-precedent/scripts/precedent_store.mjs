@@ -14,6 +14,12 @@ export const ROOT_CAUSE_WEIGHT = 3;
 export const FLOW_WEIGHT = 1;
 export const PRODUCT_BOOST_WEIGHT = 2;
 
+// A candidate scoring below this has zero/near-zero keyword overlap with the query — kept in the
+// results (never silently dropped) but tagged `lowConfidence` and excluded from the `limit` count
+// so noisy-but-keyword-matching candidates can't crowd a genuinely relevant, differently-worded
+// case out of the top N.
+export const MIN_CONFIDENT_SCORE = 1;
+
 const STOPWORDS = new Set([
   'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
   'to', 'of', 'in', 'on', 'at', 'for', 'and', 'or', 'with', 'this', 'that',
@@ -23,8 +29,10 @@ const STOPWORDS = new Set([
 const SIGNATURE_PATTERNS = [
   // Message/IE-name identifiers, e.g. RRC_CONN_RELEASE, EMM_CAUSE_ILLEGAL_UE
   /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g,
-  // Cause codes, e.g. "cause 58", "Cause code #58", "cause=15"
-  /\bcause\s*(?:code)?\s*[:#=]?\s*\d{1,4}\b/gi,
+  // Standalone ALL-CAPS identifiers with no underscore, e.g. PAGING, ATTACH, EPSFB
+  /\b[A-Z]{3,}\b/g,
+  // Cause codes, e.g. "cause 58", "Cause code #58", "cause=15", "cause 12345"
+  /\bcause\s*(?:code)?\s*[:#=]?\s*\d+\b/gi,
   // Hex literals, e.g. 0x1A2B
   /\b0x[0-9A-Fa-f]+\b/g,
 ];
@@ -180,16 +188,29 @@ export function scoreCandidate(queryTokens, candidate) {
 
 /**
  * Ranks the Reference Case corpus against a free-text query by deterministic keyword overlap,
- * highest score first (ties broken by ascending case number), truncated to `limit`.
+ * highest score first (ties broken by ascending case number). Candidates scoring at or above
+ * `minScore` are truncated to `limit`; candidates below it are never silently dropped — up to
+ * `limit` of them are appended after, tagged `lowConfidence: true`, so a genuinely relevant case
+ * with different wording (and therefore no keyword overlap) can't be pushed out of the results by
+ * unrelated candidates that merely happen to share keywords.
  * @param {string} query
  * @param {string} [casesDir]
  * @param {number} [limit=10]
+ * @param {number} [minScore]
  * @returns {object[]}
  */
-export function searchPrecedents(query, casesDir = DEFAULT_CASES_DIR, limit = 10) {
+export function searchPrecedents(query, casesDir = DEFAULT_CASES_DIR, limit = 10, minScore = MIN_CONFIDENT_SCORE) {
   const queryTokens = tokenize(query);
   const corpus = buildReferenceCaseCorpus(casesDir);
   const scored = corpus.map((candidate) => ({ ...candidate, score: scoreCandidate(queryTokens, candidate) }));
-  scored.sort((a, b) => b.score - a.score || String(a.caseNumber).localeCompare(String(b.caseNumber)));
-  return scored.slice(0, limit);
+  const byScoreThenCaseNumber = (a, b) => b.score - a.score || String(a.caseNumber).localeCompare(String(b.caseNumber));
+
+  const confident = scored.filter((c) => c.score >= minScore).sort(byScoreThenCaseNumber);
+  const lowConfidence = scored
+    .filter((c) => c.score < minScore)
+    .sort(byScoreThenCaseNumber)
+    .slice(0, limit)
+    .map((c) => ({ ...c, lowConfidence: true }));
+
+  return [...confident.slice(0, limit), ...lowConfidence];
 }

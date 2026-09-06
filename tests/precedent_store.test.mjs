@@ -9,6 +9,7 @@ import {
   buildReferenceCaseCorpus,
   collectSignatures,
   extractSignaturesFromText,
+  MIN_CONFIDENT_SCORE,
   overlapCount,
   scoreCandidate,
   searchPrecedents,
@@ -66,6 +67,16 @@ describe('precedent_store: extractSignaturesFromText', () => {
     assert.deepEqual(sigs, ['0x1A2B']);
   });
 
+  it('extracts cause codes with 5+ digits verbatim, not dropped', () => {
+    const sigs = extractSignaturesFromText('Network rejects registration with cause code 12345 during attach.');
+    assert.deepEqual(sigs, ['cause code 12345']);
+  });
+
+  it('extracts standalone ALL-CAPS identifiers with no underscore', () => {
+    const sigs = extractSignaturesFromText('Missed PAGING while radio was in ATTACH state.');
+    assert.deepEqual(sigs, ['PAGING', 'ATTACH']);
+  });
+
   it('returns an empty list when there is no matching token, never a guess', () => {
     assert.deepEqual(extractSignaturesFromText('Investigation still ongoing, nothing conclusive yet.'), []);
     assert.deepEqual(extractSignaturesFromText(''), []);
@@ -92,6 +103,7 @@ describe('precedent_store: collectSignatures', () => {
     const sigs = collectSignatures(executive, comments);
     assert.deepEqual(sigs, [
       { signature: 'RRC_CONN_RELEASE', source: 'rootCause' },
+      { signature: 'EPSFB', source: 'rootCause' },
       { signature: 'cause #58', source: 'resolution' },
       { signature: 'NAS_MSG_TYPE', source: 'comment:c1' },
     ]);
@@ -248,6 +260,56 @@ describe('precedent_store: scoreCandidate / searchPrecedents', () => {
     }
     const results = searchPrecedents('case', casesDir, 2);
     assert.equal(results.length, 2);
+
+    rmSync(casesDir, { recursive: true, force: true });
+  });
+
+  it('never drops a zero-overlap relevant case behind keyword-matching noise — tags it lowConfidence instead', () => {
+    const casesDir = createTempCasesDir();
+    // Genuinely relevant case, but worded with none of the query's tokens.
+    writeCase(
+      casesDir,
+      '08300001',
+      { title: 'Device overheats and powers off unexpectedly' },
+      { executive: { rootCause: 'Battery temperature sensor misread triggers emergency power-down' } }
+    );
+    // Unrelated cases that merely share a keyword with the query.
+    for (let i = 0; i < 3; i++) {
+      writeCase(
+        casesDir,
+        `0830000${i + 2}`,
+        { title: `Modem crash case ${i}` },
+        { executive: { rootCause: 'Modem firmware assertion during thermal throttling test' } }
+      );
+    }
+
+    const results = searchPrecedents('modem thermal throttling shutdown', casesDir, 2);
+
+    const relevant = results.find((r) => r.caseNumber === '08300001');
+    assert.ok(relevant, 'zero-overlap relevant case must still be present, not dropped');
+    assert.equal(relevant.score, 0);
+    assert.equal(relevant.lowConfidence, true);
+
+    const confident = results.filter((r) => !r.lowConfidence);
+    assert.equal(confident.length, 2, 'limit still caps confident (>= MIN_CONFIDENT_SCORE) candidates');
+    assert.ok(confident.every((r) => r.score >= MIN_CONFIDENT_SCORE));
+
+    rmSync(casesDir, { recursive: true, force: true });
+  });
+
+  it('caps the low-confidence tail at limit too, separately from the confident bucket', () => {
+    const casesDir = createTempCasesDir();
+    writeCase(casesDir, '08450000', { title: 'zzznomatch case' }, { executive: { rootCause: 'Confident match' } });
+    for (let i = 0; i < 8; i++) {
+      writeCase(casesDir, `0840000${i}`, { title: `Case ${i}` }, { executive: { rootCause: `Unrelated cause ${i}` } });
+    }
+
+    const results = searchPrecedents('zzznomatch abcdef ghijkl', casesDir, 3);
+    const confident = results.filter((r) => !r.lowConfidence);
+    const lowConfidence = results.filter((r) => r.lowConfidence);
+    assert.equal(confident.length, 1, 'the one scoring candidate is not counted against the tail bound');
+    assert.equal(lowConfidence.length, 3, 'the 8-candidate zero-score tail is independently capped at limit');
+    assert.equal(results.length, 4, 'total is confident + capped tail, not a single shared limit');
 
     rmSync(casesDir, { recursive: true, force: true });
   });

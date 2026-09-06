@@ -54,22 +54,51 @@ describe('precedent_report: renderPrecedentReportMd', () => {
           title: 'VoLTE call drop during driving test',
           url: 'https://support.qualcomm.com/s/case/500dK00000Njp7aQAB',
           product: 'SM7635',
+          score: 9,
           rootCause: 'RRC_CONN_RELEASE sent prematurely by network',
           resolution: 'CR1234 fix delivered',
           flow: 'Investigated modem logs.',
-          signatures: [{ signature: 'RRC_CONN_RELEASE', source: 'rootCause' }, { signature: 'NAS_MSG_TYPE', source: 'comment:c1' }],
-          selections: [{ signature: 'RRC_CONN_RELEASE', table: 'signalling' }],
-          checks: [{ signature: 'RRC_CONN_RELEASE', table: 'signalling', source: 'rootCause', result: { matched: true, evidence: ['hit at t=12.3s'] } }],
+          signatures: [
+            { signature: 'RRC_CONN_RELEASE', source: 'rootCause' },
+            { signature: 'NAS_MSG_TYPE', source: 'comment:c1' },
+            { signature: 'EPSFB', source: 'comment:c2' },
+          ],
+          selections: [{ signature: 'RRC_CONN_RELEASE', table: 'signalling' }, { signature: 'NAS_MSG_TYPE', table: 'trace' }],
+          checks: [
+            { signature: 'RRC_CONN_RELEASE', table: 'signalling', source: 'rootCause', result: { matched: true, evidence: ['hit at t=12.3s'] } },
+            { signature: 'NAS_MSG_TYPE', table: 'trace', source: 'comment:c1', result: { matched: false, evidence: ['no hit in trace window'] } },
+          ],
           verdict: 'matched known cause',
         },
       ],
     });
 
     assert.match(md, /### \[08603854\] VoLTE call drop during driving test — matched known cause/);
+    assert.match(md, /\*\*Score\*\*: 9/);
     assert.match(md, /\*\*Product\*\*: SM7635/);
     assert.match(md, /\*\*Root Cause\*\*: RRC_CONN_RELEASE sent prematurely by network/);
     assert.match(md, /`RRC_CONN_RELEASE` \(table: signalling, source: rootCause\) → matched \(evidence: hit at t=12\.3s\)/);
-    assert.match(md, /\*\*Other extracted signatures \(not checked\):\*\* `NAS_MSG_TYPE`/);
+    assert.match(md, /`NAS_MSG_TYPE` \(table: trace, source: comment:c1\) → not matched \(evidence: no hit in trace window\)/);
+    assert.match(md, /\*\*Other extracted signatures \(not checked\):\*\* `EPSFB`/);
+  });
+
+  it('flags a low-confidence candidate in its rendered header', () => {
+    const md = renderPrecedentReportMd({
+      issueTitle: 'Some issue',
+      candidates: [
+        {
+          caseNumber: '08999999',
+          title: 'Loosely related case',
+          score: 0,
+          lowConfidence: true,
+          signatures: [],
+          checks: [],
+          verdict: 'insufficient technical data to check',
+        },
+      ],
+    });
+    assert.match(md, /\*\*Score\*\*: 0/);
+    assert.match(md, /\*\*Low confidence\*\*/);
   });
 
   it('flags candidates with no extractable signature as suggestion-only', () => {
