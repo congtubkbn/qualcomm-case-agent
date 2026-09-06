@@ -75,3 +75,14 @@ Permanently removes a case's entire local cache directory (`data/cases/<code>/` 
 `qualcomm-case-agent` (the data owner), never by `qualcomm-case-overview` (read-only consumer).
 Always gated by an agent-mediated confirmation in chat before the underlying script runs.
 _Avoid_: hide, remove (ambiguous with hiding)
+
+**Case Overview**:
+The multi-case aggregation index (`_overview.json`) and offline HTML dashboard (`dashboard.html`)
+representing all locally cached cases under `data/cases/`. Owned and maintained by
+`qualcomm-case-overview`.
+
+**Case Synchronization**:
+The atomic mutation and persistence process (`syncCaseOverview`) that adds, updates, or removes
+a case record in `_overview.json` and updates `dashboard.html`. Owned by `overview_store.mjs`.
+_Avoid_: sync-hook, scrape, export
+

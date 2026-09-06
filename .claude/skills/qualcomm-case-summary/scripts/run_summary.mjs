@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from '../../qualcomm-case-agent/scripts/_paths.mjs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { afterFinalize } from '../../qualcomm-case-overview/scripts/cases_overview.mjs';
+import { afterFinalize } from '../../qualcomm-case-overview/scripts/overview_store.mjs';
 
 const execFileAsync = promisify(execFile);
 

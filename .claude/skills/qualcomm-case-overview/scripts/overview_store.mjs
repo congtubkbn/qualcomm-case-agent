@@ -410,6 +410,34 @@ export function updateCaseOverview(caseNumber, casesDir = DEFAULT_CASES_DIR) {
 }
 
 /**
+ * Resilient synchronization hook for a finalized case (capture or summary).
+ * Convenience wrapper around syncCaseOverview that never throws and isolates errors.
+ * @param {string} caseCode Case number
+ * @param {string} dataDir Directory containing cases
+ * @param {object} [options={}] Configuration options
+ * @returns {{ hadEntry: boolean, overviewData: object|null, rendered: boolean }}
+ */
+export function afterFinalize(caseCode, dataDir, options = {}) {
+  const syncFn = options.syncCaseOverview || syncCaseOverview;
+  try {
+    if (typeof options.updateCaseOverview === 'function') {
+      options.updateCaseOverview(caseCode, dataDir);
+    }
+    return syncFn(caseCode, {
+      ...options,
+      casesDir: dataDir,
+      action: 'upsert',
+    });
+  } catch (e) {
+    if (typeof options.onError === 'function') {
+      options.onError(e, 'overview');
+    }
+    process.stderr.write(`Warning: overview auto-sync failed (${e.message})\n`);
+    return { hadEntry: false, overviewData: null, rendered: false };
+  }
+}
+
+/**
  * Filters overview cases by status string (case-insensitive substring match).
  * @param {object} overviewData
  * @param {string|null} filter

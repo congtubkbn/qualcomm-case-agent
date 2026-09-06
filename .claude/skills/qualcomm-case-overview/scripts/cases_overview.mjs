@@ -5,45 +5,24 @@ import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureProtocolRegistered } from '../../../../scripts/ensure_protocol.mjs';
-import { applyFilter, buildOverviewData, DEFAULT_CASES_DIR, syncCaseOverview, updateCaseOverview } from './overview_store.mjs';
+import {
+  afterFinalize,
+  applyFilter,
+  buildOverviewData,
+  DEFAULT_CASES_DIR,
+  syncCaseOverview,
+  updateCaseOverview,
+} from './overview_store.mjs';
 import { renderDashboardHtml } from './dashboard_renderer.mjs';
 import { renderCliTable } from './cli_renderer.mjs';
 
-// Unified synchronization seam and legacy single-record updater
-export { syncCaseOverview, updateCaseOverview };
-
 /**
- * Syncs the cases overview and dashboard after a case finalizes (capture or summary).
- * Never throws: overview/dashboard sync is a best-effort side effect, not part of the
- * caller's own success/failure contract — failures are warned to stderr instead.
- * @param {string} caseCode
- * @param {string} dataDir
- * @param {object} [options={}] Optional configuration (e.g. dependency-injected renderDashboard, syncCaseOverview, updateCaseOverview, or onError)
- * @returns {{ hadEntry: boolean, overviewData: object|null, rendered: boolean }}
+ * Backwards-compatibility re-exports.
+ * Prefer importing directly from overview_store.mjs (ADR 0005).
+ * @deprecated
  */
-export function afterFinalize(caseCode, dataDir, options = {}) {
-  const syncFn = options.syncCaseOverview || syncCaseOverview;
-  try {
-    if (typeof options.updateCaseOverview === 'function') {
-      options.updateCaseOverview(caseCode, dataDir);
-    }
-    // action/casesDir override options rather than the reverse: both prior
-    // call sites (finalize_case.mjs, run_summary.mjs) always forced 'upsert'
-    // against the resolved dataDir regardless of what options carried, and
-    // routing them through this shared hook (#202) must preserve that.
-    return syncFn(caseCode, {
-      ...options,
-      casesDir: dataDir,
-      action: 'upsert',
-    });
-  } catch (e) {
-    if (typeof options.onError === 'function') {
-      options.onError(e, 'overview');
-    }
-    process.stderr.write(`Warning: overview auto-sync failed (${e.message})\n`);
-    return { hadEntry: false, overviewData: null, rendered: false };
-  }
-}
+export { afterFinalize, syncCaseOverview, updateCaseOverview };
+
 
 const __filename = fileURLToPath(import.meta.url);
 

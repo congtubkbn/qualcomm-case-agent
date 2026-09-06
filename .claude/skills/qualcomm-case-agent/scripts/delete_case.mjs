@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
 import { normalizeCaseCode } from './intake.mjs';
 import { acquireLock, releaseLock } from './lock.mjs';
-import { syncCaseOverview } from '../../qualcomm-case-overview/scripts/cases_overview.mjs';
+import { syncCaseOverview } from '../../qualcomm-case-overview/scripts/overview_store.mjs';
 
 export const STATUS_EXIT = {
   deleted: 0, 'not-found': 4, busy: 6, error: 1,
