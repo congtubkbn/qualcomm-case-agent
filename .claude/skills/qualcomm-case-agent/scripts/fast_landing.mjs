@@ -5,10 +5,10 @@ import { readPassword, clearSecret } from './secret_store.mjs';
 
 export const STUB_PATH_RE = /\/s\/case\/Case\/Default(?:$|[/?#])/i;
 
-const LOGIN_FILL_SCRIPT = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), 'login_fill.js'),
-  'utf8'
-);
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const LOGIN_FILL_SCRIPT = readFileSync(join(scriptDir, 'login_fill.js'), 'utf8');
+const IN_PAGE_OBSERVE_SCRIPT = readFileSync(join(scriptDir, 'observe_case_state.js'), 'utf8');
+const IN_PAGE_SEARCH_SCRIPT = readFileSync(join(scriptDir, 'search_case_results.js'), 'utf8');
 
 /**
  * Checks if a URL is empty or points to the generic Lightning un-routed case stub.
@@ -24,195 +24,6 @@ export function isStubUrl(url) {
     return STUB_PATH_RE.test(url);
   }
 }
-
-/**
- * In-page script that evaluates page state or uses MutationObserver to wait for ON_CASE / AUTH.
- */
-const IN_PAGE_OBSERVE_SCRIPT = `
-(function() {
-  var timeout = typeof __TIMEOUT !== 'undefined' ? __TIMEOUT : 15000;
-  var code = typeof __CODE !== 'undefined' ? String(__CODE) : '';
-
-  function checkState() {
-    if (location.hostname === 'account.qualcomm.com') {
-      return { state: 'AUTH', url: location.href };
-    }
-    if (location.pathname.indexOf('/s/case/') >= 0 && location.pathname.indexOf('/s/case/Case/Default') === -1) {
-      return { state: 'ON_CASE', href: location.href };
-    }
-    return null;
-  }
-
-  var immediate = checkState();
-  if (immediate) return Promise.resolve(immediate);
-
-  return new Promise(function(resolve) {
-    var timer = null;
-    var pollTimer = null;
-    var observer = null;
-
-    function cleanup() {
-      if (timer) clearTimeout(timer);
-      if (pollTimer) clearInterval(pollTimer);
-      if (observer) observer.disconnect();
-    }
-
-    timer = setTimeout(function() {
-      cleanup();
-      var last = checkState();
-      if (last) resolve(last);
-      else resolve({ state: 'TIMEOUT', href: location.href });
-    }, timeout);
-
-    pollTimer = setInterval(function() {
-      var res = checkState();
-      if (res) {
-        cleanup();
-        resolve(res);
-      }
-    }, 500);
-
-    if (typeof MutationObserver !== 'undefined') {
-      observer = new MutationObserver(function() {
-        var res = checkState();
-        if (res) {
-          cleanup();
-          resolve(res);
-        }
-      });
-      observer.observe(document.documentElement || document.body, { childList: true, subtree: true });
-    }
-  });
-})()
-`;
-
-/**
- * In-page script that waits for search results to render and extracts fields & link info.
- */
-const IN_PAGE_SEARCH_SCRIPT = `
-(function() {
-  var timeout = typeof __TIMEOUT !== 'undefined' ? __TIMEOUT : 25000;
-  var code = typeof __CODE !== 'undefined' ? String(__CODE) : '';
-
-  var txt = function (el) {
-    return ((el && (el.innerText || el.textContent)) || '').replace(/\\s+/g, ' ').trim();
-  };
-  var qsa = function (sel, root) {
-    return Array.prototype.slice.call((root || document).querySelectorAll(sel));
-  };
-
-  function checkSearch() {
-    if (location.hostname === 'account.qualcomm.com') {
-      return { state: 'AUTH', url: location.href };
-    }
-    if (location.pathname.indexOf('/s/case/') >= 0 && location.pathname.indexOf('/s/case/Case/Default') === -1) {
-      return { state: 'ON_CASE', href: location.href, fields: {} };
-    }
-
-    var nonStubLinks = qsa('a[href*="/s/case/"]').filter(function(a) {
-      return a.href.indexOf('/s/case/Case/Default') === -1;
-    });
-
-    var hit = null, row = null;
-    for (var i = 0; i < nonStubLinks.length; i++) {
-      var r = nonStubLinks[i].closest('tr, li, [role="row"]');
-      if (txt(nonStubLinks[i]).indexOf(code) >= 0 || (r && txt(r).indexOf(code) >= 0)) {
-        hit = nonStubLinks[i]; row = r; break;
-      }
-    }
-    var exact = !!hit;
-    if (!hit && nonStubLinks.length > 0) {
-      hit = nonStubLinks[0];
-      row = hit.closest('tr, li, [role="row"]');
-    }
-
-    if (!hit) {
-      return null;
-    }
-
-    var fields = {};
-    var cells = [];
-    if (row) {
-      cells = qsa('td, th', row).map(txt).filter(Boolean);
-      var table = row.closest('table');
-      var heads = table ? qsa('thead th, th', table).map(txt) : [];
-      var offset = cells.length - heads.length;
-      for (var h = 0; h < heads.length; h++) {
-        var key = heads[h].toLowerCase();
-        var val = cells[h + (offset > 0 ? offset : 0)] || '';
-        if (!key || !val || val === code) continue;
-        if (/subject|title/.test(key)) { if (!fields.title) fields.title = val; }
-        else if (/status/.test(key)) { if (!fields.status) fields.status = val; }
-        else if (/priority/.test(key)) { if (!fields.priority) fields.priority = val; }
-        else if (/severity/.test(key)) { if (!fields.severity) fields.severity = val; }
-      }
-    }
-
-    if (!fields.title) {
-      var best = '';
-      for (var c = 0; c < cells.length; c++) {
-        var v = cells[c];
-        if (v === code || v.length < 10 || /^\\d/.test(v)) continue;
-        if (v.length > best.length) best = v;
-      }
-      if (best) fields.title = best;
-    }
-
-    qsa('[data-cq-hit]').forEach(function (el) { el.removeAttribute('data-cq-hit'); });
-    hit.setAttribute('data-cq-hit', '1');
-    hit.removeAttribute('target');
-
-    return {
-      state: 'FOUND',
-      href: hit.href,
-      exact: exact,
-      fields: fields,
-      rows: nonStubLinks.length
-    };
-  }
-
-  var immediate = checkSearch();
-  if (immediate) return Promise.resolve(immediate);
-
-  return new Promise(function(resolve) {
-    var timer = null;
-    var pollTimer = null;
-    var observer = null;
-
-    function cleanup() {
-      if (timer) clearTimeout(timer);
-      if (pollTimer) clearInterval(pollTimer);
-      if (observer) observer.disconnect();
-    }
-
-    timer = setTimeout(function() {
-      cleanup();
-      var last = checkSearch();
-      if (last) resolve(last);
-      else resolve({ state: 'NO_LINK', href: '', fields: {}, rows: 0, reason: 'Timeout waiting for search results to render' });
-    }, timeout);
-
-    pollTimer = setInterval(function() {
-      var res = checkSearch();
-      if (res) {
-        cleanup();
-        resolve(res);
-      }
-    }, 500);
-
-    if (typeof MutationObserver !== 'undefined') {
-      observer = new MutationObserver(function() {
-        var res = checkSearch();
-        if (res) {
-          cleanup();
-          resolve(res);
-        }
-      });
-      observer.observe(document.documentElement || document.body, { childList: true, subtree: true });
-    }
-  });
-})()
-`;
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -400,31 +211,48 @@ export async function fastLandOnCase(code, options = {}) {
     };
   }
 
+  // Navigate/click, probe page state, and transparently run the auth-retry cycle
+  // if the probe lands on AUTH. Returns the raw probe so each call site can still
+  // apply its own success criteria and build its own return shape (they differ:
+  // direct-nav merges cached fields, search-based paths use the probe's fields).
+  async function probeAndHandleAuth(action, probeScript, probeVars, fastPathUsed, { label, retryAction = action } = {}) {
+    await action();
+    let probe = await cdp.eval(
+      probeScript,
+      probeVars,
+      { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
+    );
+
+    if (probe?.state === 'AUTH') {
+      const authRes = await handleAuth(probe.url, fastPathUsed);
+      if (!authRes.handled) {
+        return { probe, authFailure: authRes };
+      }
+      logDiag(`Re-attempting ${label} after authentication`);
+      await retryAction();
+      probe = await cdp.eval(
+        probeScript,
+        probeVars,
+        { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
+      );
+    }
+
+    return { probe, authFailure: null };
+  }
+
   // 1. Fast Path: Direct Navigation if cached case URL is known and valid
   if (caseUrl && !isStubUrl(caseUrl)) {
     logDiag(`Attempting direct navigation to cached URL: ${caseUrl}`);
     try {
-      await cdp.navigate(caseUrl, { waitUntil: 'load', timeout: Math.min(timeout, 25000) });
-
-      let probe = await cdp.eval(
+      const { probe: probeResult, authFailure } = await probeAndHandleAuth(
+        () => cdp.navigate(caseUrl, { waitUntil: 'load', timeout: Math.min(timeout, 25000) }),
         IN_PAGE_OBSERVE_SCRIPT,
         { __CODE: code, __TIMEOUT: Math.min(timeout, 15000) },
-        { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
+        true,
+        { label: `direct navigation: ${caseUrl}` }
       );
-
-      if (probe?.state === 'AUTH') {
-        const authRes = await handleAuth(probe.url, true);
-        if (!authRes.handled) {
-          return authRes;
-        }
-        logDiag(`Re-attempting direct navigation after authentication: ${caseUrl}`);
-        await cdp.navigate(caseUrl, { waitUntil: 'load', timeout: Math.min(timeout, 25000) });
-        probe = await cdp.eval(
-          IN_PAGE_OBSERVE_SCRIPT,
-          { __CODE: code, __TIMEOUT: Math.min(timeout, 15000) },
-          { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
-        );
-      }
+      if (authFailure) return authFailure;
+      let probe = probeResult;
 
       const durationMs = Math.round(performance.now() - start);
 
@@ -465,27 +293,15 @@ export async function fastLandOnCase(code, options = {}) {
   const searchUrl = `${baseUrl}/s/global-search/${code}`;
   logDiag(`Navigating to global search: ${searchUrl}`);
   try {
-    await cdp.navigate(searchUrl, { waitUntil: 'load', timeout: Math.min(timeout, 25000) });
-
-    let searchProbe = await cdp.eval(
+    const { probe: searchProbeResult, authFailure } = await probeAndHandleAuth(
+      () => cdp.navigate(searchUrl, { waitUntil: 'load', timeout: Math.min(timeout, 25000) }),
       IN_PAGE_SEARCH_SCRIPT,
       { __CODE: code, __TIMEOUT: Math.min(timeout, 25000) },
-      { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
+      false,
+      { label: `global search: ${searchUrl}` }
     );
-
-    if (searchProbe?.state === 'AUTH') {
-      const authRes = await handleAuth(searchProbe.url, false);
-      if (!authRes.handled) {
-        return authRes;
-      }
-      logDiag(`Re-attempting global search after authentication: ${searchUrl}`);
-      await cdp.navigate(searchUrl, { waitUntil: 'load', timeout: Math.min(timeout, 25000) });
-      searchProbe = await cdp.eval(
-        IN_PAGE_SEARCH_SCRIPT,
-        { __CODE: code, __TIMEOUT: Math.min(timeout, 25000) },
-        { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
-      );
-    }
+    if (authFailure) return authFailure;
+    let searchProbe = searchProbeResult;
 
     const durationMs = Math.round(performance.now() - start);
 
@@ -509,26 +325,14 @@ export async function fastLandOnCase(code, options = {}) {
       if (searchProbe.href && !isStubUrl(searchProbe.href)) {
         try {
           logDiag(`Navigating directly to resolved case URL from search: ${searchProbe.href}`);
-          await cdp.navigate(searchProbe.href, { waitUntil: 'load', timeout: Math.min(timeout, 15000) });
-          let navProbe = await cdp.eval(
+          const { probe: navProbe, authFailure: navAuthFailure } = await probeAndHandleAuth(
+            () => cdp.navigate(searchProbe.href, { waitUntil: 'load', timeout: Math.min(timeout, 15000) }),
             IN_PAGE_OBSERVE_SCRIPT,
             { __CODE: code, __TIMEOUT: Math.min(timeout, 5000) },
-            { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
+            false,
+            { label: `search link navigation: ${searchProbe.href}` }
           );
-
-          if (navProbe?.state === 'AUTH') {
-            const authRes = await handleAuth(navProbe.url, false);
-            if (!authRes.handled) {
-              return authRes;
-            }
-            logDiag(`Re-attempting search link navigation after authentication: ${searchProbe.href}`);
-            await cdp.navigate(searchProbe.href, { waitUntil: 'load', timeout: Math.min(timeout, 15000) });
-            navProbe = await cdp.eval(
-              IN_PAGE_OBSERVE_SCRIPT,
-              { __CODE: code, __TIMEOUT: Math.min(timeout, 5000) },
-              { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
-            );
-          }
+          if (navAuthFailure) return navAuthFailure;
 
           if (navProbe?.state === 'ON_CASE' && !isStubUrl(navProbe.href || searchProbe.href)) {
             const finalHref = navProbe.href || searchProbe.href;
@@ -551,25 +355,14 @@ export async function fastLandOnCase(code, options = {}) {
       // Case B: href is stub or direct nav didn't route past stub -> trusted click
       try {
         logDiag(`Dispatching trusted click on search result element [data-cq-hit='1']`);
-        await cdp.click("[data-cq-hit='1']");
-        let clickProbe = await cdp.eval(
+        const { probe: clickProbe, authFailure: clickAuthFailure } = await probeAndHandleAuth(
+          () => cdp.click("[data-cq-hit='1']"),
           IN_PAGE_OBSERVE_SCRIPT,
           { __CODE: code, __TIMEOUT: Math.min(timeout, 5000) },
-          { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
+          false,
+          { label: 'observation following trusted click', retryAction: async () => {} }
         );
-
-        if (clickProbe?.state === 'AUTH') {
-          const authRes = await handleAuth(clickProbe.url, false);
-          if (!authRes.handled) {
-            return authRes;
-          }
-          logDiag(`Re-attempting observation after authentication following trusted click`);
-          clickProbe = await cdp.eval(
-            IN_PAGE_OBSERVE_SCRIPT,
-            { __CODE: code, __TIMEOUT: Math.min(timeout, 5000) },
-            { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
-          );
-        }
+        if (clickAuthFailure) return clickAuthFailure;
 
         if (clickProbe?.state === 'ON_CASE' && !isStubUrl(clickProbe.href)) {
           logDiag(`Landed ON_CASE via trusted click: ${clickProbe.href}`);
