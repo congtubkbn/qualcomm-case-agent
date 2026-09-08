@@ -1233,6 +1233,33 @@ describe('finalize (child process): dashboard render isolation', () => {
     assert.equal(syncCalledWith.opts.casesDir, join(root, 'data', 'cases'));
   });
 
+  // Regression: options.casesDir used to reach only afterFinalize() (the
+  // overview sync above) — the actual case.json/_index.json read+write still
+  // went through the module-level DATA_DIR. Any in-process finalize() call
+  // using a case code that happens to match a REAL cached case (as every test
+  // in this file does — "08603854") silently overwrote that real capture with
+  // test fixture data. Confirmed happening against a real checkout before the
+  // fix; this pins casesDir as the sole source of truth for both paths.
+  it('writes case.json and _index.json under options.casesDir, never under the real DATA_DIR', () => {
+    const root = fixture();
+    const rawPath = join(root, 'data', 'cases', '08603854', 'case.raw.json');
+    writeFileSync(rawPath, JSON.stringify(RAW), 'utf8');
+    const isolatedCasesDir = join(root, 'data', 'cases');
+
+    const result = m.finalize('08603854', rawPath, {}, false, { casesDir: isolatedCasesDir });
+
+    assert.equal(result.code, m.EXIT.OK);
+    assert.equal(result.path, join(isolatedCasesDir, '08603854', 'case.json'));
+    assert.equal(existsSync(join(isolatedCasesDir, '08603854', 'case.json')), true);
+    assert.equal(existsSync(join(isolatedCasesDir, '_index.json')), true);
+
+    const realDataDir = fileURLToPath(new URL('../data/cases', import.meta.url));
+    if (existsSync(join(realDataDir, '08603854', 'case.json'))) {
+      const real = JSON.parse(readFileSync(join(realDataDir, '08603854', 'case.json'), 'utf8'));
+      assert.notEqual(real.title, 'NR SA attach failure', 'the real cached case must be untouched by this in-process call');
+    }
+  });
+
   it('warns and continues when syncCaseOverview throws an error', (t) => {
     const root = fixture();
     const rawPath = join(root, 'data', 'cases', '08603854', 'case.raw.json');

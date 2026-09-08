@@ -699,14 +699,22 @@ export function mergeComments(cachedComments, rawComments, referenceDate = new D
   return { merged, newIds: fresh.map(c => c.id), possibleEdits };
 }
 
-// ---- Index path ----
-const INDEX_PATH = join(DATA_DIR, '_index.json');
-
 // ---- Main ----
 export function finalize(caseCode, rawPath, header = {}, merge = false, options = {}) {
   if (!existsSync(rawPath)) {
     return { code: EXIT.BAD_ARGS, reason: `raw JSON not found: ${rawPath}` };
   }
+
+  // options.casesDir lets a direct/programmatic caller (tests, and any future
+  // script) point finalize() at a throwaway directory instead of the real
+  // DATA_DIR — every read AND write below goes through this, not just the
+  // overview sync at the bottom. A prior version of this override only reached
+  // afterFinalize(), so an in-process test call using a real case code (e.g.
+  // "08603854", used throughout this test suite) silently overwrote that real
+  // case's cached data via DATA_DIR — confirmed on a real checkout, not
+  // hypothetical.
+  const casesDir = options.casesDir || DATA_DIR;
+  const indexPath = join(casesDir, '_index.json');
 
   const rawText = readFileSync(rawPath, 'utf8');
   let raw;
@@ -735,7 +743,7 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
 
   // Read the cache once — BOTH paths need it, to union comments rather than
   // letting a thinner fresh capture silently drop one already confirmed to exist.
-  const casePath = join(DATA_DIR, caseCode, 'case.json');
+  const casePath = join(casesDir, caseCode, 'case.json');
   let cached = null;
   if (existsSync(casePath)) {
     try {
@@ -905,8 +913,8 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
   out.extractedAt = new Date().toISOString();
 
   // Per-case folder: data/cases/<CODE>/case.json — keeps all artifacts (render
-  // md/html/txt, pdf) together. _index.json stays at DATA_DIR root (cross-case).
-  const caseDir = join(DATA_DIR, caseCode);
+  // md/html/txt, pdf) together. _index.json stays at casesDir root (cross-case).
+  const caseDir = join(casesDir, caseCode);
   mkdirSync(caseDir, { recursive: true });
   const outPath = join(caseDir, 'case.json');
   writeFileSync(outPath, JSON.stringify(out, null, 2), 'utf8');
@@ -920,9 +928,9 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
 
   // Merge into _index.json.
   let index = {};
-  if (existsSync(INDEX_PATH)) {
+  if (existsSync(indexPath)) {
     try {
-      index = JSON.parse(readFileSync(INDEX_PATH, 'utf8'));
+      index = JSON.parse(readFileSync(indexPath, 'utf8'));
     } catch {
       process.stderr.write('Warning: _index.json unreadable, starting fresh\n');
     }
@@ -932,10 +940,10 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
     commentCount: out.comments.length,
     hash: out.hash,
   };
-  writeFileSync(INDEX_PATH, JSON.stringify(index, null, 2), 'utf8');
+  writeFileSync(indexPath, JSON.stringify(index, null, 2), 'utf8');
 
   // Auto-sync cases overview and dashboard
-  afterFinalize(caseCode, options.casesDir || DATA_DIR, options);
+  afterFinalize(caseCode, casesDir, options);
 
   // Verdict fields the agent branches on. Emitted whenever a cached case existed,
   // including a FULL re-capture of one — the agent sees exactly which comments
