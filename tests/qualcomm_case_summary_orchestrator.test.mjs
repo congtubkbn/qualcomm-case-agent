@@ -1,8 +1,9 @@
 // Tests for qualcomm-case-summary's orchestrator (prepare/finalize).
-// deps.mjs (captureCase) is mocked via node:test's module mocker so no test makes a
-// real subprocess/browser call. Summarization itself is not mocked here because it is
-// not a script-side effect: prepare() hands the model-input package to the calling
-// agent, and finalize() takes the agent's already-produced comments/flow as input.
+// captureCase (owned by qualcomm-case-agent's capture_case.mjs) is mocked via
+// node:test's module mocker so no test makes a real subprocess/browser call.
+// Summarization itself is not mocked here because it is not a script-side effect:
+// prepare() hands the model-input package to the calling agent, and finalize() takes
+// the agent's already-produced comments/flow as input.
 //     node --experimental-test-module-mocks --test tests/qualcomm_case_summary_orchestrator.test.mjs
 
 import assert from 'node:assert/strict';
@@ -11,37 +12,22 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import child_process from 'node:child_process';
-import { promisify } from 'node:util';
-
 process.env.QUALCOMM_ROOT = mkdtempSync(join(tmpdir(), 'qc-summary-'));
 
 const SCRIPTS = new URL('../.claude/skills/qualcomm-case-summary/scripts/', import.meta.url);
+const CAPTURE_CASE = new URL(
+  '../.claude/skills/qualcomm-case-agent/scripts/capture_case.mjs',
+  import.meta.url,
+).href;
 
 function mockDeps(t, captureResult) {
   const captureCalls = [];
-  const mockExec = (file, args, cb) => {};
-  mockExec[promisify.custom] = async (file, args) => {
-    const code = args[1];
-    captureCalls.push(code);
-    const result = typeof captureResult === 'function' ? captureResult(code) : captureResult;
-    const stdout = JSON.stringify(result) + '\n';
-    
-    const exitCode = result.status === 'created' || result.status === 'updated' || result.status === 'no-update' ? 0 : 3;
-    if (exitCode === 0) {
-      return { stdout, stderr: '' };
-    } else {
-      const err = new Error(`Command failed`);
-      err.code = exitCode;
-      err.stdout = stdout;
-      throw err;
-    }
-  };
-
-  t.mock.module('node:child_process', {
+  t.mock.module(CAPTURE_CASE, {
     exports: {
-      ...child_process,
-      execFile: mockExec,
+      captureCase: async (code) => {
+        captureCalls.push(code);
+        return typeof captureResult === 'function' ? captureResult(code) : captureResult;
+      },
     },
   });
 

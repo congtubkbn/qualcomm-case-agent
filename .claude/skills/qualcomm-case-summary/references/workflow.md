@@ -16,7 +16,7 @@ flowchart TD
     VALID -->|"yes"| STEP1["Step 1 (CLI): run_summary.mjs prepare &lt;CODE&gt;"]
     
     subgraph S1_ENGINE ["Step 1 Engine (Deterministic)"]
-        STEP1 --> CAP["deps.mjs: captureCase(&lt;CODE&gt;)<br/>calls qualcomm-case-agent (run_case.mjs)"]
+        STEP1 --> CAP["qualcomm-case-agent/capture_case.mjs: captureCase(&lt;CODE&gt;)<br/>calls qualcomm-case-agent (run_case.mjs)"]
         CAP --> CAP_CHECK{"Capture verdict?"}
         CAP_CHECK -->|"auth-required / not-found / blocked / busy / error"| CAP_ABORT["Return capture verdict as-is"]
         CAP_CHECK -->|"created / updated / no-update"| READ_CACHE["Read case.json & summary.json (if exists)"]
@@ -61,7 +61,7 @@ flowchart TD
 - **Immediate Execution**: Valid code proceeds straight to Step 1 without interactive confirmation.
 
 ### Step 1: Prepare (`run_summary.mjs prepare <CODE>`)
-- Calls `qualcomm-case-agent` via `deps.captureCase` to guarantee local `case.json` is fresh.
+- Calls `qualcomm-case-agent`'s `captureCase` to guarantee local `case.json` is fresh.
 - Computes `deltaComments = case.comments.filter(c => !prior.summarizedCommentIds.includes(c.id))`.
 - **Branching**:
   - `status: "no-delta"`: No new comments. Returns current `caseStatus` and existing summary. **0 model tokens used**.
