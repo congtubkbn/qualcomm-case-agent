@@ -92,8 +92,10 @@ npm run docs:hook                 # install pre-commit hook that keeps docs/DESI
 No build/lint/typecheck step — plain Node ESM (`.mjs`), `engines.node >= 22.3.0`. CI
 (`.github/workflows/ci.yml`) runs `npm test` then `npm run docs:check` on push/PR to `main`.
 
-`data/` (cases and the Chrome profile) is entirely git-ignored — case content is Qualcomm NDA
-material and must stay local. Never paste case content to an external/remote service.
+This repository ignores all of `data/` and records nothing about what's inside it. `data/cases/`
+is its own **private** git repository (cloned in place, see README "New machine") — the only remote
+case content is ever allowed to reach, since it stays under NDA. Never paste case content into any
+other external or remote service (chat, ticket, paste site, unrelated repo).
 
 ### Architecture: capture is code, no model in the loop
 

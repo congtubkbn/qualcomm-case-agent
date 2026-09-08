@@ -88,7 +88,10 @@ data/cases/_overview.json       # fast aggregated multi-case overview cache
 data/cases/dashboard.html       # standalone, offline interactive HTML dashboard
 ```
 
-All of `data/` is git-ignored — case content is Qualcomm NDA material, kept local only.
+This repository (public) ignores all of `data/` wholesale and records nothing about what's inside
+it. `data/cases/` is its own **private** git repository, cloned in place — see New machine below.
+Everything else under `data/` (`chrome-profile/`, `qualcomm-session.json`, `.secrets/`) stays local
+only, never committed anywhere.
 
 ## Design docs
 
@@ -108,7 +111,15 @@ when it is stale.
 ## New machine
 
 1. Install Node + agent-browser + Chrome (above).
-2. Copy the **whole project folder** over (the skill is inside `.claude/skills/`).
-3. Do **not** copy `data/` — the Chrome profile is encrypted to the old user, `qid.bin` is
-   DPAPI-bound, and case content is NDA. All git-ignored.
-4. First login (Okta + email OTP) in a **real terminal**; the profile persists afterward.
+2. Clone this (public) repository (the skill is inside `.claude/skills/`).
+3. Clone the **private** data repository into `data/cases/` — you need collaborator access to it:
+   ```bash
+   gh repo clone congtubkbn/qualcomm-case-data data/cases
+   ```
+   This yields readable `case.md`/`summary.md` files immediately, no render step. Run
+   `npm run cases:overview` to rebuild `_overview.json` and `dashboard.html` — both are
+   regenerated caches, not tracked in the data repository.
+4. Do **not** copy `chrome-profile/`, `qualcomm-session.json`, or `.secrets/` from another
+   machine — the Chrome profile is encrypted to the old user and `qid.bin` is DPAPI-bound. These
+   stay local only and are git-ignored on every machine.
+5. First login (Okta + email OTP) in a **real terminal**; the profile persists afterward.
