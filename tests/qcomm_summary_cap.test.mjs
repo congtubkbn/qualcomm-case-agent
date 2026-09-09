@@ -1,9 +1,9 @@
-// Tests for qualcomm-case-summary's character-cap guard (pure, no mocking needed).
-//     node --test tests/qualcomm_case_summary_cap.test.mjs
+// Tests for qcomm's character-cap guard (pure, no mocking needed).
+//     node --test tests/qcomm_summary_cap.test.mjs
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { applyCharCap, applyCharCapToComments, CHAR_CAP } from '../.claude/skills/qualcomm-case-summary/scripts/run_summary.mjs';
+import { applyCharCap, applyCharCapToComments, CHAR_CAP } from '../.claude/skills/qcomm/scripts/run_summary.mjs';
 
 describe('applyCharCap', () => {
   it('leaves a body under the cap untouched', () => {

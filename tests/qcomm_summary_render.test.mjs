@@ -1,9 +1,9 @@
-// Tests for qualcomm-case-summary's summary.md renderer (pure, no mocking needed).
-//     node --test tests/qualcomm_case_summary_render.test.mjs
+// Tests for qcomm's summary.md renderer (pure, no mocking needed).
+//     node --test tests/qcomm_summary_render.test.mjs
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { renderSummaryMd } from '../.claude/skills/qualcomm-case-summary/scripts/run_summary.mjs';
+import { renderSummaryMd } from '../.claude/skills/qcomm/scripts/run_summary.mjs';
 
 const summary = {
   caseNumber: '08633581',

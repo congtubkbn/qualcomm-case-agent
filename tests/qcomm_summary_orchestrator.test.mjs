@@ -1,9 +1,9 @@
-// Tests for qualcomm-case-summary's orchestrator (prepare/finalize).
+// Tests for qcomm's orchestrator (prepare/finalize).
 // deps.mjs (captureCase) is mocked via node:test's module mocker so no test makes a
 // real subprocess/browser call. Summarization itself is not mocked here because it is
 // not a script-side effect: prepare() hands the model-input package to the calling
 // agent, and finalize() takes the agent's already-produced comments/flow as input.
-//     node --experimental-test-module-mocks --test tests/qualcomm_case_summary_orchestrator.test.mjs
+//     node --experimental-test-module-mocks --test tests/qcomm_summary_orchestrator.test.mjs
 
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -16,7 +16,7 @@ import { promisify } from 'node:util';
 
 process.env.QUALCOMM_ROOT = mkdtempSync(join(tmpdir(), 'qc-summary-'));
 
-const SCRIPTS = new URL('../.claude/skills/qualcomm-case-summary/scripts/', import.meta.url);
+const SCRIPTS = new URL('../.claude/skills/qcomm/scripts/', import.meta.url);
 
 function mockDeps(t, captureResult) {
   const captureCalls = [];

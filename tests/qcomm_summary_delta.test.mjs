@@ -1,9 +1,9 @@
-// Tests for qualcomm-case-summary's delta computation (pure, no mocking needed).
-//     node --test tests/qualcomm_case_summary_delta.test.mjs
+// Tests for qcomm's delta computation (pure, no mocking needed).
+//     node --test tests/qcomm_summary_delta.test.mjs
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { computeDelta } from '../.claude/skills/qualcomm-case-summary/scripts/run_summary.mjs';
+import { computeDelta } from '../.claude/skills/qcomm/scripts/run_summary.mjs';
 
 describe('computeDelta', () => {
   it('first-ever run: no summarized ids yet -> delta is every comment', () => {

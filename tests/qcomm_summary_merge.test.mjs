@@ -1,9 +1,9 @@
-// Tests for qualcomm-case-summary's merge logic (pure, no mocking needed).
-//     node --test tests/qualcomm_case_summary_merge.test.mjs
+// Tests for qcomm's merge logic (pure, no mocking needed).
+//     node --test tests/qcomm_summary_merge.test.mjs
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { mergeSummary } from '../.claude/skills/qualcomm-case-summary/scripts/run_summary.mjs';
+import { mergeSummary } from '../.claude/skills/qcomm/scripts/run_summary.mjs';
 
 describe('mergeSummary', () => {
   it('first-ever merge: no prior summary -> summarizedCommentIds/comments start from the new batch', () => {
