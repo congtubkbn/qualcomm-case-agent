@@ -6,12 +6,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { parseArgs } from '../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs';
-import { escapeHtml, formatStaleness, getStatusCategory, renderDashboardHtml } from '../.claude/skills/qualcomm-case-overview/scripts/dashboard_renderer.mjs';
-import { renderCliTable } from '../.claude/skills/qualcomm-case-overview/scripts/cli_renderer.mjs';
+import { parseArgs } from '../.claude/skills/qcomm/scripts/cases_overview.mjs';
+import { escapeHtml, formatStaleness, getStatusCategory, renderDashboardHtml } from '../.claude/skills/qcomm/scripts/dashboard_renderer.mjs';
+import { renderCliTable } from '../.claude/skills/qcomm/scripts/cli_renderer.mjs';
 
 const SCRIPT = fileURLToPath(
-  new URL('../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs', import.meta.url)
+  new URL('../.claude/skills/qcomm/scripts/cases_overview.mjs', import.meta.url)
 );
 
 function createSampleOverviewData() {

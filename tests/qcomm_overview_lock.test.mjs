@@ -8,10 +8,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmdirSync, statSync, utimesSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { acquireOverviewLock, releaseOverviewLock } from '../.claude/skills/qualcomm-case-overview/scripts/overview_store.mjs';
-import { withOverviewLock } from '../.claude/skills/qualcomm-case-overview/scripts/overview_lock.mjs';
+import { acquireOverviewLock, releaseOverviewLock } from '../.claude/skills/qcomm/scripts/overview_store.mjs';
+import { withOverviewLock } from '../.claude/skills/qcomm/scripts/overview_lock.mjs';
 
-const STORE_URL = new URL('../.claude/skills/qualcomm-case-overview/scripts/overview_store.mjs', import.meta.url).href;
+const STORE_URL = new URL('../.claude/skills/qcomm/scripts/overview_store.mjs', import.meta.url).href;
 
 function createTempCasesDir() {
   return mkdtempSync(join(tmpdir(), 'qc-overview-lock-test-'));

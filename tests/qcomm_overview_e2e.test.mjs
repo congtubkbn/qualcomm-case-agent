@@ -11,13 +11,13 @@ import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const SCRIPT_FINALIZE = fileURLToPath(
-  new URL('../.claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs', import.meta.url)
+  new URL('../.claude/skills/qcomm/scripts/finalize_case.mjs', import.meta.url)
 );
 const SCRIPT_SUMMARY = fileURLToPath(
-  new URL('../.claude/skills/qualcomm-case-summary/scripts/run_summary.mjs', import.meta.url)
+  new URL('../.claude/skills/qcomm/scripts/run_summary.mjs', import.meta.url)
 );
 const SCRIPT_OVERVIEW = fileURLToPath(
-  new URL('../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs', import.meta.url)
+  new URL('../.claude/skills/qcomm/scripts/cases_overview.mjs', import.meta.url)
 );
 
 function runFinalize(root, rawData, caseCode, flags = []) {

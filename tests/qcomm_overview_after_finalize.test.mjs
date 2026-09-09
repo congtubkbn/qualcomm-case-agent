@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { afterFinalize } from '../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs';
+import { afterFinalize } from '../.claude/skills/qcomm/scripts/cases_overview.mjs';
 
 function createTempCasesDir() {
   return mkdtempSync(join(tmpdir(), 'qc-after-finalize-test-'));
