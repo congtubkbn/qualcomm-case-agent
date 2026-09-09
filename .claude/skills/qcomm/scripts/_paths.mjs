@@ -15,7 +15,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url)); // scripts/
-export const SKILL_ROOT = resolve(here, '..');        // qualcomm-case-agent/
+export const SKILL_ROOT = resolve(here, '..');        // qcomm/
 
 // A real checkout has `.git` as a DIRECTORY. A git *worktree* has `.git` as a
 // FILE (a `gitdir: <path>/.git/worktrees/<name>` pointer). Worktrees do NOT

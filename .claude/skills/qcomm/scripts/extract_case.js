@@ -5,7 +5,7 @@
 // has no `<` stdin-redirect, and `Get-Content -Raw | agent-browser eval --stdin`
 // silently returns "null" instead of the evaluated result on Windows):
 //
-//     $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes('.claude/skills/qualcomm-case-agent/scripts/extract_case.js'))
+//     $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes('.claude/skills/qcomm/scripts/extract_case.js'))
 //     $r = agent-browser eval -b $b64
 //     [IO.File]::WriteAllText('data/cases/<CODE>/case.raw.json', $r, (New-Object Text.UTF8Encoding $false))
 //

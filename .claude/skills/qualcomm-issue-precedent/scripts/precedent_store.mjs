@@ -4,7 +4,7 @@
 // them against a free-text query by deterministic keyword overlap.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { DATA_DIR } from '../../qualcomm-case-agent/scripts/_paths.mjs';
+import { DATA_DIR } from '../../qcomm/scripts/_paths.mjs';
 
 export const DEFAULT_CASES_DIR = DATA_DIR;
 

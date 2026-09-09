@@ -18,7 +18,7 @@
       and print the exact `agent-browser connect "ws://..."` line to run next.
 
   Usage:
-     powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/recover_chrome.ps1"
+     powershell -ExecutionPolicy Bypass -File ".claude/skills/qcomm/scripts/recover_chrome.ps1"
 
   NOTE: keep this file ASCII-only (PS 5.1 reads a BOM-less file as ANSI).
 #>
@@ -35,7 +35,7 @@ if ($portOwner) {
   $cmdLine = if ($proc) { $proc.CommandLine } else { $null }
   Write-Host "Port $Port is held by PID $($portOwner.OwningProcess): $cmdLine"
   if (-not $cmdLine -or $cmdLine -notlike "*$QcProfileDir*") {
-    Write-Host "This does NOT look like qualcomm-case-agent's Chrome (expected --user-data-dir under $QcProfileDir)."
+    Write-Host "This does NOT look like qcomm's Chrome (expected --user-data-dir under $QcProfileDir)."
     Write-Host "If you're sure it's safe to close, run: Stop-Process -Id $($portOwner.OwningProcess) -Force"
   }
 } else {

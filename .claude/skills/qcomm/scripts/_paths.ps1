@@ -14,7 +14,7 @@
      pins the DPAPI blob, for layouts the walk-up cannot infer.
 
   Exposes (Qc-prefixed to avoid clobbering a caller's own param):
-     $QcSkillRoot   - the qualcomm-case-agent\ folder
+     $QcSkillRoot   - the qcomm\ folder
      $QcProjectRoot - workspace root (holds data\)
      $QcSecretPath  - data\.secrets\qid.bin   (DPAPI ciphertext)
      $QcProfileDir  - data\chrome-profile\    (persistent Chrome --user-data-dir)

@@ -1,6 +1,6 @@
 # Workflow — Input, Processing, Output — Reference
 
-How the Qualcomm Case Summary Skill (`qualcomm-case-summary`) runs end to end. Companion to `SKILL.md` and `docs/adr/0002-case-summary-as-separate-skill.md`.
+How the Qualcomm Case Summary functionality in `qcomm` runs end to end. Companion to `SKILL.md` and `docs/adr/0002-case-summary-as-separate-skill.md`.
 
 **Two script steps, agent judgment in between.** Everything mechanical (ensuring capture, computing comment deltas, merging JSON, rendering Markdown) is handled by deterministic scripts. The technical summarization and case flow narrative update are produced by the agent in a single model pass.
 
@@ -16,7 +16,7 @@ flowchart TD
     VALID -->|"yes"| STEP1["Step 1 (CLI): run_summary.mjs prepare &lt;CODE&gt;"]
     
     subgraph S1_ENGINE ["Step 1 Engine (Deterministic)"]
-        STEP1 --> CAP["deps.mjs: captureCase(&lt;CODE&gt;)<br/>calls qualcomm-case-agent (run_case.mjs)"]
+        STEP1 --> CAP["deps.mjs: captureCase(&lt;CODE&gt;)<br/>calls qcomm (run_case.mjs)"]
         CAP --> CAP_CHECK{"Capture verdict?"}
         CAP_CHECK -->|"auth-required / not-found / blocked / busy / error"| CAP_ABORT["Return capture verdict as-is"]
         CAP_CHECK -->|"created / updated / no-update"| READ_CACHE["Read case.json & summary.json (if exists)"]
@@ -61,7 +61,7 @@ flowchart TD
 - **Immediate Execution**: Valid code proceeds straight to Step 1 without interactive confirmation.
 
 ### Step 1: Prepare (`run_summary.mjs prepare <CODE>`)
-- Calls `qualcomm-case-agent` via `deps.captureCase` to guarantee local `case.json` is fresh.
+- Calls `qcomm` via `deps.captureCase` to guarantee local `case.json` is fresh.
 - Computes `deltaComments = case.comments.filter(c => !prior.summarizedCommentIds.includes(c.id))`.
 - **Branching**:
   - `status: "no-delta"`: No new comments. Returns current `caseStatus` and existing summary. **0 model tokens used**.
@@ -93,9 +93,9 @@ flowchart TD
 
 | File | Owner | Format / Ordering | Purpose |
 |:---|:---|:---|:---|
-| `summary.json` | `qualcomm-case-summary` | JSON · Canonical storage | Structured summaries, comment IDs, flow narrative, and metadata |
-| `summary.md` | `qualcomm-case-summary` | Markdown · **Newest-First** | Quick technical digestion for engineers |
-| `case.json` | `qualcomm-case-agent` | JSON · **Newest-First** (replies grouped under parent) | Read-only input source of truth |
+| `summary.json` | `qcomm` | JSON · Canonical storage | Structured summaries, comment IDs, flow narrative, and metadata |
+| `summary.md` | `qcomm` | Markdown · **Newest-First** | Quick technical digestion for engineers |
+| `case.json` | `qcomm` | JSON · **Newest-First** (replies grouped under parent) | Read-only input source of truth |
 
 ---
 

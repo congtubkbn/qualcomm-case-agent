@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Confirm the case dashboard (`npm run web`) displays case data pulled by the
-`qualcomm-case-agent` skill, add a client-side "NEW" badge for unread updates, and make the
+`qcomm` skill, add a client-side "NEW" badge for unread updates, and make the
 dashboard's manual "Sync now" button trigger a case update the same way the user would by hand —
 by invoking an agent CLI (claude/cline/gemini) with the skill's trigger phrase — instead of
 calling the capture script directly.
@@ -47,7 +47,7 @@ calling the capture script directly.
   before/after disk state (`_index.json` / `case.json`), matching how `/api/overview` already
   works. This avoids depending on an agent's prose matching `run_case.mjs`'s own verdict shape.
 - Windows CLI spawning reuses the pattern already established in
-  `.claude/skills/qualcomm-case-agent/scripts/browser.mjs` (`spawnSync` via `cmd.exe /d /s /c`
+  `.claude/skills/qcomm/scripts/browser.mjs` (`spawnSync` via `cmd.exe /d /s /c`
   with a metacharacter guard) rather than inventing a new one — see that file's `ab()`/`winLine()`
   for the reference implementation.
 - Follow existing code style in each touched file exactly (no linter to catch drift): `web/app.html`
@@ -189,7 +189,7 @@ Expected: PASS — this task touches no `.mjs` file, so this confirms nothing el
 
 ```bash
 git add web/app.html
-git commit -m "feat(qualcomm-case-agent): add NEW/unread badge to the dashboard"
+git commit -m "feat(qcomm): add NEW/unread badge to the dashboard"
 ```
 
 ---
@@ -204,8 +204,8 @@ git commit -m "feat(qualcomm-case-agent): add NEW/unread badge to the dashboard"
 
 **Interfaces:**
 - Consumes: `RUNS_PATH`, `readJson`, `writeJson` (already exported by
-  `.claude/skills/qualcomm-case-agent/scripts/scheduler.mjs`); `DATA_DIR`, `PROJECT_ROOT` (already
-  exported by `.claude/skills/qualcomm-case-agent/scripts/_paths.mjs`).
+  `.claude/skills/qcomm/scripts/scheduler.mjs`); `DATA_DIR`, `PROJECT_ROOT` (already
+  exported by `.claude/skills/qcomm/scripts/_paths.mjs`).
 - Produces: `loadCliConfig(): {tool, commands}`, `fillArgv(template: string[], prompt: string): string[]`,
   `classifyRun(before, after, cliFailed, reason): {status, reason?, newComments?}` — all exported,
   pure, and unit-tested in Task 2 (no real CLI process involved). `main()`/the top-level script
@@ -292,7 +292,7 @@ Expected: FAIL — `web/cli_run.mjs` does not exist yet, so the dynamic `import(
 Create `web/cli_run.mjs`:
 
 ```js
-// web/cli_run.mjs — trigger the qualcomm-case-agent SKILL through an external
+// web/cli_run.mjs — trigger the qcomm SKILL through an external
 // agent CLI (claude/cline/gemini), for the dashboard's manual "Sync now"
 // button.
 //
@@ -325,8 +325,8 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DATA_DIR, PROJECT_ROOT } from '../.claude/skills/qualcomm-case-agent/scripts/_paths.mjs';
-import { RUNS_PATH, readJson, writeJson } from '../.claude/skills/qualcomm-case-agent/scripts/scheduler.mjs';
+import { DATA_DIR, PROJECT_ROOT } from '../.claude/skills/qcomm/scripts/_paths.mjs';
+import { RUNS_PATH, readJson, writeJson } from '../.claude/skills/qcomm/scripts/scheduler.mjs';
 
 export const CONFIG_PATH = join(PROJECT_ROOT, 'data', 'agent-cli.json');
 const DEFAULT_CONFIG = {
@@ -474,7 +474,7 @@ Expected: PASS.
    whether `data/cases/<CODE>/case.json`'s content actually changed.
 5. If the `claude` process hangs waiting on a permission prompt instead of completing: this means
    your `claude` CLI setup requires an interactive permission grant for the Bash/Read/Write tools
-   `qualcomm-case-agent`'s `SKILL.md` uses. Add whatever non-interactive permission flag your
+   `qcomm`'s `SKILL.md` uses. Add whatever non-interactive permission flag your
    `claude` CLI version supports to `data/agent-cli.json`'s `commands.claude` array (e.g. a
    permission-mode flag) — this is a machine-local config change, not a code change, so it isn't
    part of this task's commit.
@@ -485,5 +485,5 @@ Expected: PASS.
 
 ```bash
 git add web/cli_run.mjs web/server.mjs tests/pipeline.test.mjs
-git commit -m "feat(qualcomm-case-agent): trigger manual case sync via an agent CLI"
+git commit -m "feat(qcomm): trigger manual case sync via an agent CLI"
 ```

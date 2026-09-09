@@ -36,7 +36,7 @@ Triggered when pre-flight checks fail (missing username or secret file) or when 
 2. **If CDP port 9773 is refused / unresponsive**:
    - Terminate stale instances and restart CDP:
      ```bash
-     powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/recover_chrome.ps1"
+     powershell -ExecutionPolicy Bypass -File ".claude/skills/qcomm/scripts/recover_chrome.ps1"
      ```
    - Verify CDP readiness:
      ```bash
@@ -45,7 +45,7 @@ Triggered when pre-flight checks fail (missing username or secret file) or when 
      *Expected result*: HTTP 200 with JSON payload containing `webSocketDebuggerUrl`.
 3. **Retry capture**:
    ```bash
-   node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE>
+   node ".claude/skills/qcomm/scripts/run_case.mjs" <CODE>
    ```
 
 ---
@@ -65,7 +65,7 @@ Triggered when the stored password was successfully accepted by Okta, but the us
 3. Submit the 6-digit OTP directly into Chrome.
 4. Re-run capture:
    ```bash
-   node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE>
+   node ".claude/skills/qcomm/scripts/run_case.mjs" <CODE>
    ```
    *Note*: The password step already succeeded. A fresh Okta session is picked up immediately without restarting password entry.
 
@@ -91,7 +91,7 @@ Triggered when the stored password is rejected by Okta (password changed or stal
    - Complete sign-in or resolve challenge in the open Chrome window on port 9773 until the browser lands on `support.qualcomm.com`.
 3. **Resume capture**:
    ```bash
-   node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE>
+   node ".claude/skills/qcomm/scripts/run_case.mjs" <CODE>
    ```
    Session cookies persist automatically in `data/chrome-profile/`.
 
@@ -124,9 +124,9 @@ Triggered when the portal DOM fails to hydrate or the feed expansion loop hits s
    - Inspect diagnostic screenshots at `data/cases/<CODE>/capture.png` or `probe.png`.
 2. **Force full re-pagination**:
    ```bash
-   node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE> --mode full
+   node ".claude/skills/qcomm/scripts/run_case.mjs" <CODE> --mode full
    ```
-3. If portal UI has changed, inspect `.claude/skills/qualcomm-case-agent/scripts/expand_step.js` or `extract_case.js`.
+3. If portal UI has changed, inspect `.claude/skills/qcomm/scripts/expand_step.js` or `extract_case.js`.
 
 ---
 
@@ -164,7 +164,7 @@ Triggered when CDP port 9773 is active, but the process attached to it does not 
 ### Human-Only Recovery Steps
 1. **Diagnose foreign process (read-only)**:
    ```bash
-   powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/recover_chrome.ps1"
+   powershell -ExecutionPolicy Bypass -File ".claude/skills/qcomm/scripts/recover_chrome.ps1"
    ```
    This outputs the PID and command line of the process holding port 9773.
 2. **Free the port manually** (after confirming it is safe to terminate):

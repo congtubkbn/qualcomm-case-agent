@@ -12,8 +12,8 @@
 //   5: Blocked / Stub (state: 'STUB' | 'BLOCKED')
 //   1: Connection or unexpected error
 
-import { CdpClient } from '../.claude/skills/qualcomm-case-agent/scripts/cdp_client.mjs';
-import { fastLandOnCase } from '../.claude/skills/qualcomm-case-agent/scripts/fast_landing.mjs';
+import { CdpClient } from '../.claude/skills/qcomm/scripts/cdp_client.mjs';
+import { fastLandOnCase } from '../.claude/skills/qcomm/scripts/fast_landing.mjs';
 import { createMockCdpServer } from './mocks/cdp_server.mjs';
 import { fileURLToPath } from 'node:url';
 

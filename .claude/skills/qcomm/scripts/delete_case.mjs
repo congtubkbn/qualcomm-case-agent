@@ -29,7 +29,7 @@ export const STATUS_EXIT = {
 
 /**
  * Delete one case's entire local cache: its directory, its _index.json entry,
- * then resync the qualcomm-case-overview aggregation/dashboard. Pure fs
+ * then resync the qcomm overview aggregation/dashboard. Pure fs
  * operations against an injectable dataDir — no browser, no lock, no CLI
  * parsing (that's the thin wrapper below).
  *

@@ -22,7 +22,7 @@ Sanity-check the raw extraction file, then finalize:
 
 ```bash
 node -e "const j=JSON.parse(require('fs').readFileSync('data/cases/<CODE>/case.raw.json','utf8')); console.log(j.caseNumber, j.comments.length, j.displayedCommentCount)"
-node ".claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs" <CODE> "data/cases/<CODE>/case.raw.json"
+node ".claude/skills/qcomm/scripts/finalize_case.mjs" <CODE> "data/cases/<CODE>/case.raw.json"
 # On exit 0, finalize_case.mjs cleans up its own case.raw.json scratch file
 ```
 
@@ -45,7 +45,7 @@ node ".claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs" <CODE> "data
 When updating an existing cached case (`--mode update` or auto-detected update mode), the DOM contains newly added posts fully expanded while older posts remain collapsed. Run the extractor over the DOM and finalize with `--merge`:
 
 ```bash
-node ".claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs" <CODE> "data/cases/<CODE>/case.raw.json" --merge --status "<STATUS>" --priority "<PRIORITY>"
+node ".claude/skills/qcomm/scripts/finalize_case.mjs" <CODE> "data/cases/<CODE>/case.raw.json" --merge --status "<STATUS>" --priority "<PRIORITY>"
 ```
 
 ### Deterministic Merge Mechanics

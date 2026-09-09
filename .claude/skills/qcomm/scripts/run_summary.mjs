@@ -1,4 +1,4 @@
-// run_summary.mjs - orchestrator for qualcomm-case-summary.
+// run_summary.mjs - orchestrator for qcomm summary.
 //
 // Two CLI steps, with the calling agent doing the actual summarization in between
 // (see SKILL.md):
@@ -51,7 +51,7 @@ export async function captureCase(code) {
     ({ stdout } = await execFileAsync(process.execPath, [RUN_CASE_MJS, code]));
   } catch (e) {
     if (typeof e.stdout !== 'string' || !e.stdout.trim()) {
-      throw new Error(`qualcomm-case-agent capture failed to run: ${e.message}`);
+      throw new Error(`qcomm capture failed to run: ${e.message}`);
     }
     stdout = e.stdout;
   }

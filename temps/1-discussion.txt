@@ -47,7 +47,7 @@ tuy nhiên, hiện tại đã có agent skill để convert log file thành duck
   pretrained knowledge), no fix generation (chỉ root cause), user gate bắt
   buộc, iteration budget=5
 
-### Tích hợp qualcomm-case-agent vào rca/
+### Tích hợp qcomm vào rca/
 rca-framework đã có pattern 3 tool retrieval (spec/code/log), mỗi tool = 1
 skill wrapper, output ghi thẳng vào state file, raw data ko qua stdout.
 Qualcomm case cache (`data/cases/<CODE>/case.json`) fit làm **tool thứ 4**
@@ -105,5 +105,5 @@ theo đúng pattern này:
 - [ ] **Session 2 — Scope issue PLM**: loại issue nào agent xử lý (crash log? RF? protocol?), input format cụ thể (log file type, PLM ticket schema)
 - [ ] **Session 3 — Patent workflow chi tiết**: quy trình hiện tại raise idea thủ công ntn, agent hỗ trợ ở bước nào (tìm gap trong spec? soạn draft? search prior art?)
 - [ ] **Session 4 — Ràng buộc cost/time**: budget token/tháng? SLA thời gian resolve issue hiện tại vs mong muốn?
-- [ ] **Session 5 — Roadmap hướng phát triển agent**: liệt kê option (vd: mở rộng qualcomm-case-agent hiện có sang phân tích PLM log / patent search / tích hợp source code search), chọn hướng ưu tiên
-- [ ] **Session 6 — Kiến trúc & tái dùng**: phần nào tái dùng từ qualcomm-case-agent hiện có (browser capture, enrichment) vs phần mới cần xây
+- [ ] **Session 5 — Roadmap hướng phát triển agent**: liệt kê option (vd: mở rộng qcomm hiện có sang phân tích PLM log / patent search / tích hợp source code search), chọn hướng ưu tiên
+- [ ] **Session 6 — Kiến trúc & tái dùng**: phần nào tái dùng từ qcomm hiện có (browser capture, enrichment) vs phần mới cần xây

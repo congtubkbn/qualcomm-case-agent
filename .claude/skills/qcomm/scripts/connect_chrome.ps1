@@ -15,7 +15,7 @@
      exits 0 - re-running is harmless.
 
   Usage (run from anywhere - paths resolve from the script's own location):
-     powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/connect_chrome.ps1"
+     powershell -ExecutionPolicy Bypass -File ".claude/skills/qcomm/scripts/connect_chrome.ps1"
      agent-browser connect 9773
   Optional args:
      -Port 9773            CDP/remote-debugging port (default 9773 - chosen to sit

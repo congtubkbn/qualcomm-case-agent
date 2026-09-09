@@ -61,7 +61,7 @@ The custom URI scheme `qc://case/<case-number>` is automatically registered into
 The skills are **harness-agnostic** — they drive `node` through a terminal, so they run under any agent that can run commands and edit files:
 
 - **Claude Code** — discovers `.claude/skills/` (`qcomm`, `qualcomm-issue-precedent`).
-- **Cline (VS Code)** — reads `.clinerules/qualcomm-case-agent.md`; the capture is a single
+- **Cline (VS Code)** — reads `.clinerules/qcomm.md`; the capture is a single
   `execute_command`. Do not use Cline's built-in `browser_action`.
 - **Other agents** — point them at the respective `SKILL.md`; every step is a plain terminal command.
 

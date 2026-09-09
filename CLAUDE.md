@@ -147,7 +147,7 @@ needed.
 
 ### Issue tracker
 
-Issues and specs live as GitHub issues in `congtubkbn/qualcomm-case-agent`. See
+Issues and specs live as GitHub issues in `congtubkbn/qcomm`. See
 `docs/agents/issue-tracker.md`.
 
 ### Triage labels

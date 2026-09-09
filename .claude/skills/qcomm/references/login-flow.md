@@ -50,7 +50,7 @@ When an Okta session lapses, the portal redirects to `account.qualcomm.com`. `fa
 Authentication events map directly to the JSON verdict table defined in [`SKILL.md`](../SKILL.md#step-3--branch-on-json-verdict):
 
 - **`otp-timeout` (Exit 2)**: Password was accepted, but human did not submit OTP within the 5-minute timeout window.
-  - *Action*: Enter the OTP in the open Chrome window, then re-run `node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE>`. The password step does not need to be repeated.
+  - *Action*: Enter the OTP in the open Chrome window, then re-run `node ".claude/skills/qcomm/scripts/run_case.mjs" <CODE>`. The password step does not need to be repeated.
 - **`auth-required` (Exit 3)**: Password rejected, retry limit exhausted, or challenge unhandled.
   - *Action*: Sign in manually in Chrome, run `npm run setup:credentials` to refresh DPAPI secret, and re-run capture.
 - **`error` (Exit 1)**: Credentials unconfigured before launch.
@@ -69,7 +69,7 @@ If a non-project process attaches to CDP port 9773, `ensureChrome()` detects the
 If the Chrome profile becomes corrupted:
 ```powershell
 # Terminate Chrome instances using CDP 9773 and remove the profile directory
-powershell -ExecutionPolicy Bypass -File ".claude/skills/qualcomm-case-agent/scripts/recover_chrome.ps1"
+powershell -ExecutionPolicy Bypass -File ".claude/skills/qcomm/scripts/recover_chrome.ps1"
 Remove-Item -Recurse -Force "data/chrome-profile"
 ```
 Re-running capture will launch a fresh profile ready for sign-in.

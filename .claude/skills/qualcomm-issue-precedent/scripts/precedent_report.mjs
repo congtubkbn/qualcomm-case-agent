@@ -5,7 +5,7 @@
 // output directory is never itself scanned as a case).
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { DATA_DIR } from '../../qualcomm-case-agent/scripts/_paths.mjs';
+import { DATA_DIR } from '../../qcomm/scripts/_paths.mjs';
 import { VERDICT_INSUFFICIENT } from './precedent_verdict.mjs';
 
 export const DEFAULT_PRECEDENT_DIR = join(DATA_DIR, '_precedent');

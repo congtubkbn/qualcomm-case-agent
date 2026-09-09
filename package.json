@@ -1,5 +1,5 @@
 {
-  "name": "qualcomm-case-agent",
+  "name": "qcomm",
   "private": true,
   "description": "Headless capture pipeline for Qualcomm Support cases",
   "scripts": {

@@ -1,6 +1,6 @@
-# qualcomm-case-agent — Consumer Interface Guide
+# qcomm — Consumer Interface Guide
 
-For downstream agents, skills (e.g. `qualcomm-case-summary`, `qualcomm-case-overview`), and automated workflows that consume Qualcomm case data produced by `qualcomm-case-agent`. Consult this guide before accessing `data/cases/`.
+For downstream agents, skills (e.g. `qualcomm-issue-precedent`), and automated workflows that consume Qualcomm case data produced by `qcomm`. Consult this guide before accessing `data/cases/`.
 
 ## Quick start (3 steps)
 
@@ -20,8 +20,8 @@ The root `data/cases/` holds the global index, multi-case overview, and dashboar
 | `data/cases/dashboard.html` | Visual multi-case HTML dashboard rendered by cases overview |
 | `data/cases/<CODE>/case.json` | Full case data (see schema below) |
 | `data/cases/<CODE>/case.md` | Full human review — every comment verbatim |
-| `data/cases/<CODE>/summary.json` | Case summary digest and flow narrative (produced by `qualcomm-case-summary`) |
-| `data/cases/<CODE>/summary.md` | Rendered summary for human review (produced by `qualcomm-case-summary`) |
+| `data/cases/<CODE>/summary.json` | Case summary digest and flow narrative (produced by `qcomm`) |
+| `data/cases/<CODE>/summary.md` | Rendered summary for human review (produced by `qcomm`) |
 
 ## Key schema fields
 
@@ -81,11 +81,26 @@ The root `data/cases/` holds the global index, multi-case overview, and dashboar
 
 ## Invoke pattern
 
-To ensure case data is present and fresh, invoke `qualcomm-case-agent` with the 8-digit case code unconditionally before reading. The pipeline operates incrementally, resolving cache freshness and returning `no-update` when the local cache is current.
+To ensure case data is present and fresh, invoke `qcomm` with the 8-digit case code unconditionally before reading. The pipeline operates incrementally, resolving cache freshness and returning `no-update` when the local cache is current.
 
-**Headless CLI (used by automated consumers like `run_summary.mjs`):**
 ```bash
-node .claude/skills/qualcomm-case-agent/scripts/run_case.mjs <CODE>
+node .claude/skills/qcomm/scripts/run_case.mjs <CODE>
+```
+
+---
+
+## Skill-to-Skill Invocations
+
+Invoke the `qcomm` skill or instruct the agent to capture/sync the case code:
+
+```markdown
+Run `qcomm` for case 08603854 to ensure cache freshness.
+```
+
+Or from Node.js automation:
+
+```javascript
+const result = await exec(`node .claude/skills/qcomm/scripts/run_case.mjs ${CODE}`);
 ```
 Stdout returns exactly one JSON verdict line:
 ```json
@@ -119,7 +134,7 @@ if (['created', 'updated', 'no-update'].includes(verdict.status)) {
 
 ## Rules for consumers
 
-- **Immutability & Local Ownership**: Treat all files and records under `data/cases/` as immutable read-only resources. Case artifacts, global index (`_index.json`), and overview caches (`_overview.json`) are maintained exclusively by `qualcomm-case-agent`.
+- **Immutability & Local Ownership**: Treat all files and records under `data/cases/` as immutable read-only resources. Case artifacts, global index (`_index.json`), and overview caches (`_overview.json`) are maintained exclusively by `qcomm`.
 - **Confidentiality & NDA Containment**: Retain all case data, comments (`comments[].body`), and previews (`comments[].summary`) strictly within the local workspace environment to uphold Qualcomm NDA compliance. Process all downstream analysis locally.
 - **Presentation Ordering**: Rely on the pre-ordered comment structure (newest activity first at index 0, with reply threads nested directly beneath their parent post per `finalize_case.mjs`'s `orderCommentsForPresentation`).
 - **Unconditional Synchronization**: Invoke capture directly prior to reading data to maintain cache freshness automatically without manual file existence checks.
