@@ -3,7 +3,7 @@
 // Two CLI steps, with the calling agent doing the actual summarization in between
 // (see SKILL.md):
 //   node run_summary.mjs prepare <CODE>
-//     -> ensures capture (captureCase), computes the delta, applies the char
+//     -> ensures capture (deps.captureCase), computes the delta, applies the char
 //        cap, and prints either a cached summary (status: no-delta / capture-failure
 //        passthrough) or the model-input package (status: needs-summary) as one JSON
 //        line. An empty delta short-circuits before any summarization is requested.
@@ -11,15 +11,21 @@
 //     -> takes the agent-produced { comments, flow } from <file.json>, merges it into
 //        summary.json, renders summary.md (newest-first), and prints the result.
 //
-// Only captureCase (imported from qualcomm-case-agent) is an effect; delta/cap/merge/
-// render below are pure.
+// Only deps.mjs (captureCase) is an effect; delta/cap/merge/render below are pure.
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from '../../qualcomm-case-agent/scripts/_paths.mjs';
-import { captureCase } from '../../qualcomm-case-agent/scripts/capture_case.mjs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { afterFinalize } from '../../qualcomm-case-overview/scripts/overview_store.mjs';
+
+const execFileAsync = promisify(execFile);
+
+const RUN_CASE_MJS = fileURLToPath(
+  new URL('../../qualcomm-case-agent/scripts/run_case.mjs', import.meta.url),
+);
 
 // ---- cap.mjs inline ----
 export const CHAR_CAP = 20000;
@@ -36,6 +42,21 @@ export function applyCharCapToComments(comments, cap = CHAR_CAP) {
 export function computeDelta(caseComments, summarizedIds) {
   const seen = new Set(summarizedIds);
   return caseComments.filter((c) => !seen.has(c.id));
+}
+
+// ---- deps.mjs inline ----
+export async function captureCase(code) {
+  let stdout;
+  try {
+    ({ stdout } = await execFileAsync(process.execPath, [RUN_CASE_MJS, code]));
+  } catch (e) {
+    if (typeof e.stdout !== 'string' || !e.stdout.trim()) {
+      throw new Error(`qualcomm-case-agent capture failed to run: ${e.message}`);
+    }
+    stdout = e.stdout;
+  }
+  const line = stdout.trim().split('\n').pop();
+  return JSON.parse(line);
 }
 
 // Places each new digest next to its parent's already-summarized entry (mirrors
