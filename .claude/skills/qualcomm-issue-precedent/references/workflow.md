@@ -118,8 +118,8 @@ flowchart TD
 | File | Owner | Format | Purpose |
 |:---|:---|:---|:---|
 | `data/cases/_precedent/<slug>-<timestamp>.md` | `qualcomm-issue-precedent` | Markdown | Full precedent-check result: candidates, verdicts, evidence — for the engineer to reference while writing the new issue's RCA. |
-| `data/cases/<CODE>/case.json` | `qualcomm-case-agent` | JSON | Read-only input source (candidate title/product/url/comments). |
-| `data/cases/<CODE>/summary.json` | `qualcomm-case-summary` | JSON | Read-only input source (candidate rootCause/resolution/flow) — its presence with a non-empty `executive.rootCause` is what makes a Case a Reference Case at all. |
+| `data/cases/<CODE>/case.json` | `qcomm` | JSON | Read-only input source (candidate title/product/url/comments). |
+| `data/cases/<CODE>/summary.json` | `qcomm` | JSON | Read-only input source (candidate rootCause/resolution/flow) — its presence with a non-empty `executive.rootCause` is what makes a Case a Reference Case at all. |
 
 ---
 

@@ -119,14 +119,14 @@ Two invariants worth preserving when touching this layer stack:
 - **Page scripts return counters, never DOM dumps.** e.g. `expand_step.js` clicks inside the page
   in a loop and returns `{articles, displayed, anchorIdx, clicked…}`, not a snapshot.
 
-**Entry point:** `node .claude/skills/qualcomm-case-agent/scripts/run_case.mjs <8-digit-code>`
+**Entry point:** `node .claude/skills/qcomm/scripts/run_case.mjs <8-digit-code>`
 prints exactly one JSON verdict line on stdout (`status`: `created`/`updated`/`no-update`/
 `auth-required`/`not-found`/`blocked`/`busy`/`error`) and sets a matching exit code. Callers must
 branch on the `status` field in stdout, never on the shell exit-code label alone — several
 non-success statuses are deliberate, expected outcomes, not crashes. Full contract in
-`.claude/skills/qualcomm-case-agent/SKILL.md`.
+`.claude/skills/qcomm/SKILL.md`.
 
-**One Claude Code skill** lives under `.claude/skills/`: `qualcomm-case-agent` — intake → login →
+**One Claude Code skill** lives under `.claude/skills/`: `qcomm` — intake → login →
 finalize → render.
 
 **Session/auth:** Okta OAuth with email OTP, persisted in `data/chrome-profile/` (a real Chrome

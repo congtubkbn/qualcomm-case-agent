@@ -11,7 +11,7 @@ Re-running an unchanged case reports **"no update"** (incremental, hash-based).
 The capture itself is deterministic code, not agent choreography:
 
 ```bash
-node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" 08603854
+node ".claude/skills/qcomm/scripts/run_case.mjs" 08603854
 ```
 
 One command, one JSON verdict line, no browser babysitting.
@@ -24,7 +24,7 @@ One command, one JSON verdict line, no browser babysitting.
 - "phân tích case qualcomm CASE-12345"
 
 A valid 8-digit code goes straight to the portal — no confirmation step. The runbook lives inside
-this project at [`.claude/skills/qualcomm-case-agent/SKILL.md`](.claude/skills/qualcomm-case-agent/SKILL.md),
+this project at [`.claude/skills/qcomm/SKILL.md`](.claude/skills/qcomm/SKILL.md),
 so it travels with the repo. One case per run.
 
 **From the terminal:**
@@ -60,7 +60,7 @@ The custom URI scheme `qc://case/<case-number>` is automatically registered into
 
 The skills are **harness-agnostic** — they drive `node` through a terminal, so they run under any agent that can run commands and edit files:
 
-- **Claude Code** — discovers `.claude/skills/` (`qualcomm-case-agent`, `qualcomm-case-summary`, `qualcomm-case-overview`).
+- **Claude Code** — discovers `.claude/skills/` (`qcomm`, `qualcomm-issue-precedent`).
 - **Cline (VS Code)** — reads `.clinerules/qualcomm-case-agent.md`; the capture is a single
   `execute_command`. Do not use Cline's built-in `browser_action`.
 - **Other agents** — point them at the respective `SKILL.md`; every step is a plain terminal command.

@@ -24,9 +24,7 @@ const END = '<!-- END GENERATED: reference -->';
 // walked (not enumerated), so a new script shows up in the doc on the commit that
 // adds it — that is the whole point.
 const GROUPS = [
-  ['Pipeline scripts', '.claude/skills/qualcomm-case-agent/scripts'],
-  ['Summary scripts', '.claude/skills/qualcomm-case-summary/scripts'],
-  ['Overview scripts', '.claude/skills/qualcomm-case-overview/scripts'],
+  ['Qcomm scripts', '.claude/skills/qcomm/scripts'],
   ['Precedent scripts', '.claude/skills/qualcomm-issue-precedent/scripts'],
   ['Dashboard', 'web'],
   ['Tests', 'tests'],
@@ -159,7 +157,7 @@ async function build() {
   }
 
   // Contract tables imported from the source of truth rather than transcribed.
-  const SCRIPTS = pathToFileURL(join(ROOT, '.claude/skills/qualcomm-case-agent/scripts/'));
+  const SCRIPTS = pathToFileURL(join(ROOT, '.claude/skills/qcomm/scripts/'));
   const { STATUS_EXIT } = await import(new URL('run_case.mjs', SCRIPTS));
   const { EXIT } = await import(new URL('finalize_case.mjs', SCRIPTS));
   sections.push(

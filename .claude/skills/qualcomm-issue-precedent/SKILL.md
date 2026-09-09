@@ -8,7 +8,7 @@ allowed-tools: Bash(node:*), Read, Write
 
 **Role.** Given a free-text tester-reported issue (title + repro), find already-captured Qualcomm cases with a confirmed root cause that resemble it, verbatim-extract technical signatures from those cases, cross-check the new issue's own decoded log for those signatures, and persist a per-candidate verdict as a Markdown report the engineer can reference while writing up the new issue's own RCA.
 
-**Downstream, read-only, additive.** Reads `case.json`/`summary.json` the same way `qualcomm-case-summary`/`qualcomm-case-overview` do (ADR 0002's read-only-downstream-skill pattern). Never writes to `data/cases/<CODE>/`, `_index.json`, or `_overview.json` — the only output is a new Markdown file under `data/cases/_precedent/`.
+**Downstream, read-only, additive.** Reads `case.json`/`summary.json` the same way `qcomm` does (ADR 0002's read-only-downstream-skill pattern). Never writes to `data/cases/<CODE>/`, `_index.json`, or `_overview.json` — the only output is a new Markdown file under `data/cases/_precedent/`.
 
 **Input Contract.** Free-text issue `title` + `repro` description. No case code required. Optionally a `session` reference to the new issue's own decoded log (an opaque value — a path, id, or handle the `log_query` tool understands); omit it if no decoded log is available yet.
 
