@@ -24,7 +24,7 @@ import { afterFinalize } from './overview_store.mjs';
 const execFileAsync = promisify(execFile);
 
 const RUN_CASE_MJS = fileURLToPath(
-  new URL('../../qualcomm-case-agent/scripts/run_case.mjs', import.meta.url),
+  new URL('./run_case.mjs', import.meta.url),
 );
 
 // ---- cap.mjs inline ----

@@ -109,7 +109,7 @@ if (process.argv[1] && resolve(process.argv[1]) === __filename) {
 
   if (options.help) {
     console.log(`
-Usage: node .claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs [options]
+Usage: node .claude/skills/qcomm/scripts/cases_overview.mjs [options]
 
 Options:
   --rebuild           Force full re-scan of case directories and update _overview.json and dashboard.html
