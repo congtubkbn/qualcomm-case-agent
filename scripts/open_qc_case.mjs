@@ -188,7 +188,7 @@ export function resolveTargetUrl(parsed, options = {}) {
 function defaultLaunchChrome({ url, port = DEFAULT_CDP_PORT, profileDir = DEFAULT_PROFILE_DIR }) {
   if (process.platform === 'win32') {
     const candidates = [
-      join(PROJECT_ROOT, '.claude', 'skills', 'qualcomm-case-agent', 'scripts', 'connect_chrome.ps1'),
+      join(PROJECT_ROOT, '.claude', 'skills', 'qcomm', 'scripts', 'connect_chrome.ps1'),
       join(PROJECT_ROOT, 'scripts', 'connect_chrome.ps1'),
       join(HERE, 'connect_chrome.ps1'),
     ];

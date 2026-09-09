@@ -14,7 +14,7 @@ node tools/guard_secrets.mjs
 # describes by a commit.
 staged=$(git diff --cached --name-only --diff-filter=ACMR)
 case "$staged" in
-  *.claude/skills/qualcomm-case-agent/scripts/*|*web/*|*tests/*|*tools/*|*package.json*) ;;
+  *.claude/skills/qcomm/scripts/*|*web/*|*tests/*|*tools/*|*package.json*) ;;
   *) exit 0 ;;
 esac
 
