@@ -1,4 +1,4 @@
-// tests/ensure_chrome_timing.test.mjs — Regression test for fast non-blocking ensureChrome().
+// tests/qcomm_ensure_chrome_timing.test.mjs — Regression test for fast non-blocking ensureChrome().
 // Ensures ensureChrome() does not invoke blocking agent-browser connect CLI or hang.
 
 import assert from 'node:assert/strict';
@@ -10,7 +10,7 @@ import { describe, it } from 'node:test';
 const QUALCOMM_ROOT = mkdtempSync(join(tmpdir(), 'qc-ensure-timing-'));
 process.env.QUALCOMM_ROOT = QUALCOMM_ROOT;
 const PROFILE_DIR = join(QUALCOMM_ROOT, 'data', 'chrome-profile');
-const SCRIPTS = new URL('../.claude/skills/qualcomm-case-agent/scripts/', import.meta.url);
+const SCRIPTS = new URL('../.claude/skills/qcomm/scripts/', import.meta.url);
 
 let seq = 0;
 const importBrowser = () => import(new URL(`browser.mjs?t=${++seq}`, SCRIPTS));

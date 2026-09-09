@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMockCdpServer } from './mocks/cdp_server.mjs';
-import { CdpClient } from '../.claude/skills/qualcomm-case-agent/scripts/cdp_client.mjs';
-import { fastLandOnCase, isStubUrl } from '../.claude/skills/qualcomm-case-agent/scripts/fast_landing.mjs';
+import { CdpClient } from '../.claude/skills/qcomm/scripts/cdp_client.mjs';
+import { fastLandOnCase, isStubUrl } from '../.claude/skills/qcomm/scripts/fast_landing.mjs';
 
 let seq = 0;
-const importFastLanding = () => import(`../.claude/skills/qualcomm-case-agent/scripts/fast_landing.mjs?t=${++seq}`);
+const importFastLanding = () => import(`../.claude/skills/qcomm/scripts/fast_landing.mjs?t=${++seq}`);
 
 test('Fast Path Landing Engine', async (t) => {
   let server;
@@ -545,7 +545,7 @@ test('Fast Path Landing Engine', async (t) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     const TEST_PW = 'SuperSecretQidPass123!';
 
-    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
       exports: {
         readPassword: () => TEST_PW,
         clearSecret: () => {},
@@ -620,7 +620,7 @@ test('Fast Path Landing Engine', async (t) => {
     const TEST_PW = 'WrongPassword999!';
     let clearSecretCalls = 0;
 
-    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
       exports: {
         readPassword: () => TEST_PW,
         clearSecret: () => { clearSecretCalls++; },
@@ -679,7 +679,7 @@ test('Fast Path Landing Engine', async (t) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     const TEST_PW = 'TransientGlitchPw';
 
-    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
       exports: {
         readPassword: () => TEST_PW,
         clearSecret: () => {},
@@ -758,7 +758,7 @@ test('Fast Path Landing Engine', async (t) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     let clearSecretCalls = 0;
 
-    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
       exports: {
         readPassword: () => 'GlitchPw',
         clearSecret: () => { clearSecretCalls++; },
@@ -815,7 +815,7 @@ test('Fast Path Landing Engine', async (t) => {
   await t.test('autofill: readPassword() returns null -> manual behavior unchanged, no fill attempted', async (st) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
 
-    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
       exports: {
         readPassword: () => null,
         clearSecret: () => {},
@@ -862,7 +862,7 @@ test('Fast Path Landing Engine', async (t) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     let readPasswordCalls = 0;
 
-    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
       exports: {
         readPassword: () => {
           readPasswordCalls++;
@@ -937,7 +937,7 @@ test('Fast Path Landing Engine', async (t) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     const LEAK_TEST_PASSWORD = 'TOP_SECRET_SUPER_SPECIAL_PASSWORD_NEVER_LOG';
 
-    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
       exports: {
         readPassword: () => LEAK_TEST_PASSWORD,
         clearSecret: () => {},
@@ -994,7 +994,7 @@ test('Fast Path Landing Engine', async (t) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     const TEST_PW = 'OtpValidPassword123';
 
-    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
       exports: {
         readPassword: () => TEST_PW,
         clearSecret: () => {},
@@ -1093,7 +1093,7 @@ test('Fast Path Landing Engine', async (t) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     const TEST_PW = 'OtpValidPassword123';
 
-    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
       exports: {
         readPassword: () => TEST_PW,
         clearSecret: () => {},
@@ -1164,7 +1164,7 @@ test('Fast Path Landing Engine', async (t) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     const TEST_PW = 'OtpValidPassword123';
 
-    st.mock.module('../.claude/skills/qualcomm-case-agent/scripts/secret_store.mjs', {
+    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
       exports: {
         readPassword: () => TEST_PW,
         clearSecret: () => {},

@@ -1,4 +1,4 @@
-// tests/description_first_comment.test.mjs
+// tests/qcomm_description_first_comment.test.mjs
 // Comprehensive test suite for PRD #53 / Issues #54, #55, #56:
 // Case Description as Initial Comment across Extraction, Ingestion, Merge, Rendering, and Migration.
 
@@ -16,10 +16,10 @@ import {
   extractSummary,
   assignIds,
   EXIT,
-} from '../.claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs';
+} from '../.claude/skills/qcomm/scripts/finalize_case.mjs';
 
-const FINALIZE_SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs', import.meta.url));
-const RENDER_SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/render_case.mjs', import.meta.url));
+const FINALIZE_SCRIPT = fileURLToPath(new URL('../.claude/skills/qcomm/scripts/finalize_case.mjs', import.meta.url));
+const RENDER_SCRIPT = fileURLToPath(new URL('../.claude/skills/qcomm/scripts/render_case.mjs', import.meta.url));
 
 function createTempEnv(caseCode = '08123456') {
   const root = mkdtempSync(join(tmpdir(), 'qc-desc-test-'));

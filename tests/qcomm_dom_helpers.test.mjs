@@ -1,4 +1,4 @@
-// tests/dom_helpers.test.mjs
+// tests/qcomm_dom_helpers.test.mjs
 //
 // Loads dom_helpers.js's exact source into a jsdom context (script execution,
 // not a hand-copied re-implementation) and exercises each shared helper —
@@ -11,11 +11,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
-import { stripComments } from '../.claude/skills/qualcomm-case-agent/scripts/browser.mjs';
+import { stripComments } from '../.claude/skills/qcomm/scripts/browser.mjs';
 
 const SCRIPT_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
-  '../.claude/skills/qualcomm-case-agent/scripts/dom_helpers.js',
+  '../.claude/skills/qcomm/scripts/dom_helpers.js',
 );
 const HELPERS_SRC = stripComments(readFileSync(SCRIPT_PATH, 'utf8'));
 

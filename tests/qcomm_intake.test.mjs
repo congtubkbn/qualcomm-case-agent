@@ -17,7 +17,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/intake.mjs', import.meta.url));
+const SCRIPT = fileURLToPath(new URL('../.claude/skills/qcomm/scripts/intake.mjs', import.meta.url));
 
 function run(code, root = mkdtempSync(join(tmpdir(), 'qc-intake-'))) {
   const r = spawnSync(process.execPath, [SCRIPT, ...(code === undefined ? [] : [code])], {

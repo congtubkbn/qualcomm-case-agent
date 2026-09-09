@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-const SCRIPTS = new URL('../.claude/skills/qualcomm-case-agent/scripts/', import.meta.url);
+const SCRIPTS = new URL('../.claude/skills/qcomm/scripts/', import.meta.url);
 
 function fixtureRoot() {
   const root = mkdtempSync(join(tmpdir(), 'qc-'));

@@ -2,14 +2,14 @@
 // already-open CDP WebSocket instead of shelling out through cmd.exe, so it
 // has no exposure to cmd.exe's base64 line-length guard (see evalFile's
 // 7000-char check). No real Chrome/CDP involved: the CDP client is a fake.
-//     node --experimental-test-module-mocks --test tests/browser_eval_via_cdp.test.mjs
+//     node --experimental-test-module-mocks --test tests/qcomm_browser_eval_via_cdp.test.mjs
 
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { evalFileViaCdp } from '../.claude/skills/qualcomm-case-agent/scripts/browser.mjs';
+import { evalFileViaCdp } from '../.claude/skills/qcomm/scripts/browser.mjs';
 
 describe('evalFileViaCdp', () => {
   it('strips comments, wraps the script in the standard payload IIFE, and returns the CDP eval result', async () => {

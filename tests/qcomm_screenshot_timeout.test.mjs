@@ -1,4 +1,4 @@
-// tests/screenshot_timeout.test.mjs — Regression test for bounded screenshot() timeout.
+// tests/qcomm_screenshot_timeout.test.mjs — Regression test for bounded screenshot() timeout.
 //
 // screenshot() runs synchronously right before case.json/case.md get written
 // (run_case.mjs shoot() -> raw.capture.screenshot, before finalize_case.mjs /
@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-const SCRIPTS = new URL('../.claude/skills/qualcomm-case-agent/scripts/', import.meta.url);
+const SCRIPTS = new URL('../.claude/skills/qcomm/scripts/', import.meta.url);
 
 let seq = 0;
 const importBrowser = () => import(new URL(`browser.mjs?t=${++seq}`, SCRIPTS));

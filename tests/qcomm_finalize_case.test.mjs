@@ -20,8 +20,8 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs', import.meta.url));
-const m = await import(new URL('../.claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs', import.meta.url));
+const SCRIPT = fileURLToPath(new URL('../.claude/skills/qcomm/scripts/finalize_case.mjs', import.meta.url));
+const m = await import(new URL('../.claude/skills/qcomm/scripts/finalize_case.mjs', import.meta.url));
 
 const comment = (author, body, extra = {}) => ({ author, body, timestamp: '2 days ago', ...extra });
 

@@ -1,4 +1,4 @@
-// tests/extract_case.test.mjs
+// tests/qcomm_extract_case.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const EXTRACT_SCRIPT = readFileSync(
-  fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/extract_case.js', import.meta.url)),
+  fileURLToPath(new URL('../.claude/skills/qcomm/scripts/extract_case.js', import.meta.url)),
   'utf8'
 );
 
@@ -14,19 +14,19 @@ const EXTRACT_SCRIPT = readFileSync(
 // prepended into every real eval payload by browser.mjs's buildPayload() —
 // mirror that here so these scripts see the same globals they get at runtime.
 const DOM_HELPERS_SRC = readFileSync(
-  fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/dom_helpers.js', import.meta.url)),
+  fileURLToPath(new URL('../.claude/skills/qcomm/scripts/dom_helpers.js', import.meta.url)),
   'utf8'
 );
 
 const EXPAND_SCRIPT = DOM_HELPERS_SRC + '\n' + readFileSync(
-  fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/expand_step.js', import.meta.url)),
+  fileURLToPath(new URL('../.claude/skills/qcomm/scripts/expand_step.js', import.meta.url)),
   'utf8'
 );
 
 let SWITCH_TAB_SCRIPT = '';
 try {
   SWITCH_TAB_SCRIPT = DOM_HELPERS_SRC + '\n' + readFileSync(
-    fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/switch_tab.js', import.meta.url)),
+    fileURLToPath(new URL('../.claude/skills/qcomm/scripts/switch_tab.js', import.meta.url)),
     'utf8'
   );
 } catch {
@@ -36,7 +36,7 @@ try {
 let CHECK_COLLAPSED_SCRIPT = '';
 try {
   CHECK_COLLAPSED_SCRIPT = DOM_HELPERS_SRC + '\n' + readFileSync(
-    fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/check_collapsed.js', import.meta.url)),
+    fileURLToPath(new URL('../.claude/skills/qcomm/scripts/check_collapsed.js', import.meta.url)),
     'utf8'
   );
 } catch {

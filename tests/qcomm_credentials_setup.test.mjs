@@ -1,4 +1,4 @@
-// tests/credentials_setup.test.mjs
+// tests/qcomm_credentials_setup.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
@@ -34,7 +34,7 @@ test('Credentials Setup and Config Resolution', async (t) => {
 
   await t.test('parseArgs parses --username and --user correctly', async () => {
     // We import parseArgs dynamically to ensure the tests load it cleanly
-    const { parseArgs } = await import('../.claude/skills/qualcomm-case-agent/scripts/run_case.mjs');
+    const { parseArgs } = await import('../.claude/skills/qcomm/scripts/run_case.mjs');
 
     const opts1 = parseArgs(['--username', 'user1@samsung.com']);
     assert.equal(opts1.username, 'user1@samsung.com');
@@ -64,12 +64,12 @@ test('Credentials Setup and Config Resolution', async (t) => {
     // Bypass cached module imports using cache-busting query parameter
     
     // Set USER_PATH matching the test
-    const paths = await import('../.claude/skills/qualcomm-case-agent/scripts/_paths.mjs?update=' + Date.now());
+    const paths = await import('../.claude/skills/qcomm/scripts/_paths.mjs?update=' + Date.now());
     assert.equal(paths.QUALCOMM_USER, 'file-user@samsung.com');
     
     // If the test setup didn't override because of established constants, let's verify environment logic
     process.env.QUALCOMM_USER = 'env-user@samsung.com';
-    const pathsEnv = await import('../.claude/skills/qualcomm-case-agent/scripts/_paths.mjs?update2=' + Date.now());
+    const pathsEnv = await import('../.claude/skills/qcomm/scripts/_paths.mjs?update2=' + Date.now());
     assert.equal(pathsEnv.QUALCOMM_USER, 'env-user@samsung.com');
   });
 });

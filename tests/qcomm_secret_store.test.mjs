@@ -7,7 +7,7 @@
 // - clearSecret() -> deletes file, idempotent when missing
 //
 // Run:
-//     node --experimental-test-module-mocks --test tests/secret_store.test.mjs
+//     node --experimental-test-module-mocks --test tests/qcomm_secret_store.test.mjs
 
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -18,7 +18,7 @@ import { describe, it } from 'node:test';
 const QUALCOMM_ROOT = mkdtempSync(join(tmpdir(), 'qc-secret-store-'));
 process.env.QUALCOMM_ROOT = QUALCOMM_ROOT;
 
-const SCRIPTS = new URL('../.claude/skills/qualcomm-case-agent/scripts/', import.meta.url);
+const SCRIPTS = new URL('../.claude/skills/qcomm/scripts/', import.meta.url);
 
 let seq = 0;
 const importSecretStore = () => import(new URL(`secret_store.mjs?t=${++seq}`, SCRIPTS));

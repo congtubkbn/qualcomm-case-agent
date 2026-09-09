@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-const { verifyCase } = await import(new URL('../.claude/skills/qualcomm-case-agent/scripts/verify_case.mjs', import.meta.url));
+const { verifyCase } = await import(new URL('../.claude/skills/qcomm/scripts/verify_case.mjs', import.meta.url));
 
 function fixture(overrides = {}, { screenshot = true } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'qc-verify-'));

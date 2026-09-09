@@ -1,12 +1,12 @@
-// tests/login_fill.test.mjs
+// tests/qcomm_login_fill.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildPayload, stripComments } from '../.claude/skills/qualcomm-case-agent/scripts/browser.mjs';
+import { buildPayload, stripComments } from '../.claude/skills/qcomm/scripts/browser.mjs';
 
-const SCRIPT_PATH = join(dirname(fileURLToPath(import.meta.url)), '../.claude/skills/qualcomm-case-agent/scripts/login_fill.js');
+const SCRIPT_PATH = join(dirname(fileURLToPath(import.meta.url)), '../.claude/skills/qcomm/scripts/login_fill.js');
 const rawSrc = readFileSync(SCRIPT_PATH, 'utf8');
 
 test('login_fill page script', async (t) => {

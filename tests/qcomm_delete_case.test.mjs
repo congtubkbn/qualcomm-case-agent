@@ -4,8 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { deleteCase } from '../.claude/skills/qualcomm-case-agent/scripts/delete_case.mjs';
-import { syncCaseOverview } from '../.claude/skills/qualcomm-case-overview/scripts/cases_overview.mjs';
+import { deleteCase } from '../.claude/skills/qcomm/scripts/delete_case.mjs';
+import { syncCaseOverview } from '../.claude/skills/qcomm/scripts/cases_overview.mjs';
 
 function createTempCasesDir() {
   return mkdtempSync(join(tmpdir(), 'qc-delete-test-'));

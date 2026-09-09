@@ -1,7 +1,7 @@
 // Tests for run_case.mjs's pipeline orchestrator, anchor logic, and stuck detection.
 // browser.mjs (evalFile/open/click/sleep/getCdpClient) is mocked via node:test's module mocker
 // so these run with NO real Chrome/CDP/network involved.
-//     node --experimental-test-module-mocks --test tests/run_case.test.mjs
+//     node --experimental-test-module-mocks --test tests/qcomm_run_case.test.mjs
 
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
@@ -11,7 +11,7 @@ import { describe, it } from 'node:test';
 
 process.env.QUALCOMM_ROOT = mkdtempSync(join(tmpdir(), 'qc-run-'));
 
-const SCRIPTS = new URL('../.claude/skills/qualcomm-case-agent/scripts/', import.meta.url);
+const SCRIPTS = new URL('../.claude/skills/qcomm/scripts/', import.meta.url);
 const BROWSER_URL = new URL('browser.mjs', SCRIPTS);
 const REAL_HREF = 'https://support.qualcomm.com/s/case/500dK00000HZeVSQA1/some-title';
 

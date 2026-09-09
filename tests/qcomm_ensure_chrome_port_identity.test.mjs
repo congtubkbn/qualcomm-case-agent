@@ -9,7 +9,7 @@
 // process's command line actually launched Chrome with THIS project's
 // --user-data-dir, and fail loud (PortConflictError) otherwise.
 //
-//     node --experimental-test-module-mocks --test tests/ensure_chrome_port_identity.test.mjs
+//     node --experimental-test-module-mocks --test tests/qcomm_ensure_chrome_port_identity.test.mjs
 
 import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
@@ -21,7 +21,7 @@ const QUALCOMM_ROOT = mkdtempSync(join(tmpdir(), 'qc-ensure-chrome-'));
 process.env.QUALCOMM_ROOT = QUALCOMM_ROOT;
 const PROFILE_DIR = join(QUALCOMM_ROOT, 'data', 'chrome-profile');
 
-const SCRIPTS = new URL('../.claude/skills/qualcomm-case-agent/scripts/', import.meta.url);
+const SCRIPTS = new URL('../.claude/skills/qcomm/scripts/', import.meta.url);
 
 let seq = 0;
 const importBrowser = () => import(new URL(`browser.mjs?t=${++seq}`, SCRIPTS));

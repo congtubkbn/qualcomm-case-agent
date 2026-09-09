@@ -1,4 +1,4 @@
-// tests/chronological_sort.test.mjs
+// tests/qcomm_chronological_sort.test.mjs
 // Unit tests for chronological comment timestamp parsing and Oldest -> Newest sorting.
 
 import assert from 'node:assert/strict';
@@ -9,8 +9,8 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs', import.meta.url));
-const m = await import(new URL('../.claude/skills/qualcomm-case-agent/scripts/finalize_case.mjs', import.meta.url));
+const SCRIPT = fileURLToPath(new URL('../.claude/skills/qcomm/scripts/finalize_case.mjs', import.meta.url));
+const m = await import(new URL('../.claude/skills/qcomm/scripts/finalize_case.mjs', import.meta.url));
 
 const comment = (author, body, timestamp, extra = {}) => ({
   author,

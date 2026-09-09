@@ -1,4 +1,4 @@
-// tests/cdp_client.test.mjs
+// tests/qcomm_cdp_client.test.mjs
 // Unit tests for Native WebSocket CDP Client (Slice 1).
 
 import assert from 'node:assert/strict';
@@ -7,7 +7,7 @@ import { createMockCdpServer } from './mocks/cdp_server.mjs';
 
 // We import CdpClient (will be created in Green phase)
 const { CdpClient } = await import(
-  new URL('../.claude/skills/qualcomm-case-agent/scripts/cdp_client.mjs', import.meta.url)
+  new URL('../.claude/skills/qcomm/scripts/cdp_client.mjs', import.meta.url)
 );
 
 describe('CdpClient (Native WebSocket CDP Transport)', () => {

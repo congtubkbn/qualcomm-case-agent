@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const SCRIPT = fileURLToPath(new URL('../.claude/skills/qualcomm-case-agent/scripts/render_case.mjs', import.meta.url));
+const SCRIPT = fileURLToPath(new URL('../.claude/skills/qcomm/scripts/render_case.mjs', import.meta.url));
 
 function renderFixture(data) {
   const dir = mkdtempSync(join(tmpdir(), 'qc-render-'));
