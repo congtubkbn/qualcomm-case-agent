@@ -7,7 +7,19 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from '../.claude/skills/qcomm/scripts/cases_overview.mjs';
-import { escapeHtml, formatStaleness, getStatusCategory, renderDashboardHtml } from '../.claude/skills/qcomm/scripts/dashboard_renderer.mjs';
+import {
+  escapeHtml,
+  formatStaleness,
+  getStatusCategory,
+  renderCaseRow,
+  renderCasesTable,
+  renderClientScript,
+  renderControlsBar,
+  renderDashboardHtml,
+  renderHeader,
+  renderProtocolModal,
+  renderStyles,
+} from '../.claude/skills/qcomm/scripts/dashboard_renderer.mjs';
 import { renderCliTable } from '../.claude/skills/qcomm/scripts/cli_renderer.mjs';
 
 const SCRIPT = fileURLToPath(
@@ -575,3 +587,103 @@ describe('cases_overview_render: CLI integration for HTML & dashboard', () => {
     rmSync(casesDir, { recursive: true, force: true });
   });
 });
+
+describe('cases_overview_render: composable template functions (#232)', () => {
+  it('renderCaseRow renders case-row and detail-row for a single case in isolation', () => {
+    const c = {
+      caseNumber: '08999999',
+      title: 'Isolated case title',
+      status: 'Open',
+      priority: '1 - Critical',
+      product: 'SDX75',
+      customerProject: 'Apollo',
+      contactName: 'Jane Dev',
+      raisedBy: 'Jane Dev',
+      openedAt: '2026-09-01',
+      syncedAt: '2026-09-02T00:00:00.000Z',
+      commentCount: 1,
+      hasSummary: true,
+      aiSummary: 'Isolated executive test',
+      latestComments: [
+        { author: 'Jane Dev', timestamp: '2026-09-01', snippet: 'Isolated comment snippet' },
+      ],
+    };
+    const rowHtml = renderCaseRow(c);
+    assert.ok(rowHtml.includes('class="case-row"'));
+    assert.ok(rowHtml.includes('class="detail-row"'));
+    assert.ok(rowHtml.includes('data-case-id="08999999"'));
+    assert.ok(rowHtml.includes('href="qc://case/08999999"'));
+    assert.ok(rowHtml.includes('Isolated case title'));
+    assert.ok(rowHtml.includes('pri-critical'));
+    assert.ok(rowHtml.includes('badge-project'));
+    assert.ok(rowHtml.includes('Apollo'));
+    assert.ok(rowHtml.includes('Isolated executive test'));
+    assert.ok(rowHtml.includes('Isolated comment snippet'));
+    assert.ok(rowHtml.includes('class="action-btn delete-btn"'));
+  });
+
+  it('renderHeader renders total count, lastUpdated, and toolbar actions', () => {
+    const stats = { total: 42, lastUpdated: '2026-09-11T12:00:00.000Z' };
+    const headerHtml = renderHeader(stats);
+    assert.ok(headerHtml.includes('<header>'));
+    assert.ok(headerHtml.includes('42 cases'));
+    assert.ok(headerHtml.includes('last updated: 2026-09-11T12:00:00.000Z'));
+    assert.ok(headerHtml.includes('id="refreshNowBtn"'));
+    assert.ok(headerHtml.includes('id="intervalBtn"'));
+    assert.ok(headerHtml.includes('id="protocolHelpBtn"'));
+    assert.ok(headerHtml.includes('id="themeToggle"'));
+  });
+
+  it('renderControlsBar renders search input and tab counts', () => {
+    const stats = { total: 10 };
+    const counts = {
+      open: 3,
+      in_progress: 2,
+      pending_qualcomm: 1,
+      pending_customer: 2,
+      action_required: 1,
+      closed: 1,
+    };
+    const controlsHtml = renderControlsBar(stats, counts);
+    assert.ok(controlsHtml.includes('id="searchInput"'));
+    assert.ok(controlsHtml.includes('All (10)'));
+    assert.ok(controlsHtml.includes('Open (3)'));
+    assert.ok(controlsHtml.includes('In Progress (2)'));
+    assert.ok(controlsHtml.includes('Pending Qualcomm (1)'));
+    assert.ok(controlsHtml.includes('Pending Customer (2)'));
+    assert.ok(controlsHtml.includes('Action Required (1)'));
+    assert.ok(controlsHtml.includes('Closed (1)'));
+  });
+
+  it('renderCasesTable wraps rows inside cases-table container and header', () => {
+    const tableHtml = renderCasesTable('<tr><td>Mock Row</td></tr>');
+    assert.ok(tableHtml.includes('class="table-wrap"'));
+    assert.ok(tableHtml.includes('<table class="cases-table">'));
+    assert.ok(tableHtml.includes('Case & Details'));
+    assert.ok(tableHtml.includes('<tr><td>Mock Row</td></tr>'));
+  });
+
+  it('renderProtocolModal renders modal overlay and registration command', () => {
+    const modalHtml = renderProtocolModal();
+    assert.ok(modalHtml.includes('id="protocolModal"'));
+    assert.ok(modalHtml.includes('powershell -ExecutionPolicy Bypass -File scripts/register_protocol.ps1'));
+    assert.ok(modalHtml.includes('npm run setup:protocol'));
+  });
+
+  it('renderStyles returns complete CSS style tag with variables and dark mode', () => {
+    const stylesHtml = renderStyles();
+    assert.ok(stylesHtml.startsWith('  <style>'));
+    assert.ok(stylesHtml.endsWith('  </style>'));
+    assert.ok(stylesHtml.includes('--bg: #fafaf9;'));
+    assert.ok(stylesHtml.includes('[data-theme="dark"]'));
+  });
+
+  it('renderClientScript returns complete script tag with event listeners', () => {
+    const scriptHtml = renderClientScript();
+    assert.ok(scriptHtml.startsWith('  <script>'));
+    assert.ok(scriptHtml.endsWith('  </script>'));
+    assert.ok(scriptHtml.includes('document.addEventListener(\'DOMContentLoaded\''));
+    assert.ok(scriptHtml.includes('applyFilters'));
+  });
+});
+

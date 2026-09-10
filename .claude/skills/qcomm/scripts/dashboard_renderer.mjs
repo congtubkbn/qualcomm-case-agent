@@ -45,33 +45,11 @@ export function getStatusCategory(status, ballInCourt) {
 }
 
 /**
- * Generates self-contained, offline HTML Dashboard.
- * @param {object} overviewData
- * @param {string|null} [outputPath=null] Optional output path to write dashboard file
- * @returns {string} The complete HTML document string
+ * Renders the summary row and expandable detail row pair for a single case.
+ * @param {object} c Case record
+ * @returns {string}
  */
-export function renderDashboardHtml(overviewData, outputPath = null) {
-  const cases = overviewData.cases || [];
-  const stats = overviewData.stats || { total: 0, byStatus: {}, lastUpdated: new Date().toISOString() };
-
-  let openCount = 0;
-  let progressCount = 0;
-  let closedCount = 0;
-  let actionCount = 0;
-  let pendingQualcommCount = 0;
-  let pendingCustomerCount = 0;
-
-  for (const c of cases) {
-    const cat = getStatusCategory(c.status, c.ballInCourt);
-    if (cat === 'open') openCount++;
-    else if (cat === 'in_progress') progressCount++;
-    else if (cat === 'closed') closedCount++;
-    else if (cat === 'action_required') actionCount++;
-    else if (cat === 'pending_qualcomm') pendingQualcommCount++;
-    else if (cat === 'pending_customer') pendingCustomerCount++;
-  }
-
-  const rowsHtml = cases.map((c) => {
+export function renderCaseRow(c) {
     const category = getStatusCategory(c.status, c.ballInCourt);
     const escapedCaseNum = escapeHtml(c.caseNumber);
     const escapedTitle = escapeHtml(c.title || 'Untitled Case');
@@ -223,15 +201,14 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
           ${commentsSection}
         </td>
       </tr>`;
-  }).join('\n');
+}
 
-  const html = `<!DOCTYPE html>
-<html lang="en" data-theme="auto">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Qualcomm Cases Dashboard</title>
-  <style>
+/**
+ * Renders embedded CSS stylesheet for the dashboard.
+ * @returns {string}
+ */
+export function renderStyles() {
+  return `  <style>
     :root {
       --bg: #fafaf9;
       --card-bg: #ffffff;
@@ -1044,11 +1021,16 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
     .empty-state.visible {
       display: block;
     }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <header>
+  </style>`;
+}
+
+/**
+ * Renders dashboard header with case counts, last updated timestamp, and action toolbar.
+ * @param {object} stats Overview stats { total, lastUpdated }
+ * @returns {string}
+ */
+export function renderHeader(stats) {
+  return `    <header>
       <div>
         <h1 class="brand-title">Qualcomm Cases Dashboard</h1>
         <div class="meta">
@@ -1076,9 +1058,23 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
           <button id="themeToggle" class="icon-btn" type="button" title="Toggle theme" aria-label="Toggle theme">🌙</button>
         </div>
       </div>
-    </header>
+    </header>`;
+}
 
-    <div class="controls-bar">
+/**
+ * Renders search input and filter navigation tabs with status counts.
+ * @param {object} stats Overview stats { total }
+ * @param {object} counts Status category counts
+ * @returns {string}
+ */
+export function renderControlsBar(stats, counts) {
+  const openCount = counts.open || 0;
+  const progressCount = counts.in_progress || 0;
+  const pendingQualcommCount = counts.pending_qualcomm || 0;
+  const pendingCustomerCount = counts.pending_customer || 0;
+  const actionCount = counts.action_required || 0;
+  const closedCount = counts.closed || 0;
+  return `    <div class="controls-bar">
       <div class="search-box">
         <input id="searchInput" class="search-input" type="search" placeholder="Search case ID, title, product, comment...">
       </div>
@@ -1092,9 +1088,16 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
         <button class="filter-tab" data-filter="closed" type="button">Closed (${closedCount})</button>
         <button class="filter-tab" data-filter="hidden" type="button">Hidden Cases (<span id="hiddenCount">0</span>)</button>
       </div>
-    </div>
+    </div>`;
+}
 
-    <div class="table-wrap">
+/**
+ * Renders the cases table wrapper and headers around rendered rows.
+ * @param {string} rowsHtml Concatenated HTML rows
+ * @returns {string}
+ */
+export function renderCasesTable(rowsHtml) {
+  return `    <div class="table-wrap">
       <table class="cases-table">
         <thead>
           <tr>
@@ -1110,13 +1113,15 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
           ${rowsHtml}
         </tbody>
       </table>
-    </div>
+    </div>`;
+}
 
-    <div id="emptyState" class="empty-state">
-      No Qualcomm cases match the selected filter and search criteria.
-    </div>
-
-    <!-- Protocol Help Modal -->
+/**
+ * Renders the Protocol Help modal dialog for custom URI scheme registration.
+ * @returns {string}
+ */
+export function renderProtocolModal() {
+  return `    <!-- Protocol Help Modal -->
     <div id="protocolModal" class="modal-overlay" aria-hidden="true">
       <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
         <div class="modal-header">
@@ -1135,10 +1140,15 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
           </div>
         </div>
       </div>
-    </div>
-  </div>
+    </div>`;
+}
 
-  <script>
+/**
+ * Renders embedded client-side script for filtering, searching, and interactions.
+ * @returns {string}
+ */
+export function renderClientScript() {
+  return `  <script>
     document.addEventListener('DOMContentLoaded', () => {
       const searchInput = document.getElementById('searchInput');
       const filterTabs = document.querySelectorAll('.filter-tab');
@@ -1565,7 +1575,61 @@ export function renderDashboardHtml(overviewData, outputPath = null) {
       updateHiddenCount();
       applyFilters();
     });
-  </script>
+  </script>`;
+}
+
+/**
+ * Generates self-contained, offline HTML Dashboard.
+ * @param {object} overviewData
+ * @param {string|null} [outputPath=null] Optional output path to write dashboard file
+ * @returns {string} The complete HTML document string
+ */
+export function renderDashboardHtml(overviewData, outputPath = null) {
+  const cases = overviewData.cases || [];
+  const stats = overviewData.stats || { total: 0, byStatus: {}, lastUpdated: new Date().toISOString() };
+
+  const counts = {
+    open: 0,
+    in_progress: 0,
+    closed: 0,
+    action_required: 0,
+    pending_qualcomm: 0,
+    pending_customer: 0,
+  };
+
+  for (const c of cases) {
+    const cat = getStatusCategory(c.status, c.ballInCourt);
+    if (counts[cat] !== undefined) {
+      counts[cat]++;
+    }
+  }
+
+  const rowsHtml = cases.map((c) => renderCaseRow(c)).join('\n');
+
+  const html = `<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Qualcomm Cases Dashboard</title>
+${renderStyles()}
+</head>
+<body>
+  <div class="container">
+${renderHeader(stats)}
+
+${renderControlsBar(stats, counts)}
+
+${renderCasesTable(rowsHtml)}
+
+    <div id="emptyState" class="empty-state">
+      No Qualcomm cases match the selected filter and search criteria.
+    </div>
+
+${renderProtocolModal()}
+  </div>
+
+${renderClientScript()}
 </body>
 </html>`;
 
