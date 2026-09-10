@@ -129,12 +129,12 @@ export function isNoUpdate(probe, cached) {
 /** Best-effort page screenshot. Evidence is worth having, never worth failing a
  *  good capture for, so a screenshot error degrades to `null` (verify_case.mjs
  *  reports the missing file as a warning, not an error). */
-function shoot(dir, name) {
+async function shoot(dir, name, cdp = null) {
   try {
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
-    screenshot(join(dir, name));
+    await screenshot(join(dir, name), cdp ? { cdp } : {});
     return name;
   } catch (e) {
     process.stderr.write(`screenshot failed (${name}): ${e.message}\n`);
@@ -188,7 +188,7 @@ export async function run(code, opts = {}) {
   const diagnostics = landed.diagnostics || [];
 
   if (landed.state === 'OTP_TIMEOUT') {
-    const shot = shoot(caseDir, 'otp_timeout.png');
+    const shot = await shoot(caseDir, 'otp_timeout.png', cdp);
     return {
       status: 'otp-timeout',
       reason: landed.reason || 'Password accepted, but OTP verification was not completed within the timeout window',
@@ -200,7 +200,7 @@ export async function run(code, opts = {}) {
     };
   }
   if (landed.state === 'AUTH') {
-    const shot = shoot(caseDir, 'auth_required.png');
+    const shot = await shoot(caseDir, 'auth_required.png', cdp);
     return {
       status: 'auth-required',
       reason: landed.reason || 'Okta session lapsed — sign in once in the persistent Chrome profile (email OTP is human-only)',
@@ -212,7 +212,7 @@ export async function run(code, opts = {}) {
     };
   }
   if (landed.state === 'NOT_FOUND') {
-    const shot = shoot(caseDir, 'not_found.png');
+    const shot = await shoot(caseDir, 'not_found.png', cdp);
     return {
       status: 'not-found',
       reason: landed.reason || `no search result for ${code} (wrong code, or the account cannot see it)`,
@@ -222,7 +222,7 @@ export async function run(code, opts = {}) {
     };
   }
   if (landed.state === 'STUB') {
-    const shot = shoot(caseDir, 'landing_failure.png');
+    const shot = await shoot(caseDir, 'landing_failure.png', cdp);
     return {
       status: 'blocked',
       reason: landed.reason || 'case link click did not route to the real case page',
@@ -233,7 +233,7 @@ export async function run(code, opts = {}) {
     };
   }
   if (landed.state !== 'OK') {
-    const shot = shoot(caseDir, 'landing_failure.png');
+    const shot = await shoot(caseDir, 'landing_failure.png', cdp);
     return {
       status: 'blocked',
       reason: landed.reason || `search/landing failed (state=${landed.state})`,
@@ -303,7 +303,7 @@ export async function run(code, opts = {}) {
     }
   }
   if (!feedSwitched) {
-    const shot = shoot(caseDir, 'feed_switch_failed.png');
+    const shot = await shoot(caseDir, 'feed_switch_failed.png', cdp);
     return {
       status: 'blocked',
       retryable: true,
@@ -340,7 +340,7 @@ export async function run(code, opts = {}) {
     }
   }
   if (!probe || !probe.articles) {
-    const shot = shoot(caseDir, 'feed_missing.png');
+    const shot = await shoot(caseDir, 'feed_missing.png', cdp);
     return {
       status: 'blocked',
       reason: 'case page has no Chatter feed articles — wrong page or feed never loaded',
@@ -352,7 +352,7 @@ export async function run(code, opts = {}) {
     };
   }
   if (merge && isNoUpdate(probe, cached)) {
-    const shot = shoot(caseDir, 'probe.png');
+    const shot = await shoot(caseDir, 'probe.png', cdp);
     return {
       status: 'no-update', since: cached.extractedAt,
       commentCount: cached.comments.length,
@@ -462,7 +462,7 @@ export async function run(code, opts = {}) {
   const gateUnexpanded = await evalFileViaCdp(cdp, page('check_collapsed.js'), { __ANCHOR: anchor });
   const pendingAfterSettle = (gateUnexpanded?.stillCollapsed || 0) + (gateUnexpanded?.stillHasMoreComments || 0);
   if (pendingAfterSettle > 0) {
-    shoot(caseDir, 'capture.png');
+    await shoot(caseDir, 'capture.png', cdp);
     return {
       status: 'blocked',
       retryable: true,
@@ -512,7 +512,7 @@ export async function run(code, opts = {}) {
     clicks,
     detailTabExtracted: detailExtracted,
     ...(detailSwitchError ? { detailSwitchError } : {}),
-    screenshot: shoot(caseDir, 'capture.png'),
+    screenshot: await shoot(caseDir, 'capture.png', cdp),
   };
 
   const rawPath = join(caseDir, 'case.raw.json');

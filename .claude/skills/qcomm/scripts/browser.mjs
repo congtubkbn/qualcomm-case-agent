@@ -18,7 +18,7 @@
 //     (issue #104).
 
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SKILL_ROOT, PROFILE_DIR } from './_paths.mjs';
 import { CdpClient } from './cdp_client.mjs';
@@ -163,8 +163,17 @@ export function open(url) { return ab(['open', url], { timeout: 180000 }); }
  *  counters alone cannot do (they are produced by the same code they attest to).
  *  Best-effort caller (run_case.mjs shoot()) swallows failure either way, and this
  *  call sits directly in front of writing case.json/case.md — a short timeout
- *  bounds how long a stuck agent-browser daemon can delay the required output. */
-export function screenshot(path) { return ab(['screenshot', path, '--full'], { timeout: 15000 }); }
+ *  bounds how long a stuck CDP command can delay the required output. */
+export async function screenshot(path, options = {}) {
+  const cdp = options.cdp || await getCdpClient(options);
+  const buf = await cdp.screenshot({
+    fullPage: options.fullPage ?? true,
+    timeout: options.timeout ?? 15000,
+    ...options,
+  });
+  writeFileSync(path, buf);
+  return path;
+}
 
 /** Ask the CDP endpoint directly — the one signal that says whether the
  *  persistent-profile Chrome is actually up, independent of the daemon. */

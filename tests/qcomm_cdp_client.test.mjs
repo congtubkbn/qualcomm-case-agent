@@ -279,4 +279,99 @@ describe('CdpClient (Native WebSocket CDP Transport)', () => {
     mockServer.setHandler(null);
     await client.close();
   });
+
+  it('screenshot() captures full-page PNG by default and returns Buffer', async () => {
+    let capturedMethod = null;
+    let capturedParams = null;
+    const mockPngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+    mockServer.setHandler((msg) => {
+      if (msg.method === 'Page.enable') return { id: msg.id, result: {} };
+      if (msg.method === 'Page.captureScreenshot') {
+        capturedMethod = msg.method;
+        capturedParams = msg.params;
+        return {
+          id: msg.id,
+          result: { data: mockPngBase64 },
+        };
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const client = await CdpClient.connect({ port: mockServer.port });
+    const buf = await client.screenshot();
+
+    assert.ok(Buffer.isBuffer(buf), 'result should be a Node.js Buffer');
+    assert.equal(buf.toString('base64'), mockPngBase64);
+    assert.equal(capturedMethod, 'Page.captureScreenshot');
+    assert.equal(capturedParams.format, 'png');
+    assert.equal(capturedParams.captureBeyondViewport, true);
+
+    mockServer.setHandler(null);
+    await client.close();
+  });
+
+  it('screenshot() forwards custom parameters (format, quality, clip, fullPage)', async () => {
+    let capturedParams = null;
+    const mockJpgBase64 = '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=';
+
+    mockServer.setHandler((msg) => {
+      if (msg.method === 'Page.enable') return { id: msg.id, result: {} };
+      if (msg.method === 'Page.captureScreenshot') {
+        capturedParams = msg.params;
+        return {
+          id: msg.id,
+          result: { data: mockJpgBase64 },
+        };
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const client = await CdpClient.connect({ port: mockServer.port });
+    const clip = { x: 10, y: 20, width: 300, height: 400, scale: 1 };
+    const buf = await client.screenshot({
+      format: 'jpeg',
+      quality: 85,
+      fullPage: false,
+      clip,
+    });
+
+    assert.ok(Buffer.isBuffer(buf));
+    assert.equal(capturedParams.format, 'jpeg');
+    assert.equal(capturedParams.quality, 85);
+    assert.deepEqual(capturedParams.clip, clip);
+    assert.equal(capturedParams.captureBeyondViewport, undefined);
+
+    mockServer.setHandler(null);
+    await client.close();
+  });
+
+  it('screenshot() throws CdpError when Page.captureScreenshot fails or returns no data', async () => {
+    mockServer.setHandler((msg) => {
+      if (msg.method === 'Page.enable') return { id: msg.id, result: {} };
+      if (msg.method === 'Page.captureScreenshot') {
+        return {
+          id: msg.id,
+          error: { code: -32000, message: 'Screenshot capture failed' },
+        };
+      }
+      return { id: msg.id, result: {} };
+    });
+
+    const client = await CdpClient.connect({ port: mockServer.port });
+    await assert.rejects(
+      async () => {
+        await client.screenshot();
+      },
+      (err) => {
+        assert.equal(err.name, 'CdpError');
+        assert.match(err.message, /Screenshot capture failed/);
+        return true;
+      }
+    );
+
+    mockServer.setHandler(null);
+    await client.close();
+  });
 });
+

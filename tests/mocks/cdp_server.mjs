@@ -271,6 +271,9 @@ export async function createMockCdpServer(options = {}) {
       ws.send({ id, result: {} });
     } else if (method === 'Page.enable' || method === 'Runtime.enable' || method === 'DOM.enable') {
       ws.send({ id, result: {} });
+    } else if (method === 'Page.captureScreenshot') {
+      const mockPngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      ws.send({ id, result: { data: mockPngBase64 } });
     } else {
       ws.send({ id, result: {} });
     }

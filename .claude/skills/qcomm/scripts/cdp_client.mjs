@@ -427,6 +427,47 @@ export class CdpClient {
   }
 
   /**
+   * Capture a screenshot of the current page using CDP Page.captureScreenshot.
+   * @param {Object} [options]
+   * @param {string} [options.format='png'] 'png' | 'jpeg' | 'webp'
+   * @param {number} [options.quality] Compression quality (0-100) for jpeg/webp
+   * @param {boolean} [options.fullPage=true] Whether to capture beyond viewport
+   * @param {Object} [options.clip] Viewport clip rectangle { x, y, width, height, scale }
+   * @param {number} [options.timeout=15000] Command timeout in ms
+   * @returns {Promise<Buffer>} The raw image buffer
+   */
+  async screenshot(options = {}) {
+    if (!this._pageEnabled) {
+      try {
+        await this.send('Page.enable');
+        this._pageEnabled = true;
+      } catch {}
+    }
+
+    const {
+      format = 'png',
+      quality,
+      fullPage = true,
+      clip,
+      timeout = 15000,
+    } = options;
+
+    const params = {
+      format,
+      ...(typeof quality === 'number' ? { quality } : {}),
+      ...(clip ? { clip } : {}),
+      ...(fullPage ? { captureBeyondViewport: true } : {}),
+    };
+
+    const res = await this.send('Page.captureScreenshot', params, { timeout });
+    if (!res || !res.data) {
+      throw new CdpError('Page.captureScreenshot returned no data');
+    }
+
+    return Buffer.from(res.data, 'base64');
+  }
+
+  /**
    * Close CDP WebSocket connection.
    */
   async close() {
