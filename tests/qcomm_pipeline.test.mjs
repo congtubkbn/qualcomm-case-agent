@@ -6,6 +6,7 @@
 // is pulled in with a dynamic import that resolves against it.
 
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -175,6 +176,57 @@ describe('lock.mjs', async () => {
     assert.equal(result.waited, false);
     assert.ok(Date.now() - startedAt < 50, 'stale lock must be taken over without polling');
     releaseLock(lockPath);
+  });
+
+  function spawnLockWorker(targetPath, code, targetTime) {
+    const script = `
+      import { acquireLock } from ${JSON.stringify(new URL('lock.mjs', SCRIPTS).href)};
+      const delay = Math.max(0, ${targetTime} - Date.now());
+      if (delay > 0) await new Promise(r => setTimeout(r, delay));
+      const res = acquireLock(${JSON.stringify(targetPath)}, Date.now(), ${JSON.stringify(code)});
+      process.stdout.write(JSON.stringify(res) + '\\n');
+      await new Promise(r => setTimeout(r, 600));
+    `;
+    return new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ['--input-type=module', '-e', script], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', d => { stdout += d; });
+      child.stderr.on('data', d => { stderr += d; });
+      child.on('exit', exitCode => {
+        if (exitCode !== 0) reject(new Error(`worker exited ${exitCode}: ${stderr}`));
+        else {
+          try {
+            resolve(JSON.parse(stdout.trim()));
+          } catch (err) {
+            reject(new Error(`failed to parse worker output "${stdout}": ${err.message}`));
+          }
+        }
+      });
+      child.on('error', reject);
+    });
+  }
+
+  it('two near-simultaneous acquireLock calls against a fresh path grant exactly one and refuse the other', async () => {
+    const raceLockPath = join(mkdtempSync(join(tmpdir(), 'qc-lock-race-')), 'capture.lock');
+    try {
+      const targetTime = Date.now() + 150;
+      const [res1, res2] = await Promise.all([
+        spawnLockWorker(raceLockPath, '11111111', targetTime),
+        spawnLockWorker(raceLockPath, '22222222', targetTime),
+      ]);
+      const successes = [res1, res2].filter(r => r.ok === true);
+      const refusals = [res1, res2].filter(r => r.ok === false);
+      assert.equal(successes.length, 1, 'exactly one acquireLock should succeed');
+      assert.equal(refusals.length, 1, 'exactly one acquireLock should be refused');
+      assert.ok(refusals[0].holder, 'refusal must carry the holder payload');
+      assert.ok(['11111111', '22222222'].includes(refusals[0].holder.code));
+      assert.ok(refusals[0].holder.pid > 0, 'holder must have a valid pid');
+    } finally {
+      releaseLock(raceLockPath);
+    }
   });
 });
 

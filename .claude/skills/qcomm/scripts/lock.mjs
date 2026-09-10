@@ -5,12 +5,11 @@
 // — two at once interleave navigation and corrupt each other's extraction.
 // This lock makes the second one report `busy` instead.
 //
-// Not a filesystem-atomic lock: there is a small exists→write race window.
-// Acceptable here — the contenders are a handful of processes on one desktop,
-// and the cost of a lost race is one garbled run that the completeness gates
-// (countAssert, title gate) refuse to persist anyway.
+// Atomic write lock: uses `flag: 'wx'` (O_CREAT | O_EXCL) to close the
+// exists→write race window. Contenders fail atomically if the lock file already
+// exists; stale or dead holders are cleared and retried.
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { PROJECT_ROOT } from './_paths.mjs';
 
@@ -25,19 +24,28 @@ function pidAlive(pid) {
   catch (e) { return e.code === 'EPERM'; }   // EPERM = alive, other owner
 }
 
-/** Try to take the capture lock. Returns { ok } or { ok:false, holder }. */
+/** Try to take the capture lock. Returns { ok: true } or { ok: false, holder }. */
 export function acquireLock(path = LOCK_PATH, now = Date.now(), code) {
   mkdirSync(dirname(path), { recursive: true });
-  if (existsSync(path)) {
-    let holder = null;
-    try { holder = JSON.parse(readFileSync(path, 'utf8')); } catch { /* corrupt = stale */ }
-    const fresh = holder
-      && now - Date.parse(holder.at) < STALE_MS
-      && pidAlive(holder.pid);
-    if (fresh) return { ok: false, holder };
+  const payload = JSON.stringify({ pid: process.pid, at: new Date(now).toISOString(), code });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      writeFileSync(path, payload, { flag: 'wx' });
+      return { ok: true };
+    } catch (e) {
+      if (e?.code !== 'EEXIST') throw e;
+      let holder = null;
+      try { holder = JSON.parse(readFileSync(path, 'utf8')); } catch { /* corrupt = stale */ }
+      const fresh = holder
+        && now - Date.parse(holder.at) < STALE_MS
+        && pidAlive(holder.pid);
+      if (fresh) return { ok: false, holder };
+      try { rmSync(path, { force: true }); } catch { /* already gone */ }
+    }
   }
-  writeFileSync(path, JSON.stringify({ pid: process.pid, at: new Date(now).toISOString(), code }));
-  return { ok: true };
+  let holder = null;
+  try { holder = JSON.parse(readFileSync(path, 'utf8')); } catch { /* corrupt */ }
+  return { ok: false, holder };
 }
 
 export function releaseLock(path = LOCK_PATH) {
