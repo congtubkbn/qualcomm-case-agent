@@ -15,6 +15,7 @@ import {
   syncCaseOverview,
   updateCaseOverview,
 } from '../.claude/skills/qcomm/scripts/overview_store.mjs';
+import { rebuildOverview } from '../.claude/skills/qcomm/scripts/cases_overview.mjs';
 
 const SCRIPT = fileURLToPath(
   new URL('../.claude/skills/qcomm/scripts/cases_overview.mjs', import.meta.url)
@@ -741,4 +742,56 @@ describe('cases_overview: CLI contract', () => {
     assert.equal(r.status, 0);
     assert.ok(r.stdout.includes('Usage: node .claude/skills/qcomm/scripts/cases_overview.mjs'));
   });
+
+  it('recovers from corrupt _overview.json by rebuilding automatically', () => {
+    const casesDir = createTempCasesDir();
+    const caseDir = join(casesDir, '08603854');
+    mkdirSync(caseDir, { recursive: true });
+    writeFileSync(
+      join(caseDir, 'case.json'),
+      JSON.stringify({ caseNumber: '08603854', title: 'Case 1', status: 'Open', comments: [] }),
+      'utf8'
+    );
+    writeFileSync(join(casesDir, '_overview.json'), '{corrupt-json', 'utf8');
+
+    const r = spawnSync(
+      process.execPath,
+      [SCRIPT, '--json', `--cases-dir=${casesDir}`],
+      { encoding: 'utf8' }
+    );
+
+    assert.equal(r.status, 0, `Process failed with error: ${r.stderr}`);
+    const output = JSON.parse(r.stdout.trim());
+    assert.equal(output.stats.total, 1);
+    assert.equal(output.cases[0].caseNumber, '08603854');
+
+    const recovered = JSON.parse(readFileSync(join(casesDir, '_overview.json'), 'utf8'));
+    assert.equal(recovered.stats.total, 1);
+
+    rmSync(casesDir, { recursive: true, force: true });
+  });
 });
+
+describe('cases_overview: rebuildOverview helper', () => {
+  it('scans case directories, atomically writes _overview.json, and returns overview data', () => {
+    const casesDir = createTempCasesDir();
+    const caseDir = join(casesDir, '08603854');
+    mkdirSync(caseDir, { recursive: true });
+    writeFileSync(
+      join(caseDir, 'case.json'),
+      JSON.stringify({ caseNumber: '08603854', title: 'Test Case', status: 'Open', comments: [] }),
+      'utf8'
+    );
+
+    const overview = rebuildOverview(casesDir);
+    assert.equal(overview.stats.total, 1);
+    assert.equal(overview.cases.length, 1);
+    assert.equal(overview.cases[0].caseNumber, '08603854');
+
+    const onDisk = JSON.parse(readFileSync(join(casesDir, '_overview.json'), 'utf8'));
+    assert.deepEqual(onDisk, overview);
+
+    rmSync(casesDir, { recursive: true, force: true });
+  });
+});
+

@@ -100,6 +100,20 @@ export function parseArgs(args) {
   return parsed;
 }
 
+/**
+ * Rebuilds overview data and atomically writes _overview.json.
+ * @param {string} [casesDir=DEFAULT_CASES_DIR] Cases directory
+ * @returns {object} The generated overview data
+ */
+export function rebuildOverview(casesDir = DEFAULT_CASES_DIR) {
+  const overview = buildOverviewData(casesDir);
+  const overviewPath = join(casesDir, '_overview.json');
+  const tempPath = join(casesDir, `_overview.json.tmp.${process.pid}.${Date.now()}`);
+  writeFileSync(tempPath, JSON.stringify(overview, null, 2), 'utf8');
+  renameSync(tempPath, overviewPath);
+  return overview;
+}
+
 // CLI Execution entrypoint
 if (process.argv[1] && resolve(process.argv[1]) === __filename) {
   try {
@@ -129,18 +143,12 @@ Options:
   let overview;
 
   if (options.rebuild || !existsSync(overviewPath)) {
-    overview = buildOverviewData(options.casesDir);
-    const tempPath = join(options.casesDir, `_overview.json.tmp.${process.pid}.${Date.now()}`);
-    writeFileSync(tempPath, JSON.stringify(overview, null, 2), 'utf8');
-    renameSync(tempPath, overviewPath);
+    overview = rebuildOverview(options.casesDir);
   } else {
     try {
       overview = JSON.parse(readFileSync(overviewPath, 'utf8'));
     } catch {
-      overview = buildOverviewData(options.casesDir);
-      const tempPath = join(options.casesDir, `_overview.json.tmp.${process.pid}.${Date.now()}`);
-      writeFileSync(tempPath, JSON.stringify(overview, null, 2), 'utf8');
-      renameSync(tempPath, overviewPath);
+      overview = rebuildOverview(options.casesDir);
     }
   }
 
