@@ -82,7 +82,7 @@ code, search the portal, save the data. Nothing else.
 
 ```bash
 npm test                          # unit tests (node --test, no build step)
-node --test tests/finalize_case.test.mjs   # run a single test file
+node --test tests/qcomm_finalize_case.test.mjs   # run a single test file
 npm run case -- 08603854          # capture one case (the main pipeline entry point)
 npm run docs                      # regenerate docs/DESIGN.md §7 (module/API ref) from source
 npm run docs:check                # fail if that generated section is stale (CI runs this)
@@ -147,7 +147,7 @@ needed.
 
 ### Issue tracker
 
-Issues and specs live as GitHub issues in `congtubkbn/qcomm`. See
+Issues and specs live as GitHub issues in `congtubkbn/qualcomm-case-agent`. See
 `docs/agents/issue-tracker.md`.
 
 ### Triage labels

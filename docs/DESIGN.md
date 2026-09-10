@@ -101,7 +101,7 @@ graph TD
   B["Orchestration — run_case.mjs"]
   C["Browser adapter & Fast Landing — browser.mjs · cdp_client.mjs · fast_landing.mjs"]
   D["Page scripts — login_fill.js · expand_step.js · extract_case.js · switch_tab.js · check_collapsed.js<br/>run INSIDE the tab, return small objects"]
-  E["Persistence + integrity — intake.mjs · scrape_case.mjs · lock.mjs · _paths.mjs"]
+  E["Persistence + integrity — intake.mjs · finalize_case.mjs · lock.mjs · _paths.mjs"]
   F["Presentation — render_case.mjs (case.md)"]
   A --> B --> C --> D
   B --> E --> F
@@ -131,7 +131,7 @@ flowchart TD
   end
 
   subgraph XửLýLưuTrữ["4. Lưu trữ, Kiểm thử & Xuất file"]
-    RunCase --> Scrape["scripts/scrape_case.mjs<br/>(Gán ID comment, tính Hash, ghi case.json & _index.json)"]
+    RunCase --> Finalize["scripts/finalize_case.mjs<br/>(Gán ID comment, tính Hash, ghi case.json & _index.json)"]
     RunCase --> Verify["scripts/verify_case.mjs<br/>+ scripts/check_collapsed.js<br/>(Kiểm tra không bị sót comment bị đóng)"]
     RunCase --> Render["scripts/render_case.mjs<br/>(Tạo case.md)"]
   end
@@ -157,7 +157,7 @@ project's historical bugs were violations of them:
 | `login_fill.js` | Fill Okta username/password via CDP and classify outcome: AUTHENTICATED/OTP_REQUIRED/REJECTED | DOM parsing outside Okta |
 | `expand_step.js` | One expansion/pagination tick; doubles as the fast no-update probe | Extraction |
 | `extract_case.js` | Read the expanded DOM into the raw case object | Completeness policy |
-| `scrape_case.mjs` | Completeness gates, merge policy, SHA-256 identity, canonical write, index update | Browser, analysis |
+| `finalize_case.mjs` | Completeness gates, merge policy, SHA-256 identity, canonical write, index update | Browser, analysis |
 | `render_case.mjs` | Deterministic formatting of whatever is in `case.json` | Summarizing, reordering, inventing |
 
 ---
@@ -213,7 +213,7 @@ that is what makes it reviewable.
 }
 ```
 
-**Invariant:** raw fields and `hash` are written by `scrape_case.mjs` alone; nothing else ever
+**Invariant:** raw fields and `hash` are written by `finalize_case.mjs` alone; nothing else ever
 mutates them.
 
 **Comment identity (D19).** `id` is derived from the comment's own content — `commentId(c)` =
@@ -574,8 +574,8 @@ These are the properties a reviewer should check any change against. Most were p
 | # | Invariant | Enforced by |
 |---|---|---|
 | V1 | A failed probe is never reported as "unchanged" | `isNoUpdate` guards; `run_case.mjs` status mapping; unit test |
-| V2 | A short or empty capture never overwrites a good cached case | `scrape_case.mjs` gates: 0 comments, `countAssert`, title gate |
-| V3 | `scrape_case.mjs` is the only writer of raw fields and `hash` | `computeHash` covers verbatim fields only; no other module touches `case.json` |
+| V2 | A short or empty capture never overwrites a good cached case | `finalize_case.mjs` gates: 0 comments, `countAssert`, title gate |
+| V3 | `finalize_case.mjs` is the only writer of raw fields and `hash` | `computeHash` covers verbatim fields only; no other module touches `case.json` |
 | V4 | Comment bodies are verbatim and never truncated | Extractor takes `.feedBodyInner`; merge keeps cached bodies; renderer only formats |
 | V5 | One capture at a time, machine-wide | `lock.mjs` + `busy` verdict |
 | V6 | Nothing confidential leaves the desktop | `.gitignore` on `data/` |
@@ -632,8 +632,8 @@ on position. Legacy caches are re-keyed on read by `migrateIds`. `computeHash` n
 the id (it is derived from content already in the hash), so a cache written before this change
 re-hashes once — one no-op `updated` verdict, no data change.
 
-**I4. `scrape_case.mjs` was the least-tested module and the most consequential. — FIXED.**
-`tests/scrape_case.test.mjs` now covers the pure helpers (hash stability, completeness gates,
+**I4. `finalize_case.mjs` was the least-tested module and the most consequential. — FIXED.**
+`tests/qcomm_finalize_case.test.mjs` now covers the pure helpers (hash stability, completeness gates,
 header-flag parsing, identity, id assignment, legacy migration, the merge matrix) plus `finalize()`
 itself, spawned against a throwaway cache root — the only honest way to test a function that ends in
 `process.exit`, and the only way to catch a bug that shows up in the file it writes rather than in a
@@ -677,7 +677,7 @@ tests and the doc freshness check (§12) — extend it with lint and coverage.
 ### P2 — robustness and operability
 
 - **I8. The fast no-update probe ignores header-only changes.** A case that goes Open → Closed with
-  no new comment returns `no-update` from the early probe, before `scrape_case.mjs` (which *does*
+  no new comment returns `no-update` from the early probe, before `finalize_case.mjs` (which *does*
   compute `headerChanged`) ever runs. Fix: compare the search-row header fields against the cache in
   `run_case.mjs` before taking the early exit.
 - **I9. ~~`readiness.js` hostname-only auth detection~~** *(removed — `readiness.js` was dead code; auth detection is now handled inside `fast_landing.mjs` via CDP page state).*
