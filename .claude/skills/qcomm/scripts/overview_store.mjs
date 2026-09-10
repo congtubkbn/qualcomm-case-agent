@@ -1,30 +1,14 @@
 // Data/domain module: scans case directories, shapes overview records, computes stats,
 // and persists the aggregated _overview.json atomically.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { basename, join } from 'node:path';
+import { DATA_DIR } from './_paths.mjs';
 import { renderDashboardHtml } from './dashboard_renderer.mjs';
 import { acquireOverviewLock, releaseOverviewLock, withOverviewLock } from './overview_lock.mjs';
 
 export { acquireOverviewLock, releaseOverviewLock };
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-function findProjectRoot(start) {
-  let d = start;
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    if (existsSync(join(d, '.git')) || existsSync(join(d, 'data', 'cases'))) return d;
-    const parent = dirname(d);
-    if (parent === d) return null;
-    d = parent;
-  }
-}
-
-const PROJECT_ROOT =
-  process.env.QUALCOMM_ROOT || findProjectRoot(__dirname) || resolve(__dirname, '../../../../');
-export const DEFAULT_CASES_DIR = join(PROJECT_ROOT, 'data', 'cases');
+export const DEFAULT_CASES_DIR = DATA_DIR;
 
 /**
  * Normalizes text snippet from a comment (removes duplicate whitespace/newlines, truncates).

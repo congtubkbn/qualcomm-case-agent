@@ -42,7 +42,7 @@ function isGitRepoDir(d) {
   return existsSync(p) && statSync(p).isDirectory();
 }
 
-function findProjectRoot(start) {
+export function findProjectRoot(start) {
   let d = start;
   // eslint-disable-next-line no-constant-condition
   while (true) {
