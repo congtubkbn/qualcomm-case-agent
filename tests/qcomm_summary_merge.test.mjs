@@ -138,6 +138,64 @@ describe('mergeSummary', () => {
     ]);
   });
 
+  it('same-batch reply whose parent is in the same delta fed in newest-first order nests under its parent, not at top level', () => {
+    const prior = {
+      caseNumber: '08633581',
+      status: 'Open',
+      summarizedCommentIds: ['c1'],
+      comments: [{ id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' }],
+      flow: 'Customer reported x.',
+      lastSummarizedAt: '2026-08-22T10:00:00.000Z',
+    };
+    // c2 replies to c1 (old post); c3 replies to c2 (new, same batch).
+    // Fed in newest-first order (c3 before c2).
+    const result = mergeSummary(prior, {
+      caseNumber: '08633581',
+      status: 'Pending Qualcomm',
+      newComments: [
+        { id: 'c3', issue: 'x reply follow-up' },
+        { id: 'c2', issue: 'x reply' },
+      ],
+      parentIdOf: { c2: 'c1', c3: 'c2' },
+      flow: 'Customer reported x; a chain of replies followed.',
+      now: '2026-08-23T09:00:00.000Z',
+    });
+    assert.deepEqual(result.comments, [
+      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' },
+      { id: 'c2', issue: 'x reply' },
+      { id: 'c3', issue: 'x reply follow-up' },
+    ]);
+  });
+
+  it('same-batch reply to a same-batch top-level comment nests under its parent, not as top-level', () => {
+    const prior = {
+      caseNumber: '08633581',
+      status: 'Open',
+      summarizedCommentIds: ['c1'],
+      comments: [{ id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' }],
+      flow: 'Customer reported x.',
+      lastSummarizedAt: '2026-08-22T10:00:00.000Z',
+    };
+    // c2 is a new top-level comment (no parent); c3 replies to c2.
+    // Fed in newest-first order (c3 before c2).
+    const result = mergeSummary(prior, {
+      caseNumber: '08633581',
+      status: 'Pending Qualcomm',
+      newComments: [
+        { id: 'c3', issue: 'c2 reply' },
+        { id: 'c2', issue: 'c2 top-level' },
+      ],
+      parentIdOf: { c3: 'c2' },
+      flow: 'Customer reported x; new thread started with a reply.',
+      now: '2026-08-23T09:00:00.000Z',
+    });
+    assert.deepEqual(result.comments, [
+      { id: 'c2', issue: 'c2 top-level' },
+      { id: 'c3', issue: 'c2 reply' },
+      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' },
+    ]);
+  });
+
   it('a comment lacking a dimension (e.g. plain acknowledgement) keeps only the fields it has', () => {
     const result = mergeSummary(null, {
       caseNumber: '08633581',

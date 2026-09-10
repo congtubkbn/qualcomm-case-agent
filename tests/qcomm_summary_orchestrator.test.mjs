@@ -196,6 +196,21 @@ describe('prepare()', () => {
     assert.equal(result.deltaComments[0].body.length, 20000);
   });
 
+  it('prepare() sorts delta comments chronologically ascending (oldest-first)', async (t) => {
+    mockDeps(t, { status: 'created' });
+    writeCaseJson('08000030', {
+      comments: [
+        { id: 'c3', timestamp: '2026-08-23T10:00:00.000Z', author: 'C', body: 'reply' },
+        { id: 'c2', timestamp: '2026-08-23T09:00:00.000Z', author: 'B', body: 'second' },
+        { id: 'c1', timestamp: '2026-08-23T08:00:00.000Z', author: 'A', body: 'first' },
+      ],
+    });
+    const { prepare } = await importOrchestrator();
+    const result = await prepare('08000030');
+    assert.equal(result.status, 'needs-summary');
+    assert.deepEqual(result.deltaComments.map((c) => c.id), ['c1', 'c2', 'c3']);
+  });
+
   for (const status of ['auth-required', 'not-found', 'blocked', 'busy', 'error']) {
     it(`capture-failure passthrough: ${status} surfaces as-is without attempting summarization`, async (t) => {
       mockDeps(t, { status, reason: `synthetic ${status}` });

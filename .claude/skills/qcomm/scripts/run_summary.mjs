@@ -20,6 +20,7 @@ import { DATA_DIR } from './_paths.mjs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { afterFinalize } from './overview_store.mjs';
+import { sortCommentsChronological } from './finalize_case.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -66,26 +67,64 @@ export async function captureCase(code) {
 // yet) is genuinely new top-level content, so it keeps the old prepend/newest-first
 // placement.
 //
-// newComments arrives oldest-first (delta preserves case.json's chronological order),
-// so a parent always precedes its own reply in the loop below. Inserting each comment
-// immediately after its parent's *current* position — rather than after the last
-// sibling already placed — means: (1) a reply to a same-batch (not-yet-summarized)
-// parent finds that parent already spliced into `working`, so chains nest correctly;
-// (2) processing oldest-to-newest with "insert right after parent" pushes each earlier
-// sibling one slot further down, so siblings end up newest-first under the parent —
-// matching the newest-first convention without a separate reverse step.
+// Comments generally arrive oldest-first (prepare sorts delta chronologically),
+// but insertion is multi-pass so any reply to a same-batch parent nests correctly
+// under its parent (whether in `working` or `topLevel`) regardless of input order.
 function insertCommentsByParent(priorComments, newComments, parentIdOf) {
   const working = [...priorComments];
   const topLevel = [];
-  for (const c of newComments) {
-    const parentId = parentIdOf?.[c.id];
-    const parentIdx = parentId != null ? working.findIndex((r) => r.id === parentId) : -1;
-    if (parentIdx === -1) {
-      topLevel.push(c);
-    } else {
-      working.splice(parentIdx + 1, 0, c);
+  const pending = [...newComments];
+  const newIds = new Set(newComments.map((c) => c.id));
+
+  while (pending.length > 0) {
+    let placedAny = false;
+    for (let i = 0; i < pending.length; i++) {
+      const c = pending[i];
+      const parentId = parentIdOf?.[c.id];
+
+      if (parentId == null) {
+        topLevel.push(c);
+        pending.splice(i, 1);
+        placedAny = true;
+        break;
+      }
+
+      const workingIdx = working.findIndex((r) => r.id === parentId);
+      if (workingIdx !== -1) {
+        working.splice(workingIdx + 1, 0, c);
+        pending.splice(i, 1);
+        placedAny = true;
+        break;
+      }
+
+      const topIdx = topLevel.findIndex((r) => r.id === parentId);
+      if (topIdx !== -1) {
+        topLevel.splice(topIdx + 1, 0, c);
+        pending.splice(i, 1);
+        placedAny = true;
+        break;
+      }
+
+      // If parent is not in newComments at all, it's an orphan reply -> treat as top-level
+      if (!newIds.has(parentId)) {
+        topLevel.push(c);
+        pending.splice(i, 1);
+        placedAny = true;
+        break;
+      }
+
+      // Parent is in newComments but not yet placed -> wait for next pass
+    }
+
+    if (!placedAny) {
+      // Cycle or unresolvable -> flush remaining to topLevel
+      for (const c of pending) {
+        topLevel.push(c);
+      }
+      break;
     }
   }
+
   return [...topLevel, ...working];
 }
 
@@ -196,7 +235,7 @@ export async function prepare(code) {
     code,
     caseNumber: caseJson.caseNumber,
     caseStatus: caseJson.status,
-    deltaComments: applyCharCapToComments(delta),
+    deltaComments: applyCharCapToComments(sortCommentsChronological(delta)),
     priorFlow: prior?.flow ?? '',
   };
 }
