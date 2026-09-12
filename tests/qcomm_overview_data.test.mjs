@@ -84,12 +84,12 @@ describe('cases_overview: extractCaseOverview', () => {
       product: 'SM7635',
       url: 'https://support.qualcomm.com/s/case/500dK00000Njp7aQAB/test-case',
       extractedAt: '2026-08-22T23:18:35.894Z',
-      // case.json comments are newest-first (orderCommentsForPresentation).
+      // case.json comments are oldest-first (buildNestedTree), each with subs:[].
       comments: [
-        { id: 'c4', author: 'Luyen Kieu Ba', timestamp: 'July 22, 2026 at 5:42 AM', body: 'Fourth comment with details' },
-        { id: 'c3', author: 'Sang Bui', timestamp: 'July 22, 2026 at 12:00 AM', body: 'Third comment' },
-        { id: 'c2', author: 'Luyen Kieu Ba', timestamp: 'July 21, 2026 at 6:53 PM', body: 'Second comment' },
-        { id: 'c1', author: 'Sang Bui', timestamp: 'July 20, 2026 at 12:14 AM', body: 'First comment' },
+        { id: 'c1', author: 'Sang Bui', timestamp: 'July 20, 2026 at 12:14 AM', body: 'First comment', subs: [] },
+        { id: 'c2', author: 'Luyen Kieu Ba', timestamp: 'July 21, 2026 at 6:53 PM', body: 'Second comment', subs: [] },
+        { id: 'c3', author: 'Sang Bui', timestamp: 'July 22, 2026 at 12:00 AM', body: 'Third comment', subs: [] },
+        { id: 'c4', author: 'Luyen Kieu Ba', timestamp: 'July 22, 2026 at 5:42 AM', body: 'Fourth comment with details', subs: [] },
       ],
     };
 

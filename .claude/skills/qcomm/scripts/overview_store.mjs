@@ -111,22 +111,27 @@ export function extractCaseOverview(caseDir, caseNumber = '') {
     const syncedAt = caseJson.extractedAt || caseJson.syncedAt || '';
 
     // Comments extraction
+    // comments are in nested tree shape: oldest-first top-level, each with subs:[]
     const rawComments = Array.isArray(caseJson.comments) ? caseJson.comments : [];
-    const commentCount = rawComments.length || caseJson.displayedCommentCount || 0;
+    // Count all comments recursively (top-level + nested replies)
+    const countAll = cs => Array.isArray(cs)
+      ? cs.reduce((n, c) => n + 1 + countAll(c.subs), 0)
+      : 0;
+    const commentCount = countAll(rawComments) || caseJson.displayedCommentCount || 0;
 
     let lastCommentAt = '';
     let lastCommentAuthor = '';
     const latestComments = [];
 
     if (rawComments.length > 0) {
-      // In case.json comments are newest-first (see finalize_case.mjs's
-      // orderCommentsForPresentation — supersedes the old Oldest -> Newest order).
-      const newestComment = rawComments[0];
+      // case.json comments are oldest-first (see finalize_case.mjs's buildNestedTree).
+      // The last element in the top-level array is the newest top-level comment.
+      const newestComment = rawComments[rawComments.length - 1];
       lastCommentAt = newestComment.timestamp || '';
       lastCommentAuthor = newestComment.author || '';
 
-      // Extract up to 3 newest comments (already newest-first, no reverse needed)
-      const topRecent = rawComments.slice(0, 3);
+      // Extract up to 3 newest top-level comments (slice from the tail, reverse for newest-first)
+      const topRecent = rawComments.slice(-3).reverse();
       for (const c of topRecent) {
         latestComments.push({
           id: c.id || '',

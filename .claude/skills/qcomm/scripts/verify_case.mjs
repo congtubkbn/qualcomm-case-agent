@@ -57,8 +57,8 @@ export function verifyCase(code, dir = join(DATA_DIR, code)) {
     errors.push('comments array is missing or empty');
   } else {
     const seenIds = new Map();
-    c.comments.forEach((cm, i) => {
-      const where = `comment[${i}] (${cm.author || 'unknown author'})`;
+    // Walk the nested tree (top-level + subs) to verify every comment node.
+    const verifyNode = (cm, where) => {
       if (!String(cm.id || '').trim()) errors.push(`${where}: missing id`);
       if (!String(cm.author || '').trim()) errors.push(`${where}: missing author`);
       if (!String(cm.timestamp || '').trim()) warnings.push(`${where}: missing timestamp`);
@@ -75,13 +75,28 @@ export function verifyCase(code, dir = join(DATA_DIR, code)) {
       if (cm.id) {
         seenIds.set(cm.id, (seenIds.get(cm.id) || 0) + 1);
       }
+      // Schema assertions: nested shape must have subs:[], never parentId.
+      if (!Array.isArray(cm.subs)) {
+        errors.push(`${where}: missing subs array — comment does not conform to nested tree schema`);
+      }
+      if ('parentId' in cm) {
+        errors.push(`${where}: parentId must not appear in persisted case.json (use nesting position instead)`);
+      }
+      for (const s of (cm.subs || [])) {
+        const sw = `${where} > sub[${cm.subs.indexOf(s)}] (${s.author || 'unknown'})`;
+        verifyNode(s, sw);
+      }
+    };
+    c.comments.forEach((cm, i) => {
+      const where = `comment[${i}] (${cm.author || 'unknown author'})`;
+      verifyNode(cm, where);
     });
     for (const [id, n] of seenIds) {
       if (n > 1) errors.push(`comment id "${id}" is used by ${n} comments — identity collision`);
     }
     const genuineCount = genuineCommentCount(c.comments, c.description);
     if (typeof c.displayedCommentCount === 'number' && c.displayedCommentCount !== genuineCount) {
-      warnings.push(`displayedCommentCount (${c.displayedCommentCount}) != genuine persisted comments (${genuineCount}, ${c.comments.length} incl. synthesized description) — may be expected if replies nest under top-level posts`);
+      warnings.push(`displayedCommentCount (${c.displayedCommentCount}) != genuine persisted comments (${genuineCount}) — may be expected if replies nest under top-level posts`);
     }
   }
 

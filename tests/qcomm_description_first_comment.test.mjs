@@ -133,18 +133,18 @@ describe('2. Ingestion & Ingestion Pipeline: finalize_case.mjs full capture', ()
     assert.equal(saved.description, raw.description, 'root description preserved');
     assert.equal(saved.comments.length, 2);
 
-    // Newest-first presentation order: the chatter reply (11:00) precedes the
-    // synthesized description comment (08:00, the case's own opening time).
+    // Oldest-first order: the synthesized description comment (08:00, the case's
+    // own opening time) precedes the chatter reply (11:00).
     const firstComment = saved.comments[0];
-    assert.equal(firstComment.author, 'QCOM Engineer');
+    assert.equal(firstComment.author, 'Samsung Mobile');
+    assert.equal(firstComment.timestamp, '2026-08-10T08:00:00.000Z');
+    assert.equal(firstComment.body, raw.description);
+    assert.equal(firstComment.summary, 'UE encounters panic during SA handover from cell A to cell B.');
+    assert.match(firstComment.id, /^c[a-f0-9]{12}$/);
+    assert.deepEqual(firstComment.attachments, []);
 
     const secondComment = saved.comments[1];
-    assert.equal(secondComment.author, 'Samsung Mobile');
-    assert.equal(secondComment.timestamp, '2026-08-10T08:00:00.000Z');
-    assert.equal(secondComment.body, raw.description);
-    assert.equal(secondComment.summary, 'UE encounters panic during SA handover from cell A to cell B.');
-    assert.match(secondComment.id, /^c[a-f0-9]{12}$/);
-    assert.deepEqual(secondComment.attachments, []);
+    assert.equal(secondComment.author, 'QCOM Engineer');
   });
 
   it('does not create synthetic comment when description is empty', () => {

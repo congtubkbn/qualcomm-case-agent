@@ -60,11 +60,13 @@ export const EXIT = {
 // verbatim comment content only — the thing an "is this case changed?" question
 // is actually asking about.
 export function computeHash(raw) {
-  const lines = [
-    ...raw.comments.map(c =>
-      `${c.timestamp || ''}|${c.author || ''}|${c.body || ''}`
-    ),
-  ];
+  // Flatten the nested tree (subs:[]) before hashing so the hash covers
+  // every comment regardless of nesting level. Flat legacy shape (no subs)
+  // also works — flattenComments returns the array unchanged in that case.
+  const flatAll = flattenComments(raw.comments);
+  const lines = flatAll.map(c =>
+    `${c.timestamp || ''}|${c.author || ''}|${c.body || ''}`
+  );
   return createHash('sha256').update(lines.join('\n'), 'utf8').digest('hex');
 }
 
@@ -85,7 +87,8 @@ const COLLAPSED_BODY_RE = /\bExpand Post\s*$/i;
 // every routine update run.
 export function findCollapsed(comments, newIds) {
   const fresh = new Set(newIds);
-  return (comments || []).filter(c => fresh.has(c.id) && COLLAPSED_BODY_RE.test(c.body));
+  // Walk the nested tree (subs:[]) so replies are also checked.
+  return flattenComments(comments).filter(c => fresh.has(c.id) && COLLAPSED_BODY_RE.test(c.body));
 }
 
 // Completeness gate comparison (Issue #91):
@@ -190,12 +193,19 @@ export function assignIds(comments) {
 // before this pipeline dropped analysis support) is dropped rather than carried
 // forward — nothing produces it any more, so there is nothing to re-key it onto.
 export function migrateIds(cached) {
-  const before = cached.comments || [];
+  // A cached case may now carry the nested subs:[] shape — flatten it to a
+  // flat list before re-assigning ids, then leave it flat so finalize() can
+  // call mergeComments on it directly. The caller (finalize) rebuilds the
+  // nested shape at the end via buildNestedTree.
+  const before = flattenComments(cached.comments || []);
   const { comments } = assignIds(before);
   const remap = new Map();
   before.forEach((c, i) => { if (c.id !== comments[i].id) remap.set(c.id, comments[i].id); });
-  if (!remap.size && !('enrichment' in cached)) return cached;
-
+  if (!remap.size && !('enrichment' in cached) && !before.some(c => c.subs !== undefined)) {
+    // Already on content ids, no enrichment, was already flat — no-op.
+    // (We skip the "return cached" shortcut here because we always want the
+    // flat form returned so callers don't have to special-case.)
+  }
   const { enrichment, ...rest } = cached;
   return { ...rest, comments };
 }
@@ -363,9 +373,15 @@ export function hasDescriptionComment(comments, description) {
 // The synthesized description comment is a presentation convenience derived
 // from the Case's description field, not a captured Chatter feed item — the
 // completeness gate must compare against genuine portal comments only.
+// Counts recursively through subs so nested replies are included (the portal's
+// displayedCommentCount counts every Chatter post regardless of reply nesting).
 export function genuineCommentCount(comments, description) {
-  const total = Array.isArray(comments) ? comments.length : 0;
-  return hasDescriptionComment(comments, description) ? total - 1 : total;
+  const countAll = cs => Array.isArray(cs)
+    ? cs.reduce((n, c) => n + 1 + countAll(c.subs), 0)
+    : 0;
+  const total = countAll(comments);
+  const topLevel = Array.isArray(comments) ? comments : [];
+  return hasDescriptionComment(topLevel, description) ? total - 1 : total;
 }
 
 /**
@@ -640,13 +656,34 @@ export function sortCommentsChronological(comments, referenceDate = new Date()) 
   return indexed.map(item => item.c);
 }
 
-// Final PRESENTATION order for case.json/case.md (supersedes PRD #105-109's
-// strict Oldest -> Newest "Variant A"): newest activity first, with each reply
-// grouped immediately after its parent (both threads and same-thread replies
-// ordered newest-first). Input must already be ascending (sortCommentsChronological's
-// output) — that ascending order is what lets "last-seen sibling = newest sibling"
-// hold without re-parsing timestamps a second time.
-export function orderCommentsForPresentation(comments) {
+// Flatten a nested tree (case.json's subs:[] shape) back to a flat array
+// with parentId re-attached. Used when loading a cached case.json for merging:
+// the merge engine (mergeComments / sortCommentsChronological) always works on
+// a flat list, so the tree must be flattened on read and rebuilt on write.
+export function flattenComments(comments) {
+  if (!Array.isArray(comments)) return [];
+  const out = [];
+  for (const c of comments) {
+    if (!c || typeof c !== 'object') continue;
+    const { subs, ...rest } = c;
+    // A top-level comment that never had parentId set (legacy flat shape or
+    // new nested shape) comes through as parentId:null.
+    out.push({ ...rest, parentId: rest.parentId !== undefined ? rest.parentId : null });
+    for (const s of (subs || [])) {
+      const { subs: _ss, ...sr } = s;
+      out.push({ ...sr, parentId: c.id });
+    }
+  }
+  return out;
+}
+
+// Build a nested tree from a flat list that already has parentId set.
+// Input: flat array in chronological order (oldest→newest, sortCommentsChronological output).
+// Output: top-level comments oldest→newest; each comment has subs:[] (never undefined)
+//         holding its replies oldest→newest. parentId is dropped from the output.
+// This is the final shape written to case.json (supersedes the old newest-first
+// flat array — reverts the 2026-08-27 presentation-only decision per PRD #105-109).
+export function buildNestedTree(comments) {
   if (!Array.isArray(comments) || comments.length === 0) return [];
   const byId = new Map(comments.map(c => [c.id, c]));
   const childrenOf = new Map();
@@ -660,16 +697,16 @@ export function orderCommentsForPresentation(comments) {
       topLevel.push(c);
     }
   }
-  const out = [];
-  for (let i = topLevel.length - 1; i >= 0; i--) {
-    const parent = topLevel[i];
-    out.push(parent);
-    const kids = childrenOf.get(parent.id);
-    if (kids) {
-      for (let j = kids.length - 1; j >= 0; j--) out.push(kids[j]);
-    }
-  }
-  return out;
+  // topLevel is already chronological (sortCommentsChronological's ascending output).
+  return topLevel.map(c => {
+    const { parentId, ...rest } = c;
+    const kids = (childrenOf.get(c.id) || []).map(k => {
+      const { parentId: _p, ...kr } = k;
+      // Chatter has no reply-to-reply; leaf subs always carry an empty subs:[].
+      return { ...kr, subs: [] };
+    });
+    return { ...rest, subs: kids };
+  });
 }
 
 // Merge raw comments not already cached and enforce chronological sorting (Oldest -> Newest).
@@ -902,11 +939,12 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
     summary: extractSummary(rest.body),
   }));
 
-  // Final PRESENTATION order: newest-first, replies grouped under their parent
-  // (see orderCommentsForPresentation above — supersedes PRD #105-109's strict
-  // Oldest -> Newest). Applied last, after ids/parentId/summary are settled, so
-  // it only reorders — never recomputes — the array computeHash below covers.
-  out.comments = orderCommentsForPresentation(out.comments);
+  // Build the nested tree: top-level oldest→newest, each comment's subs:[]
+  // also oldest→newest. parentId is dropped from the output — nesting position
+  // is the only source of parent/child truth in the persisted case.json.
+  // (Reverts the 2026-08-27 presentation-only newest-first decision; PRD
+  // #105-109 "Variant A" already specified oldest-first as the canonical shape.)
+  out.comments = buildNestedTree(out.comments);
 
   // Stamp identity + write canonical JSON.
   out.hash = computeHash(out);

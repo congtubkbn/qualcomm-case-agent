@@ -144,6 +144,17 @@ describe('genuineCommentCount', () => {
     assert.equal(m.genuineCommentCount(comments, 'Some description never injected'), 2);
     assert.equal(m.genuineCommentCount(comments, ''), 2);
   });
+
+  it('counts recursively through subs', () => {
+    const flat = m.assignIds([
+      comment('Alice', 'post'),
+      comment('Bob', 'reply'),
+    ]).comments;
+    const [post, reply] = flat;
+    const nested = [{ ...post, subs: [{ ...reply, subs: [] }] }];
+    // 1 top-level + 1 sub = 2 total
+    assert.equal(m.genuineCommentCount(nested, ''), 2);
+  });
 });
 
 describe('parseHeaderFlags', () => {
@@ -228,7 +239,11 @@ describe('migrateIds', () => {
 
   it('is a no-op on a cache already using content ids with no enrichment', () => {
     const once = m.migrateIds(structuredClone(legacy));
-    assert.equal(m.migrateIds(once), once);
+    // migrateIds always returns the flat form — calling it twice is idempotent
+    // (same comments content, same ids), so the hash produced from the result
+    // must equal the hash produced from calling it once.
+    const twice = m.migrateIds(once);
+    assert.deepEqual(twice.comments.map(c => c.id), once.comments.map(c => c.id));
   });
 
   it('survives a cache with no enrichment at all', () => {
@@ -334,25 +349,28 @@ describe('synthesizeDescriptionComment', () => {
   });
 });
 
-// Newest-first presentation order supersedes PRD #105-109 ("Variant A": strict
-// Oldest -> Newest, no renumbering by thread) — case.json/case.md now show the
-// most recent activity first, with each reply grouped immediately after its
-// parent (also newest-first among siblings). sortCommentsChronological above
-// still runs first and stays ascending — it is the merge/dedup/hash engine;
-// this is a separate, final ordering pass applied only to its output.
-describe('orderCommentsForPresentation', () => {
-  it('reverses a flat (no-reply) ascending list to newest-first', () => {
-    const asc = m.assignIds([
+// Nested tree schema for case.json — oldest→newest at every level,
+// each comment has subs:[] (never undefined), no parentId in the output.
+// Supersedes the old orderCommentsForPresentation (newest-first flat list);
+// reverts the 2026-08-27 presentation-only decision back to PRD #105-109 "Variant A".
+describe('buildNestedTree', () => {
+  it('returns a flat (no-reply) list unchanged, oldest-first, each with subs:[]', () => {
+    const flat = m.assignIds([
       comment('Alice', 'first', { timestamp: '5 days ago' }),
       comment('Bob', 'second', { timestamp: '3 days ago' }),
       comment('Carol', 'third', { timestamp: '1 day ago' }),
     ]).comments.map(c => ({ ...c, parentId: null }));
 
-    const ordered = m.orderCommentsForPresentation(asc);
-    assert.deepEqual(ordered.map(c => c.author), ['Carol', 'Bob', 'Alice']);
+    const tree = m.buildNestedTree(flat);
+    assert.deepEqual(tree.map(c => c.author), ['Alice', 'Bob', 'Carol']);
+    for (const c of tree) {
+      assert.ok(Array.isArray(c.subs), 'subs must be an array');
+      assert.equal(c.subs.length, 0);
+      assert.equal('parentId' in c, false, 'parentId must not appear in output');
+    }
   });
 
-  it('keeps each reply immediately after its parent, both newest-first', () => {
+  it('puts replies in their parent\'s subs, oldest-first', () => {
     const withIds = m.assignIds([
       comment('Alice', 'post 1', { timestamp: '10 days ago' }),
       comment('Bob', 'reply to post 1, early', { timestamp: '9 days ago' }),
@@ -361,7 +379,7 @@ describe('orderCommentsForPresentation', () => {
       comment('Eve', 'reply to post 2', { timestamp: '3 days ago' }),
     ]).comments;
     const [post1, reply1a, post2, reply1b, reply2a] = withIds;
-    const asc = [
+    const flat = [
       { ...post1, parentId: null },
       { ...reply1a, parentId: post1.id },
       { ...post2, parentId: null },
@@ -369,29 +387,44 @@ describe('orderCommentsForPresentation', () => {
       { ...reply2a, parentId: post2.id },
     ];
 
-    const ordered = m.orderCommentsForPresentation(asc);
-    // Thread order by each POST's own timestamp, newest first: post 2, then post 1.
-    // Within a thread, replies newest-first immediately after the post.
-    assert.deepEqual(ordered.map(c => c.author), ['Carol', 'Eve', 'Alice', 'Dave', 'Bob']);
+    const tree = m.buildNestedTree(flat);
+    // Top-level: oldest→newest
+    assert.deepEqual(tree.map(c => c.author), ['Alice', 'Carol']);
+    // post1's subs: oldest→newest
+    assert.deepEqual(tree[0].subs.map(s => s.author), ['Bob', 'Dave']);
+    // post2's subs
+    assert.deepEqual(tree[1].subs.map(s => s.author), ['Eve']);
+    // no parentId anywhere
+    for (const c of tree) {
+      assert.equal('parentId' in c, false);
+      for (const s of c.subs) assert.equal('parentId' in s, false);
+    }
+    // leaf subs always have subs:[]
+    for (const s of [...tree[0].subs, ...tree[1].subs]) {
+      assert.deepEqual(s.subs, []);
+    }
   });
 
   it('treats a reply whose parent is missing from the array as top-level', () => {
-    const asc = m.assignIds([
+    const flat = m.assignIds([
       comment('Alice', 'post 1', { timestamp: '2 days ago' }),
       comment('Bob', 'orphan reply', { timestamp: '1 day ago' }),
     ]).comments;
-    const ordered = m.orderCommentsForPresentation([
-      { ...asc[0], parentId: null },
-      { ...asc[1], parentId: 'missing-parent-id' },
+    const tree = m.buildNestedTree([
+      { ...flat[0], parentId: null },
+      { ...flat[1], parentId: 'missing-parent-id' },
     ]);
-    assert.deepEqual(ordered.map(c => c.author), ['Bob', 'Alice']);
+    assert.deepEqual(tree.map(c => c.author), ['Alice', 'Bob']);
+    assert.deepEqual(tree[0].subs, []);
+    assert.deepEqual(tree[1].subs, []);
   });
 
   it('returns [] for empty/non-array input', () => {
-    assert.deepEqual(m.orderCommentsForPresentation([]), []);
-    assert.deepEqual(m.orderCommentsForPresentation(null), []);
+    assert.deepEqual(m.buildNestedTree([]), []);
+    assert.deepEqual(m.buildNestedTree(null), []);
   });
 });
+
 
 describe('hasDescriptionComment', () => {
   it('returns true if a comment body matches the description', () => {
@@ -595,8 +628,18 @@ describe('finalize (child process)', () => {
     const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
     assert.equal(saved.title, 'NR SA attach failure');
     assert.equal(saved.hash, verdict.hash);
-    assert.equal(saved.comments[0].id, m.commentId(comment('Alice', 'RRC reject on n78', { timestamp: '2 days ago' })));
-    assert.equal(saved.comments[1].id, m.commentId(comment('Bob', 'Initial report', { timestamp: '5 days ago' })));
+    // Oldest-first nested tree shape:
+    // Bob's "Initial report" (5 days ago) comes before Alice's "RRC reject" (2 days ago)
+    // Both are top-level (no replies), so saved.comments is an array of 2 nodes with subs:[]
+    const byAuthor = Object.fromEntries(saved.comments.map(c => [c.author, c]));
+    assert.equal(byAuthor.Alice.id, m.commentId(comment('Alice', 'RRC reject on n78', { timestamp: '2 days ago' })));
+    assert.equal(byAuthor.Bob.id, m.commentId(comment('Bob', 'Initial report', { timestamp: '5 days ago' })));
+    // Verify nested shape
+    assert.deepEqual(saved.comments[0].author, 'Bob');   // oldest first
+    assert.deepEqual(saved.comments[1].author, 'Alice');  // newest last
+    assert.deepEqual(saved.comments[0].subs, []);
+    assert.deepEqual(saved.comments[1].subs, []);
+    assert.equal('parentId' in saved.comments[0], false);
     const index = JSON.parse(readFileSync(join(root, 'data', 'cases', '_index.json'), 'utf8'));
     assert.equal(index['08603854'].commentCount, 2);
   });
@@ -676,7 +719,8 @@ describe('finalize (child process)', () => {
     assert.equal(verdict.changed, true);
     assert.equal(verdict.headerChanged, true);
     const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
-    assert.deepEqual(saved.comments.map(c => c.author), ['Carol', 'Alice', 'Bob']);
+    // Oldest-first: Bob (5 days) → Alice (2 days) → Carol (1 hour)
+    assert.deepEqual(saved.comments.map(c => c.author), ['Bob', 'Alice', 'Carol']);
     assert.equal(saved.status, 'Closed', 'a fresh header flag is the current truth on an update run');
   });
 
@@ -869,7 +913,9 @@ describe('finalize (child process)', () => {
 
       const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
       assert.equal(saved.comments.length, 3);
-      const descComment = saved.comments[saved.comments.length - 1]; // Chronologically first -> now last (newest-first presentation order)
+      // Oldest-first: descComment (August 15, 2026) < Bob (5 days ago from now) < Alice (2 days ago)
+      // The description comment has the openedAt timestamp which is oldest.
+      const descComment = saved.comments[0]; // Chronologically first = position 0 (oldest-first)
       assert.equal(descComment.author, 'Acme Corp');
       assert.equal(descComment.timestamp, new Date(Date.parse('August 15, 2026 9:00 AM')).toISOString());
       assert.equal(descComment.rawTimestamp, 'August 15, 2026 at 9:00 AM');
@@ -892,7 +938,7 @@ describe('finalize (child process)', () => {
       assert.equal(exit, m.EXIT.OK);
 
       const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
-      const descComment = saved.comments[saved.comments.length - 1]; // oldest -> now last (newest-first presentation order)
+      const descComment = saved.comments[0]; // oldest = description comment (empty timestamp sorts first)
       assert.equal(descComment.author, 'Reporter');
       assert.equal(descComment.timestamp, '');
       assert.equal(descComment.body, rawWithDesc.description);
@@ -974,8 +1020,8 @@ describe('finalize (child process)', () => {
       assert.equal(saved.caseRecordType, 'Customer Support');
       assert.equal(saved.description, 'VoNR call drops during 5G SA to EPS Fallback transition.');
 
-      // Description comment author should be Contact Name — oldest -> now last (newest-first presentation order)
-      const descComment = saved.comments[saved.comments.length - 1];
+      // Oldest-first: description comment (Aug 10) comes before the chatter posts
+      const descComment = saved.comments[0];
       assert.equal(descComment.author, 'Mai Ngoc');
       assert.equal(descComment.timestamp, new Date(Date.parse('August 10, 2026 09:30 AM')).toISOString());
       assert.equal(descComment.rawTimestamp, 'August 10, 2026 at 09:30 AM');
@@ -1023,7 +1069,7 @@ describe('finalize (child process)', () => {
       assert.equal(saved.description, 'VoNR call drops during 5G SA.');
     });
 
-    it('derives parentId correctly for 1 post and 3 replies', () => {
+    it('derives nested subs shape for 1 post and 3 replies', () => {
       const root = fixture();
       const rawThread = {
         caseNumber: '08633581',
@@ -1039,17 +1085,25 @@ describe('finalize (child process)', () => {
       assert.equal(exit, m.EXIT.OK);
 
       const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
-      assert.equal(saved.comments.length, 4);
-      assert.equal(saved.comments[0].parentId, null);
-      const post1Id = saved.comments[0].id;
-      assert.equal(saved.comments[1].parentId, post1Id);
-      assert.equal(saved.comments[2].parentId, post1Id);
-      assert.equal(saved.comments[3].parentId, post1Id);
-      assert.equal('parentIndex' in saved.comments[1], false);
-      assert.equal('isReply' in saved.comments[1], false);
+      // One top-level comment with 3 replies in subs
+      assert.equal(saved.comments.length, 1);
+      const post1 = saved.comments[0];
+      assert.equal(post1.author, 'Alice');
+      assert.equal('parentId' in post1, false, 'parentId must not appear in output');
+      assert.equal(Array.isArray(post1.subs), true);
+      assert.equal(post1.subs.length, 3);
+      // Replies oldest-first
+      assert.deepEqual(post1.subs.map(s => s.author), ['Bob', 'Charlie', 'Alice']);
+      // Each reply has subs:[] and no parentId
+      for (const s of post1.subs) {
+        assert.deepEqual(s.subs, []);
+        assert.equal('parentId' in s, false);
+        assert.equal('parentIndex' in s, false);
+        assert.equal('isReply' in s, false);
+      }
     });
 
-    it('resolves parentId on a 2-phase capture (--merge)', () => {
+    it('resolves nested subs on a 2-phase capture (--merge)', () => {
       const root = fixture();
       const initialCapture = {
         caseNumber: '08633581',
@@ -1073,11 +1127,12 @@ describe('finalize (child process)', () => {
       assert.equal(r2.exit, m.EXIT.OK);
 
       const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
-      assert.equal(saved.comments.length, 2);
-      const post1 = saved.comments.find(c => c.body === 'Post 1');
-      const reply1a = saved.comments.find(c => c.body === 'Reply 1a');
-      assert.equal(post1.parentId, null);
-      assert.equal(reply1a.parentId, post1.id);
+      assert.equal(saved.comments.length, 1); // 1 top-level, reply is in subs
+      const post1 = saved.comments[0];
+      assert.equal(post1.author, 'Alice');
+      assert.equal(post1.subs.length, 1);
+      assert.equal(post1.subs[0].author, 'Bob');
+      assert.deepEqual(post1.subs[0].subs, []);
     });
   });
 
@@ -1104,17 +1159,16 @@ describe('finalize (child process)', () => {
       const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
       assert.equal(saved.comments.length, 2);
 
-      // Comment 0 = Carol (1 hour before 2026-08-22T12:00:00Z) — newest-first presentation order
-      const expectedCarolTs = new Date(Date.parse(captureTime) - 3600 * 1000).toISOString();
-      assert.equal(saved.comments[0].author, 'Carol');
-      assert.equal(saved.comments[0].timestamp, expectedCarolTs);
-      assert.equal(saved.comments[0].rawTimestamp, '1 hour ago');
-
-      // Comment 1 = Bob (5 days before 2026-08-22T12:00:00Z)
+      // Oldest-first: Bob (5 days ago) then Carol (1 hour ago)
       const expectedBobTs = new Date(Date.parse(captureTime) - 5 * 86400 * 1000).toISOString();
-      assert.equal(saved.comments[1].author, 'Bob');
-      assert.equal(saved.comments[1].timestamp, expectedBobTs);
-      assert.equal(saved.comments[1].rawTimestamp, '5 days ago');
+      assert.equal(saved.comments[0].author, 'Bob');
+      assert.equal(saved.comments[0].timestamp, expectedBobTs);
+      assert.equal(saved.comments[0].rawTimestamp, '5 days ago');
+
+      const expectedCarolTs = new Date(Date.parse(captureTime) - 3600 * 1000).toISOString();
+      assert.equal(saved.comments[1].author, 'Carol');
+      assert.equal(saved.comments[1].timestamp, expectedCarolTs);
+      assert.equal(saved.comments[1].rawTimestamp, '1 hour ago');
     });
 
     it('unchanged Case re-captured after simulated passage of time yields identical comment order and reports no-update', () => {

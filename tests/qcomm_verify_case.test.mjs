@@ -24,8 +24,8 @@ function fixture(overrides = {}, { screenshot = true } = {}) {
     extractedAt: '2026-07-28T00:00:00.000Z',
     capture: { articles: 2, pendingExpand: 0, pendingMoreComments: 0, expandRounds: 3, screenshot: 'capture.png' },
     comments: [
-      { id: 'c1', author: 'Alice', timestamp: '2 days ago', body: 'RRC reject on n78' },
-      { id: 'c2', author: 'Bob', timestamp: '3 days ago', body: 'Attach accept seen' },
+      { id: 'c1', author: 'Alice', timestamp: '2 days ago', body: 'RRC reject on n78', subs: [] },
+      { id: 'c2', author: 'Bob', timestamp: '3 days ago', body: 'Attach accept seen', subs: [] },
     ],
     ...overrides,
   };
@@ -89,9 +89,9 @@ describe('verifyCase capture evidence and artifacts', () => {
       description: 'RRC reject on n78',
       displayedCommentCount: 2,
       comments: [
-        { id: 'c1', author: 'Alice', timestamp: '2 days ago', body: 'RRC reject on n78' },
-        { id: 'c2', author: 'Bob', timestamp: '3 days ago', body: 'Attach accept seen' },
-        { id: 'c3', author: 'Carol', timestamp: '1 day ago', body: 'Confirmed fixed' },
+        { id: 'c1', author: 'Alice', timestamp: '2 days ago', body: 'RRC reject on n78', subs: [] },
+        { id: 'c2', author: 'Bob', timestamp: '3 days ago', body: 'Attach accept seen', subs: [] },
+        { id: 'c3', author: 'Carol', timestamp: '1 day ago', body: 'Confirmed fixed', subs: [] },
       ],
     });
     const r = verifyCase('08000001', dir);

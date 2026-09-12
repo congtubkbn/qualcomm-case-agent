@@ -287,7 +287,7 @@ describe('mergeComments chronological ordering', () => {
 });
 
 describe('finalize end-to-end chronological persistence', () => {
-  it('writes case.json where comment 0 is newest and comment N-1 is oldest (newest-first presentation order)', () => {
+  it('writes case.json where comment 0 is oldest and comment N-1 is newest (oldest-first nested tree schema)', () => {
     const root = mkdtempSync(join(tmpdir(), 'qc-chrono-'));
     mkdirSync(join(root, 'data', 'cases', '08603854'), { recursive: true });
 
@@ -317,8 +317,8 @@ describe('finalize end-to-end chronological persistence', () => {
 
     const saved = JSON.parse(readFileSync(join(root, 'data', 'cases', '08603854', 'case.json'), 'utf8'));
     assert.equal(saved.comments.length, 3);
-    assert.equal(saved.comments[0].author, 'Carol');   // 2 hours ago (newest)
-    assert.equal(saved.comments[1].author, 'Alice');   // 2 days ago
-    assert.equal(saved.comments[2].author, 'Bob');     // 6 days ago (oldest)
+    assert.equal(saved.comments[0].author, 'Bob');    // 6 days ago (oldest first)
+    assert.equal(saved.comments[1].author, 'Alice');  // 2 days ago
+    assert.equal(saved.comments[2].author, 'Carol');  // 2 hours ago (newest last)
   });
 });
