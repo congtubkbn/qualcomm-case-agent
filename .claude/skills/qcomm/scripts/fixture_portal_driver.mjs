@@ -20,10 +20,6 @@
 //                                       — this codebase has no DOM/JS-engine
 //                                       dependency, so real in-page script
 //                                       replay against HTML is out of scope.
-//                                       readHtmlProvenance() below can load it
-//                                       on demand (a fixture author or a
-//                                       future contract test inspecting it),
-//                                       but it's never called automatically.
 //                                       raw.json is the load-bearing artifact.
 //
 // A case directory with no raw.json produces an expandAndExtract() 'no-articles'
@@ -61,13 +57,6 @@ export class FixturePortalDriver extends PortalDriver {
 
   isConnected() {
     return this._connected;
-  }
-
-  /** On-demand provenance read — not called by expandAndExtract() or anything
-   *  else in this file; see file header. */
-  readHtmlProvenance(code) {
-    const p = join(this.caseDir(code), 'page.html');
-    return existsSync(p) ? readFileSync(p, 'utf8') : null;
   }
 
   async navigateToCase(code, _opts = {}) {
