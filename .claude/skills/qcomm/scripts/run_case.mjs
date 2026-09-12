@@ -115,8 +115,8 @@ export function formatVerdict(code, v = {}, started) {
  * real expand + merge pass, which is the definitive comparison.
  *
  * `displayedCommentCount` is deliberately NOT consulted: the portal counter it
- * comes from drifts between reads of an identical thread (see extract_case.js),
- * so it can neither confirm nor deny a change.
+ * comes from drifts between reads of an identical thread (see dom_extractor.js's
+ * QC.extractCase), so it can neither confirm nor deny a change.
  */
 export function isNoUpdate(probe, cached) {
   if (!cached || !probe || !probe.top) return false;
@@ -478,7 +478,7 @@ export async function run(code, opts = {}) {
   }
 
   // --- PHASE 2: extract
-  // extract_case.js's base64 payload now runs past evalFile's cmd.exe guard
+  // dom_extractor.js's base64 payload now runs past evalFile's cmd.exe guard
   // (script grew with the Chatter timestamp/role work) — send it over the
   // already-open CDP WebSocket instead, which has no line-length ceiling.
   const raw = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'extractCase' });

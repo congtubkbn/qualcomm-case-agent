@@ -383,16 +383,10 @@ test('Fast Path Landing Engine', async (t) => {
       return { id: msg.id, result: {} };
     });
 
-    let result = null;
-    try {
-      result = await fastLandOnCase('08603854', {
-        cdp: client,
-        cached: null,
-      });
-    } catch (err) {
-      console.log('TEST 330 ERROR:', err);
-    }
-    console.log('TEST 330 DIAGNOSTICS:', result?.diagnostics);
+    const result = await fastLandOnCase('08603854', {
+      cdp: client,
+      cached: null,
+    });
     assert.equal(result.state, 'OK');
     assert.equal(result.href, realCaseUrl);
     assert.equal(result.fastPathUsed, false);

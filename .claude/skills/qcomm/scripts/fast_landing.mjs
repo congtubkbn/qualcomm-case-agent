@@ -7,9 +7,6 @@ export const STUB_PATH_RE = /\/s\/case\/Case\/Default(?:$|[/?#])/i;
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const DOM_EXTRACTOR_SCRIPT = readFileSync(join(scriptDir, 'dom_extractor.js'), 'utf8');
-const LOGIN_FILL_SCRIPT = DOM_EXTRACTOR_SCRIPT;
-const IN_PAGE_OBSERVE_SCRIPT = DOM_EXTRACTOR_SCRIPT;
-const IN_PAGE_SEARCH_SCRIPT = DOM_EXTRACTOR_SCRIPT;
 
 /**
  * Checks if a URL is empty or points to the generic Lightning un-routed case stub.
@@ -111,7 +108,7 @@ export async function fastLandOnCase(code, options = {}) {
       let fillRes = null;
       try {
         fillRes = await cdp.eval(
-          LOGIN_FILL_SCRIPT,
+          DOM_EXTRACTOR_SCRIPT,
           {
             __ACTION: 'loginFill',
             __PASSWORD: pw,
@@ -155,7 +152,7 @@ export async function fastLandOnCase(code, options = {}) {
           let pollRes = null;
           try {
             pollRes = await cdp.eval(
-              LOGIN_FILL_SCRIPT,
+              DOM_EXTRACTOR_SCRIPT,
               { __ACTION: 'loginFill', __PASSWORD: '', __TIMEOUT: 0 },
               { awaitPromise: true, maxRetries: 3, retryDelay: 200 }
             );
@@ -248,7 +245,7 @@ export async function fastLandOnCase(code, options = {}) {
     try {
       const { probe: probeResult, authFailure } = await probeAndHandleAuth(
         () => cdp.navigate(caseUrl, { waitUntil: 'load', timeout: Math.min(timeout, 25000) }),
-        IN_PAGE_OBSERVE_SCRIPT,
+        DOM_EXTRACTOR_SCRIPT,
         { __ACTION: 'observeCaseState', __CODE: code, __TIMEOUT: Math.min(timeout, 15000) },
         true,
         { label: `direct navigation: ${caseUrl}` }
@@ -297,7 +294,7 @@ export async function fastLandOnCase(code, options = {}) {
   try {
     const { probe: searchProbeResult, authFailure } = await probeAndHandleAuth(
       () => cdp.navigate(searchUrl, { waitUntil: 'load', timeout: Math.min(timeout, 25000) }),
-      IN_PAGE_SEARCH_SCRIPT,
+      DOM_EXTRACTOR_SCRIPT,
       { __ACTION: 'searchCaseResults', __CODE: code, __TIMEOUT: Math.min(timeout, 25000) },
       false,
       { label: `global search: ${searchUrl}` }
@@ -329,7 +326,7 @@ export async function fastLandOnCase(code, options = {}) {
           logDiag(`Navigating directly to resolved case URL from search: ${searchProbe.href}`);
           const { probe: navProbe, authFailure: navAuthFailure } = await probeAndHandleAuth(
             () => cdp.navigate(searchProbe.href, { waitUntil: 'load', timeout: Math.min(timeout, 15000) }),
-            IN_PAGE_OBSERVE_SCRIPT,
+            DOM_EXTRACTOR_SCRIPT,
             { __ACTION: 'observeCaseState', __CODE: code, __TIMEOUT: Math.min(timeout, 5000) },
             false,
             { label: `search link navigation: ${searchProbe.href}` }
@@ -359,7 +356,7 @@ export async function fastLandOnCase(code, options = {}) {
         logDiag(`Dispatching trusted click on search result element [data-cq-hit='1']`);
         const { probe: clickProbe, authFailure: clickAuthFailure } = await probeAndHandleAuth(
           () => cdp.click("[data-cq-hit='1']"),
-          IN_PAGE_OBSERVE_SCRIPT,
+          DOM_EXTRACTOR_SCRIPT,
           { __ACTION: 'observeCaseState', __CODE: code, __TIMEOUT: Math.min(timeout, 5000) },
           false,
           { label: 'observation following trusted click', retryAction: async () => {} }

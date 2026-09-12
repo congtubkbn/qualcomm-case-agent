@@ -969,18 +969,6 @@
   // --- Dispatcher Pass ---
   var action = (typeof __ACTION !== 'undefined') ? __ACTION : null;
 
-  if (!action) {
-    if (typeof __TARGET_TAB !== 'undefined') action = 'switchTab';
-    else if (typeof __PASSWORD !== 'undefined') action = 'loginFill';
-    else if (typeof __CODE !== 'undefined' && typeof __TIMEOUT !== 'undefined') {
-      if (typeof __SEARCH !== 'undefined' && __SEARCH) action = 'searchCaseResults';
-      else action = 'observeCaseState';
-    } else if (typeof __ANCHOR !== 'undefined' || typeof __PROBE !== 'undefined' || typeof __TRUSTED !== 'undefined') {
-      if (typeof __CHECK_COLLAPSED !== 'undefined' && __CHECK_COLLAPSED) action = 'checkCollapsed';
-      else action = 'expandStep';
-    }
-  }
-
   if (action === 'expandStep') {
     var anchor = (typeof __ANCHOR !== 'undefined') ? __ANCHOR : null;
     var probe = (typeof __PROBE !== 'undefined') ? __PROBE : false;

@@ -28,12 +28,6 @@ const BIN = process.env.AGENT_BROWSER_BIN || 'agent-browser';
 export const CDP_PORT = Number(process.env.QUALCOMM_CDP_PORT || 9773);
 const CDP_BASE = `http://127.0.0.1:${CDP_PORT}`;
 
-// Unified DOM extractor module (window.__QC_DOM__), stripped and
-// read once at module load — see dom_extractor.js.
-const DOM_EXTRACTOR_SRC = stripComments(
-  readFileSync(join(SKILL_ROOT, 'scripts', 'dom_extractor.js'), 'utf8'),
-);
-
 let _activeCdp = null;
 
 export async function getCdpClient(options = {}) {

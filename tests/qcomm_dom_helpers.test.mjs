@@ -1,9 +1,9 @@
 // tests/qcomm_dom_helpers.test.mjs
 //
-// Loads dom_helpers.js's exact source into a jsdom context (script execution,
+// Loads dom_extractor.js's exact source into a jsdom context (script execution,
 // not a hand-copied re-implementation) and exercises each shared helper —
 // including the shadow-DOM case behind case 08503838 that motivated this
-// file (see dom_helpers.js).
+// file (see dom_extractor.js).
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
