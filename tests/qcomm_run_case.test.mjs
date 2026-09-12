@@ -68,8 +68,8 @@ function mockBrowser(t, handlerOrQueue, cdpOverride = null) {
         if (typeof handlerOrQueue === 'function') {
           const res = handlerOrQueue(file, vars);
           if (res !== undefined) return res;
+          if (file === 'dom_extractor.js' && vars?.__ACTION === 'switchTab') return { ok: true, clicked: true };
           if (file === 'switch_tab.js') return { ok: true, clicked: true };
-          return res;
         }
         const next = handlerOrQueue.shift();
         if (next === undefined) throw new Error(`mockBrowser: evalFileViaCdp queue exhausted on ${file}`);
@@ -215,20 +215,21 @@ describe('run() expand-loop stuck detection', () => {
     const stableFeed = { articles: 5, displayed: 5, anchorIdx: -1, top: { author: 'A', bodyStart: 'x' } };
 
     mockBrowser(t, (file, vars) => {
-      if (file === 'switch_tab.js') {
+      const action = vars?.__ACTION;
+      if (file === 'switch_tab.js' || action === 'switchTab') {
         return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
       }
-      if (file === 'expand_step.js') {
+      if (file === 'expand_step.js' || action === 'expandStep') {
         if (vars?.__PROBE) return stableFeed;
         return stuckTick;
       }
-      if (file === 'check_collapsed.js') {
+      if (file === 'check_collapsed.js' || action === 'checkCollapsed') {
         return { stillCollapsed: 2, stillHasMoreComments: 0 };
       }
-      if (file === 'extract_case.js') {
+      if (file === 'extract_case.js' || action === 'extractCase') {
         return { caseNumber: '08438355', title: 't', status: 'Open', url: REAL_HREF, comments: [] };
       }
-      throw new Error(`Unexpected evalFile: ${file}`);
+      throw new Error(`Unexpected evalFile: ${file} (action=${action})`);
     });
 
     const { run } = await importRunCase();
@@ -247,19 +248,20 @@ describe('run() expand-loop stuck detection', () => {
 
     let expandCount = 0;
     const { evalFileCalls } = mockBrowser(t, (file, vars) => {
-      if (file === 'switch_tab.js') {
+      const action = vars?.__ACTION;
+      if (file === 'switch_tab.js' || action === 'switchTab') {
         return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
       }
-      if (file === 'expand_step.js') {
+      if (file === 'expand_step.js' || action === 'expandStep') {
         if (vars?.__PROBE) return stableFeed;
         expandCount++;
         if (expandCount <= 40) return stuckTick;
         return idleTick;
       }
-      if (file === 'check_collapsed.js') {
+      if (file === 'check_collapsed.js' || action === 'checkCollapsed') {
         return { stillCollapsed: 0, stillHasMoreComments: 0 };
       }
-      if (file === 'extract_case.js') {
+      if (file === 'extract_case.js' || action === 'extractCase') {
         return {
           caseNumber: '08438355',
           title: 't',
@@ -268,7 +270,7 @@ describe('run() expand-loop stuck detection', () => {
           comments: [{ author: 'A', body: 'ok', timestamp: 't' }],
         };
       }
-      throw new Error(`Unexpected evalFile: ${file}`);
+      throw new Error(`Unexpected evalFile: ${file} (action=${action})`);
     });
 
     mkdirSync(join(process.env.QUALCOMM_ROOT, 'data', 'cases', '08438355'), { recursive: true });
@@ -281,9 +283,9 @@ describe('run() expand-loop stuck detection', () => {
     assert.equal(v.evidence.pendingExpand, 0);
     assert.equal(v.evidence.pendingMoreComments, 0);
     assert.ok(v.evidence.clicks.expand >= 1);
-    const names = evalFileCalls.map(c => c.path);
-    assert.ok(names.filter(n => n === 'expand_step.js').length >= 40);
-    assert.ok(names.filter(n => n === 'check_collapsed.js').length >= 2);
+    const calls = evalFileCalls;
+    assert.ok(calls.filter(c => c.vars?.__ACTION === 'expandStep' || c.path === 'expand_step.js').length >= 40);
+    assert.ok(calls.filter(c => c.vars?.__ACTION === 'checkCollapsed' || c.path === 'check_collapsed.js').length >= 2);
   });
 });
 
@@ -306,17 +308,18 @@ describe('run() fast landing & verdict integration', () => {
     const idleTick = { clickedExpand: 0, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
 
     mockBrowser(t, (file, vars) => {
-      if (file === 'switch_tab.js') {
+      const action = vars?.__ACTION;
+      if (file === 'switch_tab.js' || action === 'switchTab') {
         return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
       }
-      if (file === 'expand_step.js') {
+      if (file === 'expand_step.js' || action === 'expandStep') {
         if (vars?.__PROBE) return stableFeed;
         return idleTick;
       }
-      if (file === 'check_collapsed.js') {
+      if (file === 'check_collapsed.js' || action === 'checkCollapsed') {
         return { stillCollapsed: 0, stillHasMoreComments: 0 };
       }
-      if (file === 'extract_case.js') {
+      if (file === 'extract_case.js' || action === 'extractCase') {
         return {
           caseNumber: '08438355',
           title: 'Test Case Title',
@@ -325,7 +328,7 @@ describe('run() fast landing & verdict integration', () => {
           comments: [{ author: 'A', body: 'content body', timestamp: 't' }],
         };
       }
-      throw new Error(`Unexpected evalFile: ${file}`);
+      throw new Error(`Unexpected evalFile: ${file} (action=${action})`);
     }, mockCdp);
 
     mkdirSync(join(process.env.QUALCOMM_ROOT, 'data', 'cases', '08438355'), { recursive: true });
@@ -506,13 +509,14 @@ describe('run() fast landing & verdict integration', () => {
     };
 
     const { screenshotCalls } = mockBrowser(t, (file, vars) => {
-      if (file === 'switch_tab.js') {
+      const action = vars?.__ACTION;
+      if (file === 'switch_tab.js' || action === 'switchTab') {
         return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
       }
-      if (file === 'expand_step.js') {
+      if (file === 'expand_step.js' || action === 'expandStep') {
         return { articles: 0 };
       }
-      throw new Error(`Unexpected evalFile: ${file}`);
+      throw new Error(`Unexpected evalFile: ${file} (action=${action})`);
     }, mockCdp);
 
     const { run, formatVerdict } = await importRunCase();
@@ -545,17 +549,18 @@ describe('run() fast landing & verdict integration', () => {
 
     let extractCallCount = 0;
     mockBrowser(t, (file, vars) => {
-      if (file === 'switch_tab.js') {
+      const action = vars?.__ACTION;
+      if (file === 'switch_tab.js' || action === 'switchTab') {
         return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
       }
-      if (file === 'expand_step.js') {
+      if (file === 'expand_step.js' || action === 'expandStep') {
         if (vars?.__PROBE) return { articles: 2, displayed: 2, anchorIdx: -1, top: { author: 'Mai Ngoc', bodyStart: 'Initial' } };
         return { clickedExpand: 0, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
       }
-      if (file === 'check_collapsed.js') {
+      if (file === 'check_collapsed.js' || action === 'checkCollapsed') {
         return { stillCollapsed: 0, stillHasMoreComments: 0 };
       }
-      if (file === 'extract_case.js') {
+      if (file === 'extract_case.js' || action === 'extractCase') {
         extractCallCount++;
         if (extractCallCount === 1) {
           // First call: Detail tab metadata extraction
@@ -587,7 +592,7 @@ describe('run() fast landing & verdict integration', () => {
           ],
         };
       }
-      throw new Error(`Unexpected evalFile: ${file}`);
+      throw new Error(`Unexpected evalFile: ${file} (action=${action})`);
     }, mockCdp);
 
     mkdirSync(join(process.env.QUALCOMM_ROOT, 'data', 'cases', '08603854'), { recursive: true });
@@ -626,7 +631,8 @@ describe('run() fast landing & verdict integration', () => {
     let switchAttempts = 0;
     let extractCallCount = 0;
     mockBrowser(t, (file, vars) => {
-      if (file === 'switch_tab.js') {
+      const action = vars?.__ACTION;
+      if (file === 'switch_tab.js' || action === 'switchTab') {
         if (vars?.__TARGET_TAB === 'Detail') {
           switchAttempts++;
           if (switchAttempts === 1) return { ok: false, reason: 'tab rendering delayed' };
@@ -634,14 +640,14 @@ describe('run() fast landing & verdict integration', () => {
         }
         return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
       }
-      if (file === 'expand_step.js') {
+      if (file === 'expand_step.js' || action === 'expandStep') {
         if (vars?.__PROBE) return { articles: 1, displayed: 1, anchorIdx: -1, top: { author: 'Engineer', bodyStart: 'Initial' } };
         return { clickedExpand: 0, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
       }
-      if (file === 'check_collapsed.js') {
+      if (file === 'check_collapsed.js' || action === 'checkCollapsed') {
         return { stillCollapsed: 0, stillHasMoreComments: 0 };
       }
-      if (file === 'extract_case.js') {
+      if (file === 'extract_case.js' || action === 'extractCase') {
         extractCallCount++;
         if (extractCallCount === 1) {
           return {
@@ -664,7 +670,7 @@ describe('run() fast landing & verdict integration', () => {
           ],
         };
       }
-      throw new Error(`Unexpected evalFile: ${file}`);
+      throw new Error(`Unexpected evalFile: ${file} (action=${action})`);
     }, mockCdp);
 
     mkdirSync(join(process.env.QUALCOMM_ROOT, 'data', 'cases', '08603855'), { recursive: true });
@@ -695,20 +701,21 @@ describe('run() fast landing & verdict integration', () => {
     };
 
     mockBrowser(t, (file, vars) => {
-      if (file === 'switch_tab.js') {
+      const action = vars?.__ACTION;
+      if (file === 'switch_tab.js' || action === 'switchTab') {
         if (vars?.__TARGET_TAB === 'Detail') {
           return { ok: false, reason: 'Detail tab not found in DOM' };
         }
         return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
       }
-      if (file === 'expand_step.js') {
+      if (file === 'expand_step.js' || action === 'expandStep') {
         if (vars?.__PROBE) return { articles: 1, displayed: 1, anchorIdx: -1, top: { author: 'Engineer', bodyStart: 'Initial' } };
         return { clickedExpand: 0, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
       }
-      if (file === 'check_collapsed.js') {
+      if (file === 'check_collapsed.js' || action === 'checkCollapsed') {
         return { stillCollapsed: 0, stillHasMoreComments: 0 };
       }
-      if (file === 'extract_case.js') {
+      if (file === 'extract_case.js' || action === 'extractCase') {
         return {
           caseNumber: '08603856',
           title: 'Detail Tab Failed Case',
@@ -718,7 +725,7 @@ describe('run() fast landing & verdict integration', () => {
           ],
         };
       }
-      throw new Error(`Unexpected evalFile: ${file}`);
+      throw new Error(`Unexpected evalFile: ${file} (action=${action})`);
     }, mockCdp);
 
     mkdirSync(join(process.env.QUALCOMM_ROOT, 'data', 'cases', '08603856'), { recursive: true });
@@ -752,18 +759,19 @@ describe('run() fast landing & verdict integration', () => {
     };
 
     mockBrowser(t, (file, vars) => {
-      if (file === 'switch_tab.js') {
+      const action = vars?.__ACTION;
+      if (file === 'switch_tab.js' || action === 'switchTab') {
         if (vars?.__TARGET_TAB === 'Detail') return { ok: false, reason: 'Detail tab not found in DOM' };
         return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
       }
-      if (file === 'expand_step.js') {
+      if (file === 'expand_step.js' || action === 'expandStep') {
         if (vars?.__PROBE) return { articles: 1, displayed: 1, anchorIdx: -1, top: { author: 'Alice', bodyStart: 'Comment' } };
         return { clickedExpand: 0, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
       }
-      if (file === 'check_collapsed.js') {
+      if (file === 'check_collapsed.js' || action === 'checkCollapsed') {
         return { stillCollapsed: 0, stillHasMoreComments: 0 };
       }
-      if (file === 'extract_case.js') {
+      if (file === 'extract_case.js' || action === 'extractCase') {
         return {
           caseNumber: '08700020',
           title: 'Render Failure Case',
@@ -771,7 +779,7 @@ describe('run() fast landing & verdict integration', () => {
           comments: [{ author: 'Alice', body: 'Comment body', timestamp: 'August 12, 2026' }],
         };
       }
-      throw new Error(`Unexpected evalFile: ${file}`);
+      throw new Error(`Unexpected evalFile: ${file} (action=${action})`);
     }, mockCdp);
 
     t.mock.module(new URL('render_case.mjs', SCRIPTS), {
@@ -805,20 +813,21 @@ describe('run() fast landing & verdict integration', () => {
 
     let extractCallCount = 0;
     const { screenshotCalls } = mockBrowser(t, (file, vars) => {
-      if (file === 'switch_tab.js') {
+      const action = vars?.__ACTION;
+      if (file === 'switch_tab.js' || action === 'switchTab') {
         if (vars?.__TARGET_TAB === 'Feed') {
           return { ok: false, reason: 'tab not found: feed' };
         }
         return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
       }
-      if (file === 'extract_case.js') {
+      if (file === 'extract_case.js' || action === 'extractCase') {
         extractCallCount++;
         // Only the Detail-tab metadata pass (call 1) is legitimate here. A
         // second call would be the Feed/Chatter extraction — that must never
         // run once the Feed switch-back has failed, or this test would pass
         // even with the original bug (silent extraction on a hidden tab).
         if (extractCallCount > 1) {
-          throw new Error('extract_case.js must not run again after the Feed switch-back failed');
+          throw new Error('extractCase must not run again after the Feed switch-back failed');
         }
         return {
           caseNumber: '08637663',
@@ -827,7 +836,7 @@ describe('run() fast landing & verdict integration', () => {
           comments: [],
         };
       }
-      throw new Error(`Unexpected evalFile: ${file}`);
+      throw new Error(`Unexpected evalFile: ${file} (action=${action})`);
     }, mockCdp);
 
     mkdirSync(join(process.env.QUALCOMM_ROOT, 'data', 'cases', '08637663'), { recursive: true });
@@ -857,17 +866,18 @@ describe('run() fast landing & verdict integration', () => {
     };
 
     mockBrowser(t, (file, vars) => {
-      if (file === 'switch_tab.js') {
+      const action = vars?.__ACTION;
+      if (file === 'switch_tab.js' || action === 'switchTab') {
         return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
       }
-      if (file === 'expand_step.js') {
+      if (file === 'expand_step.js' || action === 'expandStep') {
         if (vars?.__PROBE) return { articles: 1, displayed: 1, anchorIdx: -1, top: { author: 'A', bodyStart: 'Initial' } };
         return { clickedExpand: 0, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
       }
-      if (file === 'check_collapsed.js') {
+      if (file === 'check_collapsed.js' || action === 'checkCollapsed') {
         return { stillCollapsed: 0, stillHasMoreComments: 0 };
       }
-      if (file === 'extract_case.js') {
+      if (file === 'extract_case.js' || action === 'extractCase') {
         return {
           caseNumber: '08603857',
           title: 'Finalize Failed Case',
@@ -877,7 +887,7 @@ describe('run() fast landing & verdict integration', () => {
           ],
         };
       }
-      throw new Error(`Unexpected evalFile: ${file}`);
+      throw new Error(`Unexpected evalFile: ${file} (action=${action})`);
     }, mockCdp);
 
     mkdirSync(join(process.env.QUALCOMM_ROOT, 'data', 'cases', '08603857'), { recursive: true });

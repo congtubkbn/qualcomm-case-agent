@@ -254,16 +254,16 @@ export async function run(code, opts = {}) {
 
   for (let attempt = 0; attempt < DETAIL_SWITCH_RETRIES; attempt++) {
     try {
-      const tabSwitch = await evalFileViaCdp(cdp, page('switch_tab.js'), { __TARGET_TAB: 'Detail' });
+      const tabSwitch = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'switchTab', __TARGET_TAB: 'Detail' });
       if (tabSwitch && (tabSwitch.ok || tabSwitch.alreadyActive)) {
         await sleep(1000);
-        detailRaw = await evalFileViaCdp(cdp, page('extract_case.js'));
+        detailRaw = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'extractCase' });
         if (detailRaw) {
           detailExtracted = true;
           detailSwitchError = null;
           break;
         } else {
-          detailSwitchError = 'extract_case.js returned null or empty on Detail tab';
+          detailSwitchError = 'extractCase returned null or empty on Detail tab';
         }
       } else {
         detailSwitchError = tabSwitch?.reason || 'switch_tab failed to switch to Detail tab';
@@ -288,7 +288,7 @@ export async function run(code, opts = {}) {
   let feedSwitchError = null;
   for (let attempt = 0; attempt < DETAIL_SWITCH_RETRIES; attempt++) {
     try {
-      const switchBack = await evalFileViaCdp(cdp, page('switch_tab.js'), { __TARGET_TAB: 'Feed' });
+      const switchBack = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'switchTab', __TARGET_TAB: 'Feed' });
       if (switchBack && (switchBack.ok || switchBack.alreadyActive)) {
         feedSwitched = true;
         feedSwitchError = null;
@@ -318,11 +318,11 @@ export async function run(code, opts = {}) {
 
   // --- PHASE 1.5: probe first (fast no-update check), then expand in-page.
   const probeFeed = async () => {
-    let p = await evalFileViaCdp(cdp, page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
+    let p = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor, __PROBE: true });
     for (let i = 0; i < FEED_PROBE_ROUNDS; i++) {
       const prevArticles = p ? p.articles : 0;
       await sleep(2000);
-      p = await evalFileViaCdp(cdp, page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
+      p = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor, __PROBE: true });
       if (p && p.articles && p.articles === prevArticles) break;
     }
     return p;
@@ -367,7 +367,7 @@ export async function run(code, opts = {}) {
   let idleTicks = 0;
   const clicks = { expand: 0, viewMore: 0, moreComments: 0, description: 0 };
   for (; rounds < EXPAND_ROUNDS; rounds++) {
-    const r = await evalFileViaCdp(cdp, page('expand_step.js'), { __ANCHOR: anchor });
+    const r = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
     clicks.expand += r.clickedExpand || 0;
     clicks.viewMore += r.clickedViewMore || 0;
     clicks.moreComments += r.clickedMoreComments || 0;
@@ -385,7 +385,7 @@ export async function run(code, opts = {}) {
   // Grace retries when round budget exhausted
   if (rounds >= EXPAND_ROUNDS && idleTicks < 2) {
     for (let grace = 0; grace < STUCK_RETRY_ROUNDS; grace++) {
-      const r = await evalFileViaCdp(cdp, page('expand_step.js'), { __ANCHOR: anchor });
+      const r = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
       clicks.expand += r.clickedExpand || 0;
       clicks.viewMore += r.clickedViewMore || 0;
       clicks.moreComments += r.clickedMoreComments || 0;
@@ -402,14 +402,14 @@ export async function run(code, opts = {}) {
   let confirmedZero = 0;
   for (let s = 0; s < SETTLE_ROUNDS; s++) {
     await sleep(1000);
-    const unexpanded = await evalFileViaCdp(cdp, page('check_collapsed.js'), { __ANCHOR: anchor });
+    const unexpanded = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'checkCollapsed', __ANCHOR: anchor });
     const pending = (unexpanded?.stillCollapsed || 0) + (unexpanded?.stillHasMoreComments || 0);
     if (pending === 0) {
       confirmedZero++;
       if (confirmedZero >= 2) break;
     } else {
       confirmedZero = 0;
-      const r = await evalFileViaCdp(cdp, page('expand_step.js'), { __ANCHOR: anchor });
+      const r = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
       clicks.expand += r.clickedExpand || 0;
       clicks.viewMore += r.clickedViewMore || 0;
       clicks.moreComments += r.clickedMoreComments || 0;
@@ -418,19 +418,19 @@ export async function run(code, opts = {}) {
   }
 
   // Trusted-click fallback for stubborn collapsed posts
-  let lastUnexpanded = await evalFileViaCdp(cdp, page('check_collapsed.js'), { __ANCHOR: anchor });
+  let lastUnexpanded = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'checkCollapsed', __ANCHOR: anchor });
   const stubbornCount = (lastUnexpanded?.stillCollapsed || 0) + (lastUnexpanded?.stillHasMoreComments || 0);
   if (stubbornCount > 0) {
     const settleBudget = Math.min(POST_EXPAND_SETTLE_ROUNDS, stubbornCount * 3 + 6);
     let consecutiveClean = 0;
     for (let s = 0; s < settleBudget; s++) {
-      const attempt = await evalFileViaCdp(cdp, page('expand_step.js'), { __ANCHOR: anchor, __TRUSTED: true });
+      const attempt = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor, __TRUSTED: true });
       clicks.expand += attempt.clickedExpand || 0;
       clicks.viewMore += attempt.clickedViewMore || 0;
       clicks.moreComments += attempt.clickedMoreComments || 0;
       clicks.description += attempt.clickedDescription || 0;
       await sleep(2000);
-      lastUnexpanded = await evalFileViaCdp(cdp, page('check_collapsed.js'), { __ANCHOR: anchor });
+      lastUnexpanded = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'checkCollapsed', __ANCHOR: anchor });
       const remaining = (lastUnexpanded?.stillCollapsed || 0) + (lastUnexpanded?.stillHasMoreComments || 0);
       if (remaining === 0) {
         consecutiveClean++;
@@ -445,7 +445,7 @@ export async function run(code, opts = {}) {
   let prevCount = -1;
   let matches = 0;
   for (let s = 0; s < SETTLE_ROUNDS; s++) {
-    const probeNow = await evalFileViaCdp(cdp, page('expand_step.js'), { __ANCHOR: anchor, __PROBE: true });
+    const probeNow = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor, __PROBE: true });
     const current = probeNow ? probeNow.articles : 0;
     if (current === prevCount && current > 0) {
       matches++;
@@ -453,13 +453,13 @@ export async function run(code, opts = {}) {
     } else {
       prevCount = current;
       matches = 1;
-      await evalFileViaCdp(cdp, page('expand_step.js'), { __ANCHOR: anchor });
+      await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
     }
     await sleep(2000);
   }
 
   // Final pre-extraction gate
-  const gateUnexpanded = await evalFileViaCdp(cdp, page('check_collapsed.js'), { __ANCHOR: anchor });
+  const gateUnexpanded = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'checkCollapsed', __ANCHOR: anchor });
   const pendingAfterSettle = (gateUnexpanded?.stillCollapsed || 0) + (gateUnexpanded?.stillHasMoreComments || 0);
   if (pendingAfterSettle > 0) {
     await shoot(caseDir, 'capture.png', cdp);
@@ -481,7 +481,7 @@ export async function run(code, opts = {}) {
   // extract_case.js's base64 payload now runs past evalFile's cmd.exe guard
   // (script grew with the Chatter timestamp/role work) — send it over the
   // already-open CDP WebSocket instead, which has no line-length ceiling.
-  const raw = await evalFileViaCdp(cdp, page('extract_case.js'));
+  const raw = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'extractCase' });
   if (!raw || !Array.isArray(raw.comments) || raw.comments.length === 0) {
     return { status: 'blocked', reason: 'case extraction returned no comments', timing: { landingMs: landingDurationMs } };
   }

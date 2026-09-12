@@ -6,14 +6,14 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildPayload, stripComments } from '../.claude/skills/qcomm/scripts/browser.mjs';
 
-const SCRIPT_PATH = join(dirname(fileURLToPath(import.meta.url)), '../.claude/skills/qcomm/scripts/login_fill.js');
+const SCRIPT_PATH = join(dirname(fileURLToPath(import.meta.url)), '../.claude/skills/qcomm/scripts/dom_extractor.js');
 const rawSrc = readFileSync(SCRIPT_PATH, 'utf8');
 
 test('login_fill page script', async (t) => {
   await t.test('script loads, parses, and strips comments properly', () => {
     const stripped = stripComments(rawSrc);
     assert.ok(stripped.length > 0);
-    assert.ok(!stripped.includes('// scripts/login_fill.js'));
+    assert.ok(!stripped.includes('// scripts/dom_extractor.js'));
     assert.ok(stripped.includes('classifyCurrentState'));
   });
 
@@ -96,6 +96,8 @@ test('login_fill page script', async (t) => {
         Date,
         Promise,
       };
+      mockWindow.window = mockWindow;
+      mockWindow.globalThis = mockWindow;
 
       return mockWindow;
     }
@@ -103,7 +105,7 @@ test('login_fill page script', async (t) => {
     // 1. Authenticated host
     const authContext = createMockDom({ hostname: 'support.qualcomm.com', pathname: '/s/' });
     vm.createContext(authContext);
-    const authPayload = buildPayload(rawSrc, { __PASSWORD: 'Pass' });
+    const authPayload = buildPayload(rawSrc, { __ACTION: 'loginFill', __PASSWORD: 'Pass' });
     const authResult = await vm.runInContext(authPayload, authContext);
     assert.equal(authResult.outcome, 'AUTHENTICATED');
 
@@ -113,7 +115,7 @@ test('login_fill page script', async (t) => {
       bodyText: 'Unable to sign in. Check your username and password.',
     });
     vm.createContext(rejectContext);
-    const rejectPayload = buildPayload(rawSrc, { __PASSWORD: 'Wrong' });
+    const rejectPayload = buildPayload(rawSrc, { __ACTION: 'loginFill', __PASSWORD: 'Wrong' });
     const rejectResult = await vm.runInContext(rejectPayload, rejectContext);
     assert.equal(rejectResult.outcome, 'REJECTED');
 
@@ -123,14 +125,14 @@ test('login_fill page script', async (t) => {
       bodyText: 'Enter a verification code sent to your email',
     });
     vm.createContext(otpContext);
-    const otpPayload = buildPayload(rawSrc, { __PASSWORD: 'Valid' });
+    const otpPayload = buildPayload(rawSrc, { __ACTION: 'loginFill', __PASSWORD: 'Valid' });
     const otpResult = await vm.runInContext(otpPayload, otpContext);
     assert.equal(otpResult.outcome, 'OTP_REQUIRED');
 
     // 4. Missing password argument
     const noPwContext = createMockDom({ hostname: 'account.qualcomm.com' });
     vm.createContext(noPwContext);
-    const noPwPayload = buildPayload(rawSrc, {});
+    const noPwPayload = buildPayload(rawSrc, { __ACTION: 'loginFill' });
     const noPwResult = await vm.runInContext(noPwPayload, noPwContext);
     assert.equal(noPwResult.outcome, 'UNKNOWN');
   });

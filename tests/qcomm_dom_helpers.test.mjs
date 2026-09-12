@@ -15,31 +15,32 @@ import { stripComments } from '../.claude/skills/qcomm/scripts/browser.mjs';
 
 const SCRIPT_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
-  '../.claude/skills/qcomm/scripts/dom_helpers.js',
+  '../.claude/skills/qcomm/scripts/dom_extractor.js',
 );
 const HELPERS_SRC = stripComments(readFileSync(SCRIPT_PATH, 'utf8'));
 
-// Runs the real dom_helpers.js source inside a fresh jsdom window and
-// returns its globals for the test to call directly.
+// Runs the real dom_extractor.js source inside a fresh jsdom window and
+// returns its window.__QC_DOM__ helpers for the test to call directly.
 function loadHelpers(html = '<!doctype html><html><body></body></html>') {
   const dom = new JSDOM(html, { runScripts: 'outside-only', pretendToBeVisual: true });
   dom.window.eval(HELPERS_SRC);
+  const qc = dom.window.__QC_DOM__ || {};
   return {
     window: dom.window,
     document: dom.window.document,
-    txt: dom.window.txt,
-    qsa: dom.window.qsa,
-    isVisible: dom.window.isVisible,
-    deepByText: dom.window.deepByText,
-    fire: dom.window.fire,
-    bodyOf: dom.window.bodyOf,
-    authorOf: dom.window.authorOf,
-    findAnchorIdx: dom.window.findAnchorIdx,
-    skipAsCached: dom.window.skipAsCached,
+    txt: qc.txt,
+    qsa: qc.qsa,
+    isVisible: qc.isVisible,
+    deepByText: qc.deepByText,
+    fire: qc.fire,
+    bodyOf: qc.bodyOf,
+    authorOf: qc.authorOf,
+    findAnchorIdx: qc.findAnchorIdx,
+    skipAsCached: qc.skipAsCached,
   };
 }
 
-test('dom_helpers.js', async (t) => {
+test('dom_extractor.js - shared helpers', async (t) => {
   await t.test('txt() collapses whitespace and trims', () => {
     const { document, txt } = loadHelpers('<!doctype html><body><div id="d">  hello\n  world  </div></body>');
     const el = document.getElementById('d');

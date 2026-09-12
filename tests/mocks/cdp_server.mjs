@@ -251,10 +251,10 @@ export async function createMockCdpServer(options = {}) {
       }, 1);
     } else if (method === 'Runtime.evaluate') {
       let value = null;
-      if (params?.expression?.includes('location.href')) {
-        value = 'https://support.qualcomm.com/s/case/08603854';
-      } else if (params?.expression?.includes('return 42')) {
+      if (params?.expression?.includes('return 42')) {
         value = 42;
+      } else if (params?.expression?.includes('return location.href')) {
+        value = 'https://support.qualcomm.com/s/case/08603854';
       } else {
         value = { state: 'READY' };
       }

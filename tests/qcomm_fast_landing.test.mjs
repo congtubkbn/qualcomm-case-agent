@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMockCdpServer } from './mocks/cdp_server.mjs';
 import { CdpClient } from '../.claude/skills/qcomm/scripts/cdp_client.mjs';
-import { fastLandOnCase, isStubUrl } from '../.claude/skills/qcomm/scripts/fast_landing.mjs';
+
 
 let seq = 0;
 const importFastLanding = () => import(`../.claude/skills/qcomm/scripts/fast_landing.mjs?t=${++seq}`);
@@ -10,8 +10,24 @@ const importFastLanding = () => import(`../.claude/skills/qcomm/scripts/fast_lan
 test('Fast Path Landing Engine', async (t) => {
   let server;
   let client;
+  let mockPassword = null;
+  let clearSecretCalls = 0;
+  let readPasswordCalls = 0;
+
+  t.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
+    exports: {
+      readPassword: () => {
+        readPasswordCalls++;
+        return typeof mockPassword === 'function' ? mockPassword() : mockPassword;
+      },
+      clearSecret: () => { clearSecretCalls++; },
+    },
+  });
 
   t.beforeEach(async () => {
+    mockPassword = null;
+    clearSecretCalls = 0;
+    readPasswordCalls = 0;
     server = await createMockCdpServer();
     client = await CdpClient.connect({
       host: '127.0.0.1',
@@ -24,7 +40,8 @@ test('Fast Path Landing Engine', async (t) => {
     if (server) await server.close();
   });
 
-  await t.test('isStubUrl detects generic Lightning Case stub', () => {
+  await t.test('isStubUrl detects generic Lightning Case stub', async () => {
+    const { isStubUrl } = await importFastLanding();
     assert.equal(isStubUrl('https://support.qualcomm.com/s/case/Case/Default'), true);
     assert.equal(isStubUrl('https://support.qualcomm.com/s/case/Case/Default?query=1'), true);
     assert.equal(isStubUrl('https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854'), false);
@@ -33,6 +50,7 @@ test('Fast Path Landing Engine', async (t) => {
   });
 
   await t.test('fastLandOnCase succeeds on Fast Path when cached.caseUrl is valid and state is ON_CASE', async () => {
+    const { fastLandOnCase } = await importFastLanding();
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     let navigatedUrl = null;
 
@@ -77,6 +95,7 @@ test('Fast Path Landing Engine', async (t) => {
   });
 
   await t.test('fastLandOnCase accepts cached.url if cached.caseUrl is not explicitly set', async () => {
+    const { fastLandOnCase } = await importFastLanding();
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     let navigatedUrl = null;
 
@@ -116,6 +135,7 @@ test('Fast Path Landing Engine', async (t) => {
   });
 
   await t.test('fastLandOnCase detects AUTH redirect during direct navigation', async () => {
+    const { fastLandOnCase } = await importFastLanding();
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
 
     server.setHandler((msg, ws) => {
@@ -150,6 +170,7 @@ test('Fast Path Landing Engine', async (t) => {
   });
 
   await t.test('fastLandOnCase returns STUB/NOT_FOUND if fast-path direct nav fails to land ON_CASE without cached url', async () => {
+    const { fastLandOnCase } = await importFastLanding();
     server.setHandler((msg, ws) => {
       if (msg.method === 'Runtime.evaluate') {
         return {
@@ -175,6 +196,7 @@ test('Fast Path Landing Engine', async (t) => {
   });
 
   await t.test('fastLandOnCase falls back to global search when cached URL fails to reach ON_CASE', async () => {
+    const { fastLandOnCase } = await importFastLanding();
     const cachedStubUrl = 'https://support.qualcomm.com/s/case/Case/Default';
     const realCaseUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     const searchUrl = 'https://support.qualcomm.com/s/global-search/08603854';
@@ -252,6 +274,7 @@ test('Fast Path Landing Engine', async (t) => {
   });
 
   await t.test('fastLandOnCase searches directly for new case without cached metadata', async () => {
+    const { fastLandOnCase } = await importFastLanding();
     const realCaseUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     const searchUrl = 'https://support.qualcomm.com/s/global-search/08603854';
     const navigatedUrls = [];
@@ -305,6 +328,7 @@ test('Fast Path Landing Engine', async (t) => {
   });
 
   await t.test('fastLandOnCase falls back to trusted click if search row href is stub', async () => {
+    const { fastLandOnCase } = await importFastLanding();
     const stubUrl = 'https://support.qualcomm.com/s/case/Case/Default';
     const realCaseUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     const searchUrl = 'https://support.qualcomm.com/s/global-search/08603854';
@@ -317,7 +341,7 @@ test('Fast Path Landing Engine', async (t) => {
       if (msg.method === 'Runtime.evaluate') {
         const expr = msg.params?.expression || '';
         // If calculating coords in cdp.click
-        if (expr.includes("querySelector") && expr.includes("getBoundingClientRect")) {
+        if (expr.includes('__SELECTOR')) {
           clickedSelector = "[data-cq-hit='1']";
           return {
             id: msg.id,
@@ -359,11 +383,16 @@ test('Fast Path Landing Engine', async (t) => {
       return { id: msg.id, result: {} };
     });
 
-    const result = await fastLandOnCase('08603854', {
-      cdp: client,
-      cached: null,
-    });
-
+    let result = null;
+    try {
+      result = await fastLandOnCase('08603854', {
+        cdp: client,
+        cached: null,
+      });
+    } catch (err) {
+      console.log('TEST 330 ERROR:', err);
+    }
+    console.log('TEST 330 DIAGNOSTICS:', result?.diagnostics);
     assert.equal(result.state, 'OK');
     assert.equal(result.href, realCaseUrl);
     assert.equal(result.fastPathUsed, false);
@@ -371,6 +400,7 @@ test('Fast Path Landing Engine', async (t) => {
   });
 
   await t.test('fastLandOnCase detects AUTH redirect during global search', async () => {
+    const { fastLandOnCase } = await importFastLanding();
     const searchUrl = 'https://support.qualcomm.com/s/global-search/08603854';
 
     server.setHandler((msg, ws) => {
@@ -405,6 +435,7 @@ test('Fast Path Landing Engine', async (t) => {
   });
 
   await t.test('fastLandOnCase returns NOT_FOUND when search returns NO_LINK', async () => {
+    const { fastLandOnCase } = await importFastLanding();
     server.setHandler((msg, ws) => {
       if (msg.method === 'Page.navigate') {
         return { id: msg.id, result: { frameId: 'F1' } };
@@ -435,6 +466,7 @@ test('Fast Path Landing Engine', async (t) => {
   });
 
   await t.test('fastLandOnCase recovers from context destruction retry during direct nav and lands ON_CASE', async () => {
+    const { fastLandOnCase } = await importFastLanding();
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     let evalAttempts = 0;
 
@@ -485,6 +517,7 @@ test('Fast Path Landing Engine', async (t) => {
   });
 
   await t.test('fastLandOnCase records diagnostic logs and details before falling back to global search on direct nav failure', async () => {
+    const { fastLandOnCase } = await importFastLanding();
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     const searchUrl = 'https://support.qualcomm.com/s/global-search/08603854';
     const navigatedUrls = [];
@@ -545,12 +578,7 @@ test('Fast Path Landing Engine', async (t) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     const TEST_PW = 'SuperSecretQidPass123!';
 
-    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
-      exports: {
-        readPassword: () => TEST_PW,
-        clearSecret: () => {},
-      },
-    });
+    mockPassword = TEST_PW;
 
     const { fastLandOnCase: fastLand } = await importFastLanding();
 
@@ -577,7 +605,7 @@ test('Fast Path Landing Engine', async (t) => {
           };
         }
         // 2. login_fill.js eval
-        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+        if (expr.includes('var __ACTION = "loginFill";')) {
           loginFillParams = msg.params;
           return {
             id: msg.id,
@@ -618,14 +646,8 @@ test('Fast Path Landing Engine', async (t) => {
   await t.test('autofill: secret present + REJECTED calls clearSecret, returns AUTH with reason password-rejected and no retry', async (st) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     const TEST_PW = 'WrongPassword999!';
-    let clearSecretCalls = 0;
 
-    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
-      exports: {
-        readPassword: () => TEST_PW,
-        clearSecret: () => { clearSecretCalls++; },
-      },
-    });
+    mockPassword = TEST_PW;
 
     const { fastLandOnCase: fastLand } = await importFastLanding();
 
@@ -637,7 +659,7 @@ test('Fast Path Landing Engine', async (t) => {
       }
       if (msg.method === 'Runtime.evaluate') {
         const expr = msg.params?.expression || '';
-        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+        if (expr.includes('var __ACTION = "loginFill";')) {
           fillAttempts++;
           return {
             id: msg.id,
@@ -679,12 +701,7 @@ test('Fast Path Landing Engine', async (t) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     const TEST_PW = 'TransientGlitchPw';
 
-    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
-      exports: {
-        readPassword: () => TEST_PW,
-        clearSecret: () => {},
-      },
-    });
+    mockPassword = TEST_PW;
 
     const { fastLandOnCase: fastLand } = await importFastLanding();
 
@@ -696,7 +713,7 @@ test('Fast Path Landing Engine', async (t) => {
       }
       if (msg.method === 'Runtime.evaluate') {
         const expr = msg.params?.expression || '';
-        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+        if (expr.includes('var __ACTION = "loginFill";')) {
           fillAttempts++;
           if (fillAttempts < 3) {
             return {
@@ -756,14 +773,7 @@ test('Fast Path Landing Engine', async (t) => {
 
   await t.test('autofill: UNKNOWN on all fillRetryLimit attempts falls back to generic AUTH', async (st) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
-    let clearSecretCalls = 0;
-
-    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
-      exports: {
-        readPassword: () => 'GlitchPw',
-        clearSecret: () => { clearSecretCalls++; },
-      },
-    });
+    mockPassword = 'GlitchPw';
 
     const { fastLandOnCase: fastLand } = await importFastLanding();
 
@@ -775,7 +785,7 @@ test('Fast Path Landing Engine', async (t) => {
       }
       if (msg.method === 'Runtime.evaluate') {
         const expr = msg.params?.expression || '';
-        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+        if (expr.includes('var __ACTION = "loginFill";')) {
           fillAttempts++;
           return {
             id: msg.id,
@@ -815,12 +825,7 @@ test('Fast Path Landing Engine', async (t) => {
   await t.test('autofill: readPassword() returns null -> manual behavior unchanged, no fill attempted', async (st) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
 
-    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
-      exports: {
-        readPassword: () => null,
-        clearSecret: () => {},
-      },
-    });
+    mockPassword = null;
 
     const { fastLandOnCase: fastLand } = await importFastLanding();
 
@@ -832,7 +837,7 @@ test('Fast Path Landing Engine', async (t) => {
       }
       if (msg.method === 'Runtime.evaluate') {
         const expr = msg.params?.expression || '';
-        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+        if (expr.includes('var __ACTION = "loginFill";')) {
           fillAttempted = true;
         }
         return {
@@ -860,17 +865,7 @@ test('Fast Path Landing Engine', async (t) => {
 
   await t.test('autofill: second AUTH sighting later in same invocation does not re-trigger fresh fill attempt', async (st) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
-    let readPasswordCalls = 0;
-
-    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
-      exports: {
-        readPassword: () => {
-          readPasswordCalls++;
-          return 'ValidSecret';
-        },
-        clearSecret: () => {},
-      },
-    });
+    mockPassword = () => 'ValidSecret';
 
     const { fastLandOnCase: fastLand } = await importFastLanding();
 
@@ -883,7 +878,7 @@ test('Fast Path Landing Engine', async (t) => {
       }
       if (msg.method === 'Runtime.evaluate') {
         const expr = msg.params?.expression || '';
-        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+        if (expr.includes('var __ACTION = "loginFill";')) {
           fillAttempts++;
           return {
             id: msg.id,
@@ -937,12 +932,7 @@ test('Fast Path Landing Engine', async (t) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     const LEAK_TEST_PASSWORD = 'TOP_SECRET_SUPER_SPECIAL_PASSWORD_NEVER_LOG';
 
-    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
-      exports: {
-        readPassword: () => LEAK_TEST_PASSWORD,
-        clearSecret: () => {},
-      },
-    });
+    mockPassword = LEAK_TEST_PASSWORD;
 
     const { fastLandOnCase: fastLand } = await importFastLanding();
 
@@ -952,7 +942,7 @@ test('Fast Path Landing Engine', async (t) => {
       }
       if (msg.method === 'Runtime.evaluate') {
         const expr = msg.params?.expression || '';
-        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('__PASSWORD')) {
+        if (expr.includes('var __ACTION = "loginFill";')) {
           return {
             id: msg.id,
             result: {
@@ -994,12 +984,7 @@ test('Fast Path Landing Engine', async (t) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     const TEST_PW = 'OtpValidPassword123';
 
-    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
-      exports: {
-        readPassword: () => TEST_PW,
-        clearSecret: () => {},
-      },
-    });
+    mockPassword = TEST_PW;
 
     const { fastLandOnCase: fastLand } = await importFastLanding();
 
@@ -1025,7 +1010,7 @@ test('Fast Path Landing Engine', async (t) => {
             },
           };
         }
-        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('isHostAuthenticated')) {
+        if (expr.includes('var __ACTION = "loginFill";')) {
           pollCalls++;
           if (pollCalls < 3) {
             return {
@@ -1093,12 +1078,7 @@ test('Fast Path Landing Engine', async (t) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     const TEST_PW = 'OtpValidPassword123';
 
-    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
-      exports: {
-        readPassword: () => TEST_PW,
-        clearSecret: () => {},
-      },
-    });
+    mockPassword = TEST_PW;
 
     const { fastLandOnCase: fastLand } = await importFastLanding();
 
@@ -1121,7 +1101,7 @@ test('Fast Path Landing Engine', async (t) => {
             },
           };
         }
-        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('isHostAuthenticated')) {
+        if (expr.includes('var __ACTION = "loginFill";')) {
           pollCalls++;
           return {
             id: msg.id,
@@ -1164,12 +1144,7 @@ test('Fast Path Landing Engine', async (t) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     const TEST_PW = 'OtpValidPassword123';
 
-    st.mock.module('../.claude/skills/qcomm/scripts/secret_store.mjs', {
-      exports: {
-        readPassword: () => TEST_PW,
-        clearSecret: () => {},
-      },
-    });
+    mockPassword = TEST_PW;
 
     const { fastLandOnCase: fastLand } = await importFastLanding();
 
@@ -1190,7 +1165,7 @@ test('Fast Path Landing Engine', async (t) => {
             },
           };
         }
-        if (expr.includes('login_fill') || expr.includes('classifyCurrentState') || expr.includes('isHostAuthenticated')) {
+        if (expr.includes('var __ACTION = "loginFill";')) {
           return {
             id: msg.id,
             result: {

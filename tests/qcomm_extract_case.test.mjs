@@ -5,43 +5,15 @@ import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const EXTRACT_SCRIPT = readFileSync(
-  fileURLToPath(new URL('../.claude/skills/qcomm/scripts/extract_case.js', import.meta.url)),
+const DOM_EXTRACTOR_SRC = readFileSync(
+  fileURLToPath(new URL('../.claude/skills/qcomm/scripts/dom_extractor.js', import.meta.url)),
   'utf8'
 );
 
-// txt/qsa/isVisible/deepByText/fire now come from dom_helpers.js, textually
-// prepended into every real eval payload by browser.mjs's buildPayload() —
-// mirror that here so these scripts see the same globals they get at runtime.
-const DOM_HELPERS_SRC = readFileSync(
-  fileURLToPath(new URL('../.claude/skills/qcomm/scripts/dom_helpers.js', import.meta.url)),
-  'utf8'
-);
-
-const EXPAND_SCRIPT = DOM_HELPERS_SRC + '\n' + readFileSync(
-  fileURLToPath(new URL('../.claude/skills/qcomm/scripts/expand_step.js', import.meta.url)),
-  'utf8'
-);
-
-let SWITCH_TAB_SCRIPT = '';
-try {
-  SWITCH_TAB_SCRIPT = DOM_HELPERS_SRC + '\n' + readFileSync(
-    fileURLToPath(new URL('../.claude/skills/qcomm/scripts/switch_tab.js', import.meta.url)),
-    'utf8'
-  );
-} catch {
-  // Will be populated when switch_tab.js is created
-}
-
-let CHECK_COLLAPSED_SCRIPT = '';
-try {
-  CHECK_COLLAPSED_SCRIPT = DOM_HELPERS_SRC + '\n' + readFileSync(
-    fileURLToPath(new URL('../.claude/skills/qcomm/scripts/check_collapsed.js', import.meta.url)),
-    'utf8'
-  );
-} catch {
-  // Optional
-}
+const EXTRACT_SCRIPT = `var __ACTION = 'extractCase';\n` + DOM_EXTRACTOR_SRC;
+const EXPAND_SCRIPT = `var __ACTION = 'expandStep';\n` + DOM_EXTRACTOR_SRC;
+const SWITCH_TAB_SCRIPT = `var __ACTION = 'switchTab';\n` + DOM_EXTRACTOR_SRC;
+const CHECK_COLLAPSED_SCRIPT = `var __ACTION = 'checkCollapsed';\n` + DOM_EXTRACTOR_SRC;
 
 /**
  * Creates a lightweight mock DOM node hierarchy for testing extraction and expansion scripts.

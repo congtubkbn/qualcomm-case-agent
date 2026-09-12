@@ -28,10 +28,10 @@ const BIN = process.env.AGENT_BROWSER_BIN || 'agent-browser';
 export const CDP_PORT = Number(process.env.QUALCOMM_CDP_PORT || 9773);
 const CDP_BASE = `http://127.0.0.1:${CDP_PORT}`;
 
-// Shared DOM helpers (txt, qsa, isVisible, deepByText, fire), stripped and
-// read once at module load — see dom_helpers.js for why this exists.
-const DOM_HELPERS_SRC = stripComments(
-  readFileSync(join(SKILL_ROOT, 'scripts', 'dom_helpers.js'), 'utf8'),
+// Unified DOM extractor module (window.__QC_DOM__), stripped and
+// read once at module load — see dom_extractor.js.
+const DOM_EXTRACTOR_SRC = stripComments(
+  readFileSync(join(SKILL_ROOT, 'scripts', 'dom_extractor.js'), 'utf8'),
 );
 
 let _activeCdp = null;
@@ -129,8 +129,18 @@ export function buildPayload(src, vars = {}) {
   const preamble = Object.entries(vars)
     .map(([k, v]) => `var ${k} = ${JSON.stringify(v)};`)
     .join('\n');
-  const cleanSrc = src.trim().replace(/;+$/, '');
-  return `(function(){\n${DOM_HELPERS_SRC}\n${preamble}\nreturn (${cleanSrc}\n);\n})()`;
+  const cleanSrc = stripComments(src).trim().replace(/;+$/, '');
+  let body;
+  if (/^\s*(function|\()/i.test(cleanSrc)) {
+    body = `return (${cleanSrc});`;
+  } else if (/^\s*return\b/i.test(cleanSrc)) {
+    body = cleanSrc;
+  } else if (/^\s*(var|let|const|if|for|while|switch|try|throw)\b/i.test(cleanSrc)) {
+    body = cleanSrc;
+  } else {
+    body = `return (${cleanSrc});`;
+  }
+  return `(function(){\nvar _g = typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : global);\n${preamble}\n${body}\n})()`;
 }
 
 /** Drop whole-line `//` comments and blank lines. A line whose first non-space
