@@ -214,6 +214,73 @@ describe('mergeSummary', () => {
     assert.deepEqual(result.comments[0], { id: 'c1', nextAction: 'will check and get back', subs: [] });
   });
 
+  it('legacy flat prior comments (pre-#235, no subs field) get re-nested via parentIdOf alongside newly-merged replies', () => {
+    // Pre-#235 summary.json stored comments as a flat array with no subs/parentId at
+    // all -- c2 is actually a reply to c1, but that link was never persisted.
+    const prior = {
+      caseNumber: '08633581',
+      status: 'Open',
+      summarizedCommentIds: ['c1', 'c2'],
+      comments: [
+        { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' },
+        { id: 'c2', issue: 'x follow-up', nextAction: 'wait more' },
+      ],
+      flow: 'Customer reported x; followed up.',
+      lastSummarizedAt: '2026-08-23T09:00:00.000Z',
+    };
+    const result = mergeSummary(prior, {
+      caseNumber: '08633581',
+      status: 'Pending Qualcomm',
+      newComments: [{ id: 'c3', issue: 'x follow-up 2' }],
+      // finalize() derives parentIdOf from the full case.json tree, so it covers c2
+      // (already summarized) as well as the brand-new c3.
+      parentIdOf: { c2: 'c1', c3: 'c1' },
+      flow: 'Customer reported x; followed up twice.',
+      now: '2026-08-24T09:00:00.000Z',
+    });
+    assert.deepEqual(result.comments, [
+      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait', subs: [
+        { id: 'c2', issue: 'x follow-up', nextAction: 'wait more', subs: [] },
+        { id: 'c3', issue: 'x follow-up 2', subs: [] },
+      ] },
+    ]);
+  });
+
+  it('legacy flat prior comments stored newest-batch-first get reordered to oldest-first using commentOrder from case.json', () => {
+    // Pre-#235 finalize prepended each new batch, so a real legacy summary.json's
+    // top-level array is newest-batch-first: c3 (a later, unrelated top-level batch)
+    // sits before c1/c2 even though c1 is chronologically first and c2 replies to it.
+    const prior = {
+      caseNumber: '08633581',
+      status: 'Open',
+      summarizedCommentIds: ['c1', 'c2', 'c3'],
+      comments: [
+        { id: 'c3', issue: 'unrelated later post' },
+        { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' },
+        { id: 'c2', issue: 'x follow-up', nextAction: 'wait more' },
+      ],
+      flow: 'Customer reported x; followed up; unrelated later post.',
+      lastSummarizedAt: '2026-08-23T09:00:00.000Z',
+    };
+    const result = mergeSummary(prior, {
+      caseNumber: '08633581',
+      status: 'Pending Qualcomm',
+      newComments: [],
+      parentIdOf: { c2: 'c1' },
+      // finalize() derives this from walkCommentTree(caseJson.comments) -- the true
+      // oldest-first order, independent of how legacy summary.json happened to store it.
+      commentOrder: ['c1', 'c2', 'c3'],
+      flow: 'Customer reported x; followed up; unrelated later post.',
+      now: '2026-08-24T09:00:00.000Z',
+    });
+    assert.deepEqual(result.comments, [
+      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait', subs: [
+        { id: 'c2', issue: 'x follow-up', nextAction: 'wait more', subs: [] },
+      ] },
+      { id: 'c3', issue: 'unrelated later post', subs: [] },
+    ]);
+  });
+
   it('a reply whose parent is unresolvable (not in prior tree or same batch) falls back to top-level', () => {
     const prior = {
       caseNumber: '08633581',

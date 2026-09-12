@@ -290,6 +290,65 @@ describe('finalize()', () => {
     assert.ok(c1Idx < c2Idx && c2Idx < c3Idx, 'oldest comment (c1) must render above newer ones, in hierarchical order');
   });
 
+  it('migrates a legacy flat summary.json (newest-batch-first, no subs) into a nested, oldest-first tree while merging a new reply', async (t) => {
+    mockDeps(t, { status: 'updated' });
+    // case.json (post-#233) is the source of truth for order and parentage: c1 is
+    // oldest, with replies c2 and (soon) c4 nested under it; c3 is an unrelated,
+    // later top-level post.
+    writeCaseJson('08000025', {
+      status: 'Pending Qualcomm',
+      comments: [
+        {
+          id: 'c1', timestamp: 't1', author: 'A', body: 'first', subs: [
+            { id: 'c2', timestamp: 't2', author: 'B', body: 'reply to first', subs: [] },
+            { id: 'c4', timestamp: 't4', author: 'D', body: 'another reply to first', subs: [] },
+          ],
+        },
+        { id: 'c3', timestamp: 't3', author: 'C', body: 'unrelated later post', subs: [] },
+      ],
+    });
+    // Legacy pre-#235 summary.json: flat, no subs, and stored newest-batch-first
+    // (c3's batch was finalized after c1/c2's, so old finalize() prepended it).
+    writeSummaryJson('08000025', {
+      caseNumber: '08000025',
+      status: 'Open',
+      summarizedCommentIds: ['c1', 'c2', 'c3'],
+      comments: [
+        { id: 'c3', issue: 'unrelated later post' },
+        { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' },
+        { id: 'c2', issue: 'x follow-up', nextAction: 'wait more' },
+      ],
+      flow: 'Customer reported x; followed up; unrelated later post.',
+      lastSummarizedAt: '2026-08-20T00:00:00.000Z',
+    });
+
+    const { finalize } = await importOrchestrator();
+    const result = finalize('08000025', {
+      // c4 is already in case.json's tree (captured, per mockDeps('updated')) but not
+      // yet summarized -- this is the agent-produced digest for it.
+      comments: [{ id: 'c4', issue: 'x follow-up 2' }],
+      flow: 'Customer reported x; followed up; unrelated later post; followed up again.',
+    });
+    assert.equal(result.status, 'summarized');
+
+    const written = JSON.parse(readFileSync(result.summaryPath, 'utf8'));
+    assert.deepEqual(written.comments, [
+      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait', subs: [
+        { id: 'c2', issue: 'x follow-up', nextAction: 'wait more', subs: [] },
+        { id: 'c4', issue: 'x follow-up 2', subs: [] },
+      ] },
+      { id: 'c3', issue: 'unrelated later post', subs: [] },
+    ]);
+
+    const md = readFileSync(result.mdPath, 'utf8');
+    const c1Idx = md.indexOf('### 1. c1');
+    const c2Idx = md.indexOf('### 1.1. ↳ c2');
+    const c4Idx = md.indexOf('### 1.2. ↳ c4');
+    const c3Idx = md.indexOf('### 2. c3');
+    assert.ok(c1Idx >= 0 && c2Idx >= 0 && c4Idx >= 0 && c3Idx >= 0, 'expected hierarchical numbering with reply markers, not a flat list');
+    assert.ok(c1Idx < c2Idx && c2Idx < c4Idx && c4Idx < c3Idx, 'legacy comments must render oldest-first, nested, not in their old newest-batch-first order');
+  });
+
   it('creates and synchronizes _overview.json and dashboard.html on summary finalization', async () => {
     writeCaseJson('08000022', {
       status: 'Open',
