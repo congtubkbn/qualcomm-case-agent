@@ -474,6 +474,27 @@ describe('summarize() single-step interface', () => {
     assert.equal(existsSync(tempFile), false);
   });
 
+  it('single-step summarize cleans up pre-existing legacy .summary_temp.json if present', async (t) => {
+    mockDeps(t, { status: 'created' });
+    writeCaseJson('08000043', {
+      status: 'Open',
+      comments: [{ id: 'c1', timestamp: 't1', author: 'A', body: 'first' }],
+    });
+    const tempFile = join(caseDir('08000043'), '.summary_temp.json');
+    writeFileSync(tempFile, JSON.stringify({ stale: true }));
+    assert.ok(existsSync(tempFile), 'pre-existing temp file created');
+
+    const { summarize } = await importOrchestrator();
+    const payload = {
+      comments: [{ id: 'c1', timestamp: 't1', author: 'A', issue: 'x', nextAction: 'wait' }],
+      flow: 'Customer reported x.',
+    };
+
+    const result = await summarize('08000043', payload);
+    assert.equal(result.status, 'summarized');
+    assert.equal(existsSync(tempFile), false, 'pre-existing temp file must be cleaned up');
+  });
+
   it('single-step summarize without payload returns needs-summary preparation verdict', async (t) => {
     mockDeps(t, { status: 'created' });
     writeCaseJson('08000042', {
@@ -485,6 +506,30 @@ describe('summarize() single-step interface', () => {
     const result = await summarize('08000042', null);
     assert.equal(result.status, 'needs-summary');
     assert.equal(result.deltaComments.length, 1);
+  });
+});
+
+describe('readPayloadFromArgs()', () => {
+  it('parses valid --payload json string', async () => {
+    const { readPayloadFromArgs } = await importOrchestrator();
+    const payload = await readPayloadFromArgs(['--payload', '{"flow":"ok"}']);
+    assert.deepEqual(payload, { flow: 'ok' });
+  });
+
+  it('throws descriptive error when --payload is missing value', async () => {
+    const { readPayloadFromArgs } = await importOrchestrator();
+    await assert.rejects(
+      async () => readPayloadFromArgs(['--payload']),
+      /--payload requires a JSON string argument/,
+    );
+  });
+
+  it('throws descriptive error when --input is missing file path', async () => {
+    const { readPayloadFromArgs } = await importOrchestrator();
+    await assert.rejects(
+      async () => readPayloadFromArgs(['--input']),
+      /payload file option requires a file path argument/,
+    );
   });
 });
 

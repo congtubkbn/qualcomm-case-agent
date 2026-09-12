@@ -306,11 +306,7 @@ export async function summarize(code, payload, options = {}) {
   const caseFolder = join(casesDir, code);
   const tempFile = join(caseFolder, '.summary_temp.json');
   try {
-    if (existsSync(caseFolder)) {
-      writeFileSync(tempFile, JSON.stringify(payload, null, 2));
-    }
-    const r = finalize(code, payload, options);
-    return r;
+    return finalize(code, payload, options);
   } finally {
     if (existsSync(tempFile)) {
       try {
@@ -320,14 +316,22 @@ export async function summarize(code, payload, options = {}) {
   }
 }
 
-async function readPayloadFromArgs(args) {
+export async function readPayloadFromArgs(args) {
   const payloadIdx = args.indexOf('--payload');
-  if (payloadIdx !== -1 && args[payloadIdx + 1]) {
-    return JSON.parse(args[payloadIdx + 1]);
+  if (payloadIdx !== -1) {
+    const val = args[payloadIdx + 1];
+    if (!val) {
+      throw new Error('--payload requires a JSON string argument');
+    }
+    return JSON.parse(val);
   }
   const inputIdx = args.indexOf('--input') !== -1 ? args.indexOf('--input') : args.indexOf('--payload-file');
-  if (inputIdx !== -1 && args[inputIdx + 1]) {
-    return JSON.parse(readFileSync(args[inputIdx + 1], 'utf8'));
+  if (inputIdx !== -1) {
+    const filePath = args[inputIdx + 1];
+    if (!filePath) {
+      throw new Error('payload file option requires a file path argument');
+    }
+    return JSON.parse(readFileSync(filePath, 'utf8'));
   }
   if (!process.stdin.isTTY) {
     const chunks = [];
@@ -342,39 +346,33 @@ async function readPayloadFromArgs(args) {
   return null;
 }
 
+function exitWithError(reason) {
+  process.stdout.write(JSON.stringify({ status: 'error', reason }) + '\n');
+  process.exit(1);
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [firstArg, secondArg, ...rest] = process.argv.slice(2);
   if (!firstArg) {
-    process.stdout.write(
-      JSON.stringify({
-        status: 'error',
-        reason: 'usage: run_summary.mjs [prepare|finalize|summarize] <CODE> [--payload <json> | --input <file.json>]',
-      }) + '\n',
-    );
-    process.exit(1);
+    exitWithError('usage: run_summary.mjs [prepare|finalize|summarize] <CODE> [--payload <json> | --input <file.json>]');
   }
 
   if (firstArg === 'prepare' && secondArg) {
     prepare(secondArg)
       .then((r) => process.stdout.write(JSON.stringify(r) + '\n'))
-      .catch((e) => {
-        process.stdout.write(JSON.stringify({ status: 'error', reason: e.message }) + '\n');
-        process.exit(1);
-      });
+      .catch((e) => exitWithError(e.message));
   } else if (firstArg === 'finalize' && secondArg) {
     const inputIdx = rest.indexOf('--input');
     const inputPath = inputIdx !== -1 ? rest[inputIdx + 1] : null;
     if (!inputPath) {
-      process.stdout.write(JSON.stringify({ status: 'error', reason: 'finalize requires --input <file.json>' }) + '\n');
-      process.exit(1);
+      exitWithError('finalize requires --input <file.json>');
     } else {
       try {
         const input = JSON.parse(readFileSync(inputPath, 'utf8'));
         const r = finalize(secondArg, input);
         process.stdout.write(JSON.stringify(r) + '\n');
       } catch (e) {
-        process.stdout.write(JSON.stringify({ status: 'error', reason: e.message }) + '\n');
-        process.exit(1);
+        exitWithError(e.message);
       }
     }
   } else {
@@ -391,8 +389,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         const r = await summarize(code, payload);
         process.stdout.write(JSON.stringify(r) + '\n');
       } catch (e) {
-        process.stdout.write(JSON.stringify({ status: 'error', reason: e.message }) + '\n');
-        process.exit(1);
+        exitWithError(e.message);
       }
     })();
   }
