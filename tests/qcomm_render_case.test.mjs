@@ -210,6 +210,45 @@ describe('render_case: case.md content structure', () => {
     assert.match(md, /> Second reply with logs attached\./);
   });
 
+  it('renders hierarchical numbering for legacy flat parentId comments (no subs field, pre-#233 cache)', () => {
+    const legacyFlatCase = {
+      caseNumber: '08633581',
+      title: 'Modem crash during handover',
+      status: 'Open',
+      comments: [
+        {
+          id: 'c1',
+          author: 'Alice',
+          timestamp: '2026-08-18T08:00:00.000Z',
+          body: 'Top-level post describing the handover crash.',
+          parentId: null,
+        },
+        {
+          id: 'c2',
+          author: 'Bob (Qualcomm)',
+          timestamp: '2026-08-18T09:00:00.000Z',
+          body: 'First reply asking for logs.',
+          parentId: 'c1',
+        },
+        {
+          id: 'c3',
+          author: 'Alice',
+          timestamp: '2026-08-18T10:00:00.000Z',
+          body: 'Second reply with logs attached.',
+          parentId: 'c1',
+        },
+      ],
+    };
+
+    const r = renderFixture(legacyFlatCase);
+    assert.equal(r.exit, 0);
+    const md = r.md();
+
+    assert.match(md, /### 1\. 2026-08-18T08:00:00\.000Z · Alice/);
+    assert.match(md, /### 1\.1\. ↳ 2026-08-18T09:00:00\.000Z · Bob \(Qualcomm\)/);
+    assert.match(md, /### 1\.2\. ↳ 2026-08-18T10:00:00\.000Z · Alice/);
+  });
+
   it('renders multiple top-level comment threads in oldest-first order with hierarchical numbers', () => {
     const multiThreadCase = {
       caseNumber: '08771122',
