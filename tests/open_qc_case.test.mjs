@@ -8,14 +8,14 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createMockCdpServer } from './mocks/cdp_server.mjs';
 
-// We import the functions to be implemented in scripts/open_qc_case.mjs
+// We import the functions to be implemented in .claude/skills/qcomm/scripts/open_qc_case.mjs
 const {
   parseQcUri,
   resolveTargetUrl,
   dispatchQcTarget,
   openQcCase,
   ensureCommunicationTabUrl,
-} = await import(new URL('../scripts/open_qc_case.mjs', import.meta.url));
+} = await import(new URL('../.claude/skills/qcomm/scripts/open_qc_case.mjs', import.meta.url));
 
 describe('qc:// Protocol Dispatcher (open_qc_case.mjs)', () => {
   let tempDir;

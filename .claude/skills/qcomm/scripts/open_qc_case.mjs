@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// scripts/open_qc_case.mjs
+// .claude/skills/qcomm/scripts/open_qc_case.mjs
 // Deep Module: Core URI Parser & CDP / Chrome Dispatcher for qc:// custom protocol scheme.
 // Zero external dependencies — runs directly in standard Node.js (>=22.3.0).
 

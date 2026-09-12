@@ -37,7 +37,7 @@ import { fastLandOnCase } from './fast_landing.mjs';
 import { finalize, EXIT as FINALIZE_EXIT } from './finalize_case.mjs';
 import { renderCase } from './render_case.mjs';
 import { verifyCase } from './verify_case.mjs';
-import { ensureProtocolRegistered } from '../../../../scripts/ensure_protocol.mjs';
+import { ensureProtocolRegistered } from './ensure_protocol.mjs';
 
 const SCRIPTS = fileURLToPath(new URL('.', import.meta.url));
 const PORTAL = 'https://support.qualcomm.com';

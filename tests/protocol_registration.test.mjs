@@ -10,8 +10,9 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(HERE, '..');
-const REGISTER_SCRIPT = join(PROJECT_ROOT, 'scripts', 'register_protocol.ps1');
-const UNREGISTER_SCRIPT = join(PROJECT_ROOT, 'scripts', 'unregister_protocol.ps1');
+const SKILL_SCRIPTS = join(PROJECT_ROOT, '.claude', 'skills', 'qcomm', 'scripts');
+const REGISTER_SCRIPT = join(SKILL_SCRIPTS, 'register_protocol.ps1');
+const UNREGISTER_SCRIPT = join(SKILL_SCRIPTS, 'unregister_protocol.ps1');
 const PACKAGE_JSON_PATH = join(PROJECT_ROOT, 'package.json');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -31,7 +32,7 @@ describe('Windows Registry Protocol Registration', () => {
   });
 
   describe('PowerShell Registration Scripts', () => {
-    it('scripts exist in scripts/ directory', () => {
+    it('scripts exist in .claude/skills/qcomm/scripts/ directory', () => {
       assert.ok(existsSync(REGISTER_SCRIPT), `register_protocol.ps1 must exist at ${REGISTER_SCRIPT}`);
       assert.ok(existsSync(UNREGISTER_SCRIPT), `unregister_protocol.ps1 must exist at ${UNREGISTER_SCRIPT}`);
     });
@@ -76,7 +77,7 @@ describe('Windows Registry Protocol Registration', () => {
       });
 
       it('register_protocol.ps1 handles paths with spaces properly', () => {
-        const spaceScriptPath = join(PROJECT_ROOT, 'scripts', 'open_qc_case.mjs');
+        const spaceScriptPath = join(SKILL_SCRIPTS, 'open_qc_case.mjs');
         const customNode = 'C:\\Program Files\\nodejs\\node.exe';
 
         const res = spawnSync('powershell', [

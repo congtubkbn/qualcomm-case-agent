@@ -1130,7 +1130,7 @@ export function renderProtocolModal() {
         </div>
         <div class="modal-body">
           <div class="cmd-box">
-            <code id="protocolCmdText" class="cmd-text">powershell -ExecutionPolicy Bypass -File scripts/register_protocol.ps1</code>
+            <code id="protocolCmdText" class="cmd-text">powershell -ExecutionPolicy Bypass -File .claude/skills/qcomm/scripts/register_protocol.ps1</code>
             <button id="copyProtocolCmdBtn" class="copy-cmd-btn" type="button" title="Copy PowerShell registration command">Copy Command</button>
           </div>
           <div class="cmd-box-alt">
@@ -1434,7 +1434,7 @@ export function renderClientScript() {
 
       if (copyProtocolCmdBtn) {
         copyProtocolCmdBtn.addEventListener('click', async () => {
-          const cmd = 'powershell -ExecutionPolicy Bypass -File scripts/register_protocol.ps1';
+          const cmd = 'powershell -ExecutionPolicy Bypass -File .claude/skills/qcomm/scripts/register_protocol.ps1';
           await copyTextToClipboard(cmd);
           flashCopied(copyProtocolCmdBtn, 'Copy Command');
         });

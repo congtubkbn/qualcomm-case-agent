@@ -4,7 +4,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensureProtocolRegistered } from '../../../../scripts/ensure_protocol.mjs';
+import { ensureProtocolRegistered } from './ensure_protocol.mjs';
 import {
   afterFinalize,
   applyFilter,

@@ -49,11 +49,11 @@ Running `npm run cases:dashboard` launches the standalone, offline HTML dashboar
 
 The custom URI scheme `qc://case/<case-number>` is automatically registered into the Windows user-space registry (`HKCU:\Software\Classes\qc`) without requiring Administrator privileges:
 
-1. **Auto-Install**: The `npm postinstall` lifecycle hook runs `scripts/ensure_protocol.mjs`, registering `qc://` automatically on `npm install`.
+1. **Auto-Install**: The `npm postinstall` lifecycle hook runs `.claude/skills/qcomm/scripts/ensure_protocol.mjs`, registering `qc://` automatically on `npm install`.
 2. **Self-Healing**: Dashboard builds and CLI runs check registry status and silently self-heal missing protocol associations.
 3. **Manual Control**:
-   - Register: `npm run setup:protocol` (or `powershell -ExecutionPolicy Bypass -File scripts/register_protocol.ps1`)
-   - Unregister: `npm run uninstall:protocol` (or `powershell -ExecutionPolicy Bypass -File scripts/unregister_protocol.ps1`)
+   - Register: `npm run setup:protocol` (or `powershell -ExecutionPolicy Bypass -File .claude/skills/qcomm/scripts/register_protocol.ps1`)
+   - Unregister: `npm run uninstall:protocol` (or `powershell -ExecutionPolicy Bypass -File .claude/skills/qcomm/scripts/unregister_protocol.ps1`)
    - Platform Safety: Non-Windows environments cleanly skip registration as a harmless no-op.
 
 ## Agents (Claude Code + Cline / VS Code)

@@ -1,5 +1,5 @@
 // tests/ensure_protocol.test.mjs
-// Unit and integration tests for scripts/ensure_protocol.mjs (Self-Healing Protocol Engine).
+// Unit and integration tests for .claude/skills/qcomm/scripts/ensure_protocol.mjs (Self-Healing Protocol Engine).
 
 import assert from 'node:assert/strict';
 import { describe, it, before, after } from 'node:test';
@@ -11,12 +11,13 @@ import { fileURLToPath } from 'node:url';
 import {
   isProtocolRegistered,
   ensureProtocolRegistered,
-} from '../scripts/ensure_protocol.mjs';
+} from '../.claude/skills/qcomm/scripts/ensure_protocol.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(HERE, '..');
-const ENSURE_SCRIPT = join(PROJECT_ROOT, 'scripts', 'ensure_protocol.mjs');
-const UNREGISTER_SCRIPT = join(PROJECT_ROOT, 'scripts', 'unregister_protocol.ps1');
+const SKILL_SCRIPTS = join(PROJECT_ROOT, '.claude', 'skills', 'qcomm', 'scripts');
+const ENSURE_SCRIPT = join(SKILL_SCRIPTS, 'ensure_protocol.mjs');
+const UNREGISTER_SCRIPT = join(SKILL_SCRIPTS, 'unregister_protocol.ps1');
 const PACKAGE_JSON_PATH = join(PROJECT_ROOT, 'package.json');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -105,7 +106,7 @@ describe('ensure_protocol.mjs — Core Self-Healing Protocol Engine', () => {
 
     it('handles missing registration script gracefully and returns ok: false', () => {
       cleanupTestKey();
-      const nonExistentScript = join(PROJECT_ROOT, 'scripts', 'non_existent_register_script.ps1');
+      const nonExistentScript = join(SKILL_SCRIPTS, 'non_existent_register_script.ps1');
       const result = ensureProtocolRegistered({
         keyPath: TEST_REG_KEY,
         scriptPath: nonExistentScript,
@@ -118,7 +119,7 @@ describe('ensure_protocol.mjs — Core Self-Healing Protocol Engine', () => {
       assert.match(result.error, /Registration script not found/i);
     });
 
-    it('can be run directly via CLI node scripts/ensure_protocol.mjs', () => {
+    it('can be run directly via CLI node .claude/skills/qcomm/scripts/ensure_protocol.mjs', () => {
       const res = spawnSync(process.execPath, [ENSURE_SCRIPT], {
         cwd: PROJECT_ROOT,
         encoding: 'utf8',

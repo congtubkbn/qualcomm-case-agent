@@ -228,7 +228,7 @@ describe('cases_overview_render: renderDashboardHtml', () => {
     // Modal dialog and contents — command copy/paste only, no prose sections
     assert.ok(html.includes('id="protocolModal"'));
     assert.ok(html.includes('class="modal-overlay"'));
-    assert.ok(html.includes('powershell -ExecutionPolicy Bypass -File scripts/register_protocol.ps1'));
+    assert.ok(html.includes('powershell -ExecutionPolicy Bypass -File .claude/skills/qcomm/scripts/register_protocol.ps1'));
     assert.ok(html.includes('id="copyProtocolCmdBtn"'));
     assert.ok(html.includes('id="closeModalBtn"'));
     assert.ok(html.includes('⚙️ Protocol Help'));
@@ -666,7 +666,7 @@ describe('cases_overview_render: composable template functions (#232)', () => {
   it('renderProtocolModal renders modal overlay and registration command', () => {
     const modalHtml = renderProtocolModal();
     assert.ok(modalHtml.includes('id="protocolModal"'));
-    assert.ok(modalHtml.includes('powershell -ExecutionPolicy Bypass -File scripts/register_protocol.ps1'));
+    assert.ok(modalHtml.includes('powershell -ExecutionPolicy Bypass -File .claude/skills/qcomm/scripts/register_protocol.ps1'));
     assert.ok(modalHtml.includes('npm run setup:protocol'));
   });
 

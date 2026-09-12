@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// scripts/ensure_protocol.mjs
+// .claude/skills/qcomm/scripts/ensure_protocol.mjs
 // Core Self-Healing Protocol Engine for Qualcomm Case Agent (`qc://`).
 // Zero external dependencies — runs directly in standard Node.js (>=22.3.0).
 
