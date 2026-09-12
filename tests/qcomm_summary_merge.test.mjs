@@ -6,7 +6,7 @@ import { describe, it } from 'node:test';
 import { mergeSummary } from '../.claude/skills/qcomm/scripts/run_summary.mjs';
 
 describe('mergeSummary', () => {
-  it('first-ever merge: no prior summary -> summarizedCommentIds/comments start from the new batch', () => {
+  it('first-ever merge: no prior summary -> summarizedCommentIds/comments start from the new batch, nested (subs:[])', () => {
     const result = mergeSummary(null, {
       caseNumber: '08633581',
       status: 'Open',
@@ -18,18 +18,18 @@ describe('mergeSummary', () => {
       caseNumber: '08633581',
       status: 'Open',
       summarizedCommentIds: ['c1'],
-      comments: [{ id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' }],
+      comments: [{ id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait', subs: [] }],
       flow: 'Customer reported x.',
       lastSummarizedAt: '2026-08-22T10:00:00.000Z',
     });
   });
 
-  it('update merge: no parent info -> new comments prepended (newest-first), ids unioned', () => {
+  it('update merge: no parent info -> new top-level comment appended oldest->newest, ids unioned', () => {
     const prior = {
       caseNumber: '08633581',
       status: 'Open',
       summarizedCommentIds: ['c1'],
-      comments: [{ id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' }],
+      comments: [{ id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait', subs: [] }],
       flow: 'Customer reported x.',
       lastSummarizedAt: '2026-08-22T10:00:00.000Z',
     };
@@ -42,30 +42,30 @@ describe('mergeSummary', () => {
     });
     assert.deepEqual(result.summarizedCommentIds, ['c1', 'c2']);
     assert.deepEqual(result.comments, [
-      { id: 'c2', issue: 'y', nextAction: 'escalate' },
-      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' },
+      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait', subs: [] },
+      { id: 'c2', issue: 'y', nextAction: 'escalate', subs: [] },
     ]);
     assert.equal(result.status, 'Pending Qualcomm');
     assert.equal(result.flow, 'Customer reported x; Qualcomm asked for logs.');
     assert.equal(result.lastSummarizedAt, '2026-08-23T09:00:00.000Z');
     // prior object itself must not be mutated
     assert.deepEqual(prior.summarizedCommentIds, ['c1']);
-    assert.deepEqual(prior.comments, [{ id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' }]);
+    assert.deepEqual(prior.comments, [{ id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait', subs: [] }]);
   });
 
-  it('reply to an already-summarized old post is inserted next to its parent, not prepended to the head', () => {
+  it('reply to an already-summarized old post nests into that parent\'s subs, not appended top-level', () => {
     const prior = {
       caseNumber: '08633581',
       status: 'Open',
       summarizedCommentIds: ['c1', 'c2'],
       comments: [
-        { id: 'c2', issue: 'y', nextAction: 'escalate' },
-        { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' },
+        { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait', subs: [] },
+        { id: 'c2', issue: 'y', nextAction: 'escalate', subs: [] },
       ],
       flow: 'Customer reported x; Qualcomm asked for logs.',
       lastSummarizedAt: '2026-08-23T09:00:00.000Z',
     };
-    // c3 is a reply to c1 (the older, already-summarized post) — not to c2 (the newest one).
+    // c3 is a reply to c1 (the older post) — not to c2 (the newer one).
     const result = mergeSummary(prior, {
       caseNumber: '08633581',
       status: 'Pending Qualcomm',
@@ -75,19 +75,20 @@ describe('mergeSummary', () => {
       now: '2026-08-24T09:00:00.000Z',
     });
     assert.deepEqual(result.comments, [
-      { id: 'c2', issue: 'y', nextAction: 'escalate' },
-      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' },
-      { id: 'c3', issue: 'x follow-up', nextAction: 'attach logs' },
+      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait', subs: [
+        { id: 'c3', issue: 'x follow-up', nextAction: 'attach logs', subs: [] },
+      ] },
+      { id: 'c2', issue: 'y', nextAction: 'escalate', subs: [] },
     ]);
     assert.deepEqual(result.summarizedCommentIds, ['c1', 'c2', 'c3']);
   });
 
-  it('two same-batch replies to the same already-summarized parent land newest-first, directly after it', () => {
+  it('two same-batch replies to the same already-summarized parent land oldest->newest inside its subs', () => {
     const prior = {
       caseNumber: '08633581',
       status: 'Open',
       summarizedCommentIds: ['c1'],
-      comments: [{ id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' }],
+      comments: [{ id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait', subs: [] }],
       flow: 'Customer reported x.',
       lastSummarizedAt: '2026-08-22T10:00:00.000Z',
     };
@@ -104,18 +105,19 @@ describe('mergeSummary', () => {
       now: '2026-08-23T09:00:00.000Z',
     });
     assert.deepEqual(result.comments, [
-      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' },
-      { id: 'c3', issue: 'x newer reply' },
-      { id: 'c2', issue: 'x older reply' },
+      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait', subs: [
+        { id: 'c2', issue: 'x older reply', subs: [] },
+        { id: 'c3', issue: 'x newer reply', subs: [] },
+      ] },
     ]);
   });
 
-  it('a reply to a comment that is itself new in the same batch nests under that comment, not at the head', () => {
+  it('a reply to a comment that is itself new in the same batch nests two levels deep', () => {
     const prior = {
       caseNumber: '08633581',
       status: 'Open',
       summarizedCommentIds: ['c1'],
-      comments: [{ id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' }],
+      comments: [{ id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait', subs: [] }],
       flow: 'Customer reported x.',
       lastSummarizedAt: '2026-08-22T10:00:00.000Z',
     };
@@ -132,18 +134,20 @@ describe('mergeSummary', () => {
       now: '2026-08-23T09:00:00.000Z',
     });
     assert.deepEqual(result.comments, [
-      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' },
-      { id: 'c2', issue: 'x reply' },
-      { id: 'c3', issue: 'x reply follow-up' },
+      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait', subs: [
+        { id: 'c2', issue: 'x reply', subs: [
+          { id: 'c3', issue: 'x reply follow-up', subs: [] },
+        ] },
+      ] },
     ]);
   });
 
-  it('same-batch reply whose parent is in the same delta fed in newest-first order nests under its parent, not at top level', () => {
+  it('same-batch reply whose parent is in the same delta fed newest-first still resolves into the parent\'s subs', () => {
     const prior = {
       caseNumber: '08633581',
       status: 'Open',
       summarizedCommentIds: ['c1'],
-      comments: [{ id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' }],
+      comments: [{ id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait', subs: [] }],
       flow: 'Customer reported x.',
       lastSummarizedAt: '2026-08-22T10:00:00.000Z',
     };
@@ -161,23 +165,25 @@ describe('mergeSummary', () => {
       now: '2026-08-23T09:00:00.000Z',
     });
     assert.deepEqual(result.comments, [
-      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' },
-      { id: 'c2', issue: 'x reply' },
-      { id: 'c3', issue: 'x reply follow-up' },
+      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait', subs: [
+        { id: 'c2', issue: 'x reply', subs: [
+          { id: 'c3', issue: 'x reply follow-up', subs: [] },
+        ] },
+      ] },
     ]);
   });
 
-  it('same-batch reply to a same-batch top-level comment nests under its parent, not as top-level', () => {
+  it('same-batch reply to a same-batch top-level comment nests under it, not appended top-level itself', () => {
     const prior = {
       caseNumber: '08633581',
       status: 'Open',
       summarizedCommentIds: ['c1'],
-      comments: [{ id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' }],
+      comments: [{ id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait', subs: [] }],
       flow: 'Customer reported x.',
       lastSummarizedAt: '2026-08-22T10:00:00.000Z',
     };
     // c2 is a new top-level comment (no parent); c3 replies to c2.
-    // Fed in newest-first order (c3 before c2).
+    // Fed newest-first (c3 before c2).
     const result = mergeSummary(prior, {
       caseNumber: '08633581',
       status: 'Pending Qualcomm',
@@ -190,13 +196,14 @@ describe('mergeSummary', () => {
       now: '2026-08-23T09:00:00.000Z',
     });
     assert.deepEqual(result.comments, [
-      { id: 'c2', issue: 'c2 top-level' },
-      { id: 'c3', issue: 'c2 reply' },
-      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait' },
+      { id: 'c1', issue: 'x', status: 'PASS', nextAction: 'wait', subs: [] },
+      { id: 'c2', issue: 'c2 top-level', subs: [
+        { id: 'c3', issue: 'c2 reply', subs: [] },
+      ] },
     ]);
   });
 
-  it('a comment lacking a dimension (e.g. plain acknowledgement) keeps only the fields it has', () => {
+  it('a comment lacking a dimension (e.g. plain acknowledgement) keeps only the fields it has, plus subs:[]', () => {
     const result = mergeSummary(null, {
       caseNumber: '08633581',
       status: 'Open',
@@ -204,6 +211,29 @@ describe('mergeSummary', () => {
       flow: 'Ack received.',
       now: '2026-08-22T10:00:00.000Z',
     });
-    assert.deepEqual(result.comments[0], { id: 'c1', nextAction: 'will check and get back' });
+    assert.deepEqual(result.comments[0], { id: 'c1', nextAction: 'will check and get back', subs: [] });
+  });
+
+  it('a reply whose parent is unresolvable (not in prior tree or same batch) falls back to top-level', () => {
+    const prior = {
+      caseNumber: '08633581',
+      status: 'Open',
+      summarizedCommentIds: ['c1'],
+      comments: [{ id: 'c1', issue: 'x', subs: [] }],
+      flow: 'Customer reported x.',
+      lastSummarizedAt: '2026-08-22T10:00:00.000Z',
+    };
+    const result = mergeSummary(prior, {
+      caseNumber: '08633581',
+      status: 'Pending Qualcomm',
+      newComments: [{ id: 'c9', issue: 'orphan reply' }],
+      parentIdOf: { c9: 'does-not-exist' },
+      flow: 'flow',
+      now: '2026-08-23T09:00:00.000Z',
+    });
+    assert.deepEqual(result.comments, [
+      { id: 'c1', issue: 'x', subs: [] },
+      { id: 'c9', issue: 'orphan reply', subs: [] },
+    ]);
   });
 });

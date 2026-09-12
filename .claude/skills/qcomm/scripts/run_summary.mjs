@@ -9,7 +9,9 @@
 //        line. An empty delta short-circuits before any summarization is requested.
 //   node run_summary.mjs finalize <CODE> --input <file.json>
 //     -> takes the agent-produced { comments, flow } from <file.json>, merges it into
-//        summary.json, renders summary.md (newest-first), and prints the result.
+//        summary.json (nested tree, oldest-first — mirrors case.json's shape per #233),
+//        renders summary.md (oldest-first, hierarchical numbering per #234), and prints
+//        the result.
 //
 // Only deps.mjs (captureCase) is an effect; delta/cap/merge/render below are pure.
 
@@ -21,6 +23,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { afterFinalize } from './overview_store.mjs';
 import { sortCommentsChronological } from './finalize_case.mjs';
+import { walkCommentTree } from './render_case.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -40,9 +43,14 @@ export function applyCharCapToComments(comments, cap = CHAR_CAP) {
 }
 
 // ---- delta.mjs inline ----
+// caseComments may be a nested tree (subs:[], per #233) or a flat legacy array;
+// walkCommentTree handles both and flattens to every comment at every depth, so a
+// reply the top-level filter used to miss is still checked against summarizedIds.
 export function computeDelta(caseComments, summarizedIds) {
   const seen = new Set(summarizedIds);
-  return caseComments.filter((c) => !seen.has(c.id));
+  return walkCommentTree(caseComments)
+    .map(({ comment: { subs, ...rest } }) => rest)
+    .filter((c) => !seen.has(c.id));
 }
 
 // ---- deps.mjs inline ----
@@ -60,72 +68,68 @@ export async function captureCase(code) {
   return JSON.parse(line);
 }
 
-// Places each new digest next to its parent's already-summarized entry (mirrors
-// finalize_case.mjs's orderCommentsForPresentation for case.json) instead of blindly
-// prepending the whole batch — a reply to an old post must land beside that post, not
-// at the array head. A digest with no known parent (or whose parent isn't summarized
-// yet) is genuinely new top-level content, so it keeps the old prepend/newest-first
-// placement.
+function cloneCommentTree(nodes) {
+  return (nodes || []).map((n) => ({ ...n, subs: cloneCommentTree(n.subs) }));
+}
+
+function findCommentNode(nodes, id) {
+  for (const n of nodes) {
+    if (n.id === id) return n;
+    const found = findCommentNode(n.subs || [], id);
+    if (found) return found;
+  }
+  return null;
+}
+
+// Merges new digests into the nested comment tree (subs:[], mirrors case.json's shape
+// per #233) instead of a flat array — a reply nests into its parent's `subs`, walking
+// the tree rather than splicing by index. Top-level comments and each node's subs stay
+// oldest->newest, same ordering rule as #233/#234 (case.json/case.md).
 //
-// Comments generally arrive oldest-first (prepare sorts delta chronologically),
-// but insertion is multi-pass so any reply to a same-batch parent nests correctly
-// under its parent (whether in `working` or `topLevel`) regardless of input order.
+// Comments generally arrive oldest-first (prepare sorts delta chronologically), but
+// insertion is multi-pass so any reply to a same-batch parent nests correctly under its
+// parent (already-merged or newly-inserted this batch) regardless of input order. A
+// digest whose parent never resolves (unknown id, or a cycle) is treated as new
+// top-level content.
 function insertCommentsByParent(priorComments, newComments, parentIdOf) {
-  const working = [...priorComments];
-  const topLevel = [];
+  const tree = cloneCommentTree(priorComments);
   const pending = [...newComments];
-  const newIds = new Set(newComments.map((c) => c.id));
 
   while (pending.length > 0) {
     let placedAny = false;
     for (let i = 0; i < pending.length; i++) {
       const c = pending[i];
       const parentId = parentIdOf?.[c.id];
+      const node = { ...c, subs: [] };
 
       if (parentId == null) {
-        topLevel.push(c);
+        tree.push(node);
         pending.splice(i, 1);
         placedAny = true;
         break;
       }
 
-      const workingIdx = working.findIndex((r) => r.id === parentId);
-      if (workingIdx !== -1) {
-        working.splice(workingIdx + 1, 0, c);
+      const parentNode = findCommentNode(tree, parentId);
+      if (parentNode) {
+        parentNode.subs.push(node);
         pending.splice(i, 1);
         placedAny = true;
         break;
       }
 
-      const topIdx = topLevel.findIndex((r) => r.id === parentId);
-      if (topIdx !== -1) {
-        topLevel.splice(topIdx + 1, 0, c);
-        pending.splice(i, 1);
-        placedAny = true;
-        break;
-      }
-
-      // If parent is not in newComments at all, it's an orphan reply -> treat as top-level
-      if (!newIds.has(parentId)) {
-        topLevel.push(c);
-        pending.splice(i, 1);
-        placedAny = true;
-        break;
-      }
-
-      // Parent is in newComments but not yet placed -> wait for next pass
+      // Parent not found yet (may still be pending this batch) -> wait for next pass
     }
 
     if (!placedAny) {
-      // Cycle or unresolvable -> flush remaining to topLevel
+      // Parent unresolvable (unknown id, or a cycle) -> flush remaining to top level
       for (const c of pending) {
-        topLevel.push(c);
+        tree.push({ ...c, subs: [] });
       }
       break;
     }
   }
 
-  return [...topLevel, ...working];
+  return tree;
 }
 
 // ---- merge.mjs inline ----
@@ -153,8 +157,10 @@ export function mergeSummary(prior, { caseNumber, title, url, priority, product,
 }
 
 // ---- render_summary.mjs inline ----
-function renderComment(c) {
-  const lines = [`### ${c.author ?? c.id} (${c.timestamp ?? c.id})`];
+function renderComment(c, { number, isReply } = {}) {
+  const marker = isReply ? '↳ ' : '';
+  const num = number ? `${number}. ` : '';
+  const lines = [`### ${num}${marker}${c.author ?? c.id} (${c.timestamp ?? c.id})`];
   if (c.kind) lines.push(`- Kind: ${c.kind}`);
   if (c.summary) lines.push(`- Summary: ${c.summary}`);
   if (c.impact) lines.push(`- Impact: ${c.impact}`);
@@ -195,12 +201,12 @@ function renderExecutiveBlock(executive) {
 }
 
 export function renderSummaryMd(summary) {
-  const newestFirst = summary.comments;
+  const walked = walkCommentTree(summary.comments);
   const blocks = [renderHeader(summary)];
   const executiveBlock = renderExecutiveBlock(summary.executive);
   if (executiveBlock) blocks.push(executiveBlock);
   blocks.push(['## Case Flow', '', summary.flow].join('\n'));
-  blocks.push(['## Comments (newest first)', '', newestFirst.map(renderComment).join('\n\n'), ''].join('\n'));
+  blocks.push(['## Comments (Oldest First)', '', walked.map(({ comment, number, isReply }) => renderComment(comment, { number, isReply })).join('\n\n'), ''].join('\n'));
   return blocks.join('\n\n');
 }
 
@@ -245,9 +251,9 @@ export function finalize(code, { comments: newComments, flow, executive }, optio
   const caseJson = readJson(casePath);
   const prior = readJson(summaryPath);
   const parentIdOf = Object.fromEntries(
-    (caseJson.comments ?? [])
-      .filter((c) => c.parentId != null)
-      .map((c) => [c.id, c.parentId]),
+    walkCommentTree(caseJson.comments ?? [])
+      .filter((entry) => entry.parent)
+      .map((entry) => [entry.comment.id, entry.parent.id]),
   );
   const merged = mergeSummary(prior, {
     caseNumber: caseJson.caseNumber,

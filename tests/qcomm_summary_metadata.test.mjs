@@ -179,7 +179,7 @@ describe('mergeSummary — case metadata pass-through', () => {
       caseNumber: '08633581',
       status: 'Open',
       summarizedCommentIds: ['c1'],
-      comments: [{ id: 'c1', issue: 'x' }],
+      comments: [{ id: 'c1', issue: 'x', subs: [] }],
       flow: 'flow',
       lastSummarizedAt: '2026-08-22T10:00:00.000Z',
     });

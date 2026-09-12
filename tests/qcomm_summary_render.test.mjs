@@ -9,10 +9,10 @@ const summary = {
   caseNumber: '08633581',
   status: 'Pending Qualcomm',
   summarizedCommentIds: ['c1', 'c2'],
-  // newest-first: c2 (Aug 6) is newer than c1 (Aug 5).
+  // oldest-first, matching case.json/case.md's nested-tree convention (#233/#234).
   comments: [
-    { id: 'c2', timestamp: 'Aug 6, 2026', author: 'Qualcomm Engineer', nextAction: 'will check and get back' },
-    { id: 'c1', timestamp: 'Aug 5, 2026', author: 'Luyen Kieu Ba', issue: 'RRC setup fails', status: 'FAIL', nextAction: 'wait for Qualcomm' },
+    { id: 'c1', timestamp: 'Aug 5, 2026', author: 'Luyen Kieu Ba', issue: 'RRC setup fails', status: 'FAIL', nextAction: 'wait for Qualcomm', subs: [] },
+    { id: 'c2', timestamp: 'Aug 6, 2026', author: 'Qualcomm Engineer', nextAction: 'will check and get back', subs: [] },
   ],
   flow: 'Customer reported an RRC setup failure; Qualcomm is investigating.',
   lastSummarizedAt: '2026-08-22T10:00:00.000Z',
@@ -25,13 +25,15 @@ describe('renderSummaryMd', () => {
     assert.match(md, /Pending Qualcomm/);
   });
 
-  it('renders comments newest-first (c2 before c1) without mutating the input', () => {
+  it('renders comments oldest-first (c1 before c2) with hierarchical numbering, without mutating the input', () => {
     const md = renderSummaryMd(summary);
-    const idxC2 = md.indexOf('Qualcomm Engineer');
     const idxC1 = md.indexOf('Luyen Kieu Ba');
-    assert.ok(idxC2 !== -1 && idxC1 !== -1);
-    assert.ok(idxC2 < idxC1, 'newest comment (c2) must render before older comment (c1)');
-    assert.deepEqual(summary.comments[0].id, 'c2', 'input array order must stay untouched');
+    const idxC2 = md.indexOf('Qualcomm Engineer');
+    assert.ok(idxC1 !== -1 && idxC2 !== -1);
+    assert.ok(idxC1 < idxC2, 'older comment (c1) must render before newer comment (c2)');
+    assert.match(md, /### 1\. Luyen Kieu Ba \(Aug 5, 2026\)/);
+    assert.match(md, /### 2\. Qualcomm Engineer \(Aug 6, 2026\)/);
+    assert.deepEqual(summary.comments[0].id, 'c1', 'input array order must stay untouched');
   });
 
   it('renders the case flow narrative', () => {
@@ -41,10 +43,25 @@ describe('renderSummaryMd', () => {
 
   it('omits fields a comment does not have (c2 has no issue/status) instead of forcing blanks', () => {
     const md = renderSummaryMd(summary);
-    const c2Block = md.slice(md.indexOf('Qualcomm Engineer'), md.indexOf('Luyen Kieu Ba'));
+    const c2Block = md.slice(md.indexOf('### 2. Qualcomm Engineer'));
     assert.doesNotMatch(c2Block, /Issue:/);
     assert.doesNotMatch(c2Block, /Status:/);
     assert.match(c2Block, /will check and get back/);
+  });
+
+  it('marks a nested reply with the same ↳ marker used by case.md, numbered under its parent', () => {
+    const md = renderSummaryMd({
+      caseNumber: '08642051',
+      status: 'Open',
+      comments: [
+        { id: 'c1', timestamp: 't1', author: 'A', issue: 'top', subs: [
+          { id: 'c2', timestamp: 't2', author: 'B', issue: 'reply', subs: [] },
+        ] },
+      ],
+      flow: 'flow text',
+    });
+    assert.match(md, /### 1\. A \(t1\)/);
+    assert.match(md, /### 1\.1\. ↳ B \(t2\)/);
   });
 });
 
@@ -78,7 +95,7 @@ describe('renderSummaryMd — six-field comment schema', () => {
       }],
       flow: 'flow text',
     });
-    const block = md.slice(md.indexOf('### Qualcomm Engineer'));
+    const block = md.slice(md.indexOf('### 1. Qualcomm Engineer'));
     assert.match(block, /- Kind: acknowledgment/);
     assert.match(block, /- Next action: awaiting reply/);
     assert.doesNotMatch(block, /Summary:/);
@@ -139,7 +156,7 @@ describe('renderSummaryMd — six-field comment schema', () => {
       ],
       flow: 'Customer reported an NR SA attach failure on n78; Qualcomm requested QXDM logs.',
     });
-    assert.match(md, /### OEM-Alpha \(Aug 18, 2026\)/);
+    assert.match(md, /### 1\. OEM-Alpha \(Aug 18, 2026\)/);
     assert.match(md, /- Kind: problem-statement/);
     assert.match(md, /- Summary: UE fails registration on n78 standalone cell during initial attach\./);
     assert.match(md, /- Impact: blocker/);

@@ -224,7 +224,7 @@ describe('prepare()', () => {
 });
 
 describe('finalize()', () => {
-  it('merges the agent-produced summaries into summary.json and renders summary.md newest-first', async (t) => {
+  it('merges the agent-produced summaries into summary.json and renders summary.md', async (t) => {
     mockDeps(t, { status: 'created' });
     writeCaseJson('08000020', {
       status: 'Open',
@@ -247,7 +247,7 @@ describe('finalize()', () => {
     assert.match(md, /Customer reported x\./);
   });
 
-  it('update run: reads prior summary.json off disk, preserves its comments untouched, prepends the new batch (newest-first)', async (t) => {
+  it('update run: reads prior summary.json off disk, preserves its comments untouched, appends the new batch (oldest-first, nested)', async (t) => {
     mockDeps(t, { status: 'updated' });
     writeCaseJson('08000021', {
       status: 'Pending Qualcomm',
@@ -257,14 +257,14 @@ describe('finalize()', () => {
         { id: 'c3', timestamp: 't3', author: 'C', body: 'third' },
       ],
     });
-    const priorC1 = { id: 'c1', timestamp: 't1', author: 'A', issue: 'x', status: 'FAIL' };
-    const priorC2 = { id: 'c2', timestamp: 't2', author: 'B', nextAction: 'wait for logs' };
+    const priorC1 = { id: 'c1', timestamp: 't1', author: 'A', issue: 'x', status: 'FAIL', subs: [] };
+    const priorC2 = { id: 'c2', timestamp: 't2', author: 'B', nextAction: 'wait for logs', subs: [] };
     writeSummaryJson('08000021', {
       caseNumber: '08000021',
       status: 'Open',
       summarizedCommentIds: ['c1', 'c2'],
-      // newest-first: B (t2) is newer than A (t1).
-      comments: [priorC2, priorC1],
+      // oldest-first, nested tree: A (t1) is older than B (t2), per #233's ordering rule.
+      comments: [priorC1, priorC2],
       flow: 'A reported x (FAIL); B said wait for logs.',
       lastSummarizedAt: '2026-08-20T00:00:00.000Z',
     });
@@ -277,17 +277,17 @@ describe('finalize()', () => {
 
     const written = JSON.parse(readFileSync(result.summaryPath, 'utf8'));
     assert.deepEqual(written.summarizedCommentIds, ['c1', 'c2', 'c3']);
-    assert.deepEqual(written.comments[0], { id: 'c3', timestamp: 't3', author: 'C', nextAction: 'escalate' });
+    assert.deepEqual(written.comments[0], priorC1);
     assert.deepEqual(written.comments[1], priorC2);
-    assert.deepEqual(written.comments[2], priorC1);
+    assert.deepEqual(written.comments[2], { id: 'c3', timestamp: 't3', author: 'C', nextAction: 'escalate', subs: [] });
     assert.equal(written.flow, 'A reported x (FAIL); B said wait for logs; C escalated.');
     assert.equal(written.status, 'Pending Qualcomm');
 
     const md = readFileSync(result.mdPath, 'utf8');
-    const c3Idx = md.indexOf('### C (t3)');
-    const c2Idx = md.indexOf('### B (t2)');
-    const c1Idx = md.indexOf('### A (t1)');
-    assert.ok(c3Idx < c2Idx && c2Idx < c1Idx, 'newest comment (c3) must render above older ones');
+    const c1Idx = md.indexOf('### 1. A (t1)');
+    const c2Idx = md.indexOf('### 2. B (t2)');
+    const c3Idx = md.indexOf('### 3. C (t3)');
+    assert.ok(c1Idx < c2Idx && c2Idx < c3Idx, 'oldest comment (c1) must render above newer ones, in hierarchical order');
   });
 
   it('creates and synchronizes _overview.json and dashboard.html on summary finalization', async () => {
