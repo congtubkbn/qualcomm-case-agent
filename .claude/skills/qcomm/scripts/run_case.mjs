@@ -36,12 +36,21 @@ import * as browser from './browser.mjs';
 import { BrowserError, CDP_PORT, PortConflictError } from './browser.mjs';
 import * as fastLanding from './fast_landing.mjs';
 import { CdpPortalDriver } from './cdp_portal_driver.mjs';
+import { FixturePortalDriver } from './fixture_portal_driver.mjs';
 import { finalize, EXIT as FINALIZE_EXIT } from './finalize_case.mjs';
 import { renderCase } from './render_case.mjs';
 import { verifyCase } from './verify_case.mjs';
 import { ensureProtocolRegistered } from './ensure_protocol.mjs';
 
 const PORTAL = 'https://support.qualcomm.com';
+
+// Set once at module load: the CLI process itself (not just an in-process
+// caller passing opts.driver) can then run offline against
+// FixturePortalDriver — see fixture_portal_driver.mjs and #241.
+// run_summary.mjs's captureCase() spawns this file as a child process and
+// forwards its own env, so setting this once at the top of a test also
+// covers that subprocess for free.
+const USE_FIXTURE_DRIVER = Boolean(process.env.QCOMM_FIXTURE_DIR);
 
 export const STATUS_EXIT = {
   created: 0, updated: 0, 'no-update': 0,
@@ -146,7 +155,8 @@ export async function run(code, opts = {}) {
   const merge = mode === 'update' && !!cached;
   const anchor = merge ? anchorOf(cached) : null;
 
-  const driver = opts.driver || new CdpPortalDriver({ cdp: opts.cdp, browser, fastLanding });
+  const driver = opts.driver
+    || (USE_FIXTURE_DRIVER ? new FixturePortalDriver() : new CdpPortalDriver({ cdp: opts.cdp, browser, fastLanding }));
   await driver.connect();
 
   if (!driver.isConnected()) {
@@ -436,7 +446,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
   const resolvedUsername = opts.username || QUALCOMM_USER;
   const resolvedSecretPath = opts.secretPath || SECRET_PATH;
-  if (!resolvedUsername || !existsSync(resolvedSecretPath)) {
+  // FixturePortalDriver never logs in, so offline/fixture runs (#241) have no
+  // credentials to check.
+  if (!USE_FIXTURE_DRIVER && (!resolvedUsername || !existsSync(resolvedSecretPath))) {
     const missing = [];
     if (!resolvedUsername) missing.push('Qualcomm ID (username)');
     if (!existsSync(resolvedSecretPath)) missing.push('Qualcomm ID password');
