@@ -1,0 +1,18 @@
+{
+  "caseNumber": "08000099",
+  "title": "Fixture case for offline PortalDriver replay",
+  "status": "In Progress",
+  "priority": "Medium",
+  "url": "https://support.qualcomm.com/s/case/fixture/08000099",
+  "product": "Fixture Product",
+  "description": "Synthetic case body used by fixture_portal_driver.mjs tests — not real Qualcomm case content.",
+  "contactName": "Test Contact",
+  "openedAt": "2026-01-01T00:00:00.000Z",
+  "comments": [
+    {
+      "author": "Qualcomm Engineer",
+      "body": "This is a synthetic fixture comment used to exercise the offline capture path.",
+      "timestamp": "2026-01-02T10:00:00.000Z"
+    }
+  ]
+}
