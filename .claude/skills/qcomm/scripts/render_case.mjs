@@ -6,15 +6,15 @@
 //
 //   node render_case.mjs "data/cases/08550063/case.json"
 //
-// Input shape (see SKILL.md): comments are expected newest-first, with each reply
-// grouped immediately after its parent (finalize_case.mjs's orderCommentsForPresentation —
-// supersedes PRD #105-109's strict Oldest -> Newest order). This script just formats
-// whatever order is in the JSON into clean, human-readable Markdown; it does not sort.
+// Input shape (see SKILL.md): comments are expected in chronological order (oldest first)
+// as a nested tree (subs:[] holds replies oldest-first, per PRD #105-109 / #233).
+// This script walks the nested tree and renders human-readable Markdown with hierarchical
+// numbering (1, 1.1, 1.2, 2, ...); it does not sort.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { classifyRole } from './finalize_case.mjs';
+import { classifyRole, buildNestedTree } from './finalize_case.mjs';
 
 const S = v => (v == null ? '' : String(v));
 const arr = v => (Array.isArray(v) ? v : []);
@@ -92,11 +92,51 @@ export function formatBody(body) {
   return out.join('\n');
 }
 
+/* ----------------------------- Tree Walk ----------------------------- */
+/**
+ * Walks a nested comment tree (with subs: []) and yields a flat list of comment entries
+ * decorated with hierarchical numbers (e.g. "1", "1.1", "1.2", "2", "2.1", etc.).
+ *
+ * If a visitor callback is provided, it is invoked for each comment: visitor(comment, entry).
+ * Returns an array of { comment, number, depth, isReply, parent }.
+ */
+export function walkCommentTree(comments, visitor, prefix = '', depth = 0, parent = null) {
+  if (!Array.isArray(comments)) return [];
+  // Defensive normalization: if comments contain legacy flat parentId entries without subs,
+  // nest them before walking.
+  let nodes = comments;
+  if (depth === 0 && !comments.some(c => Array.isArray(c?.subs)) && comments.some(c => c?.parentId != null)) {
+    nodes = buildNestedTree(comments);
+  }
+  const result = [];
+  for (let i = 0; i < nodes.length; i++) {
+    const c = nodes[i];
+    if (!c || typeof c !== 'object') continue;
+    const num = prefix ? `${prefix}.${i + 1}` : `${i + 1}`;
+    const entry = {
+      comment: c,
+      number: num,
+      depth,
+      isReply: depth > 0 || c.parentId != null,
+      parent,
+    };
+    result.push(entry);
+    if (typeof visitor === 'function') {
+      visitor(c, entry);
+    }
+    if (Array.isArray(c.subs) && c.subs.length > 0) {
+      result.push(...walkCommentTree(c.subs, visitor, num, depth + 1, c));
+    }
+  }
+  return result;
+}
+
 /* ----------------------------- Markdown ----------------------------- */
 export function generateMarkdown(data, stem = 'case') {
   const allComments = arr(data?.comments);
   const desc = S(data?.description).trim();
   const timelineComments = allComments.filter(c => !(desc && S(c?.body).trim() === desc));
+  const walkedComments = walkCommentTree(timelineComments);
 
   const L = [];
   L.push(`# ${S(data?.caseNumber) || stem} — ${S(data?.title) || 'Untitled case'}`);
@@ -116,7 +156,7 @@ export function generateMarkdown(data, stem = 'case') {
     ['Date Opened', data?.openedAt],
     ['Date Closed', data?.closedAt],
     ['Updated', data?.updated],
-    ['Comments', timelineComments.length],
+    ['Comments', walkedComments.length],
     ['Synced', data?.extractedAt],
   ].filter(([, v]) => S(v) !== '');
   const mdCell = v => S(v).replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
@@ -135,14 +175,13 @@ export function generateMarkdown(data, stem = 'case') {
     L.push(formatBody(desc), '');
   }
 
-  L.push('## Comments (Newest First)', '');
-  timelineComments.forEach((c, i) => {
+  L.push('## Comments (Oldest First)', '');
+  walkedComments.forEach(({ comment: c, number, isReply }) => {
     const role = c?.role || classifyRole(c?.author, c?.company, '', c?.body);
     const authorStr = S(c?.author) ? (role ? `${S(c.author)} (${role})` : S(c.author)) : (role ? `(${role})` : '');
     const head = [S(c?.timestamp), authorStr].filter(Boolean).join(' · ');
-    const isReply = c?.parentId != null;
     const marker = isReply ? '↳ ' : '';
-    L.push(`### ${i + 1}. ${marker}${head || 'Comment'}`, '');
+    L.push(`### ${number}. ${marker}${head || 'Comment'}`, '');
     if (S(c?.body)) {
       const body = formatBody(c.body);
       if (isReply) {

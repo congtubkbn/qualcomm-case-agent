@@ -311,7 +311,7 @@ describe('4. Markdown Rendering: render_case.mjs', () => {
     assert.match(md, /Initial problem statement: attach reject received from network\./);
 
     // 2. Timeline must suppress synthesized description comment and render genuine comments starting at #1
-    assert.match(md, /## Comments \(Newest First\)/);
+    assert.match(md, /## Comments \(Oldest First\)/);
     assert.match(md, /### 1\. 2026-08-12T09:00:00\.000Z · Qualcomm Support \(Qualcomm\)/);
     assert.match(md, /We are analyzing the attach reject code\./);
   });
