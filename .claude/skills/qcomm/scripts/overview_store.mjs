@@ -5,6 +5,7 @@ import { basename, join } from 'node:path';
 import { DATA_DIR } from './_paths.mjs';
 import { renderDashboardHtml } from './dashboard_renderer.mjs';
 import { acquireOverviewLock, releaseOverviewLock, withOverviewLock } from './overview_lock.mjs';
+import { countAllComments, flattenComments, sortCommentsChronological } from './finalize_case.mjs';
 
 export { acquireOverviewLock, releaseOverviewLock };
 
@@ -113,25 +114,21 @@ export function extractCaseOverview(caseDir, caseNumber = '') {
     // Comments extraction
     // comments are in nested tree shape: oldest-first top-level, each with subs:[]
     const rawComments = Array.isArray(caseJson.comments) ? caseJson.comments : [];
-    // Count all comments recursively (top-level + nested replies)
-    const countAll = cs => Array.isArray(cs)
-      ? cs.reduce((n, c) => n + 1 + countAll(c.subs), 0)
-      : 0;
-    const commentCount = countAll(rawComments) || caseJson.displayedCommentCount || 0;
+    const allComments = sortCommentsChronological(flattenComments(rawComments));
+    const commentCount = countAllComments(rawComments) || caseJson.displayedCommentCount || 0;
 
     let lastCommentAt = '';
     let lastCommentAuthor = '';
     const latestComments = [];
 
-    if (rawComments.length > 0) {
-      // case.json comments are oldest-first (see finalize_case.mjs's buildNestedTree).
-      // The last element in the top-level array is the newest top-level comment.
-      const newestComment = rawComments[rawComments.length - 1];
+    if (allComments.length > 0) {
+      // Top chronologically newest comment across top-level and nested replies
+      const newestComment = allComments[allComments.length - 1];
       lastCommentAt = newestComment.timestamp || '';
       lastCommentAuthor = newestComment.author || '';
 
-      // Extract up to 3 newest top-level comments (slice from the tail, reverse for newest-first)
-      const topRecent = rawComments.slice(-3).reverse();
+      // Extract up to 3 newest comments (slice from the tail, reverse for newest-first)
+      const topRecent = allComments.slice(-3).reverse();
       for (const c of topRecent) {
         latestComments.push({
           id: c.id || '',

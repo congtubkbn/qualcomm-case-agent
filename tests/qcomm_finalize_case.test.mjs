@@ -157,6 +157,22 @@ describe('genuineCommentCount', () => {
   });
 });
 
+describe('countAllComments', () => {
+  it('counts comments recursively through subs', () => {
+    const comments = [
+      { id: '1', subs: [{ id: '1a', subs: [] }, { id: '1b', subs: [] }] },
+      { id: '2', subs: [] },
+    ];
+    assert.equal(m.countAllComments(comments), 4);
+  });
+
+  it('returns 0 for non-array or empty input', () => {
+    assert.equal(m.countAllComments([]), 0);
+    assert.equal(m.countAllComments(null), 0);
+    assert.equal(m.countAllComments(undefined), 0);
+  });
+});
+
 describe('parseHeaderFlags', () => {
   it('honours only the header keys, ignoring anything else on the line', () => {
     assert.deepEqual(
@@ -1081,8 +1097,12 @@ describe('finalize (child process)', () => {
           { author: 'Alice', body: 'Reply 1c', timestamp: '2026-08-10T13:00:00Z', parentIndex: 0 },
         ],
       };
-      const { exit } = runFinalize(root, rawThread);
+      const { exit, verdict } = runFinalize(root, rawThread);
       assert.equal(exit, m.EXIT.OK);
+      assert.equal(verdict.commentCount, 4);
+
+      const index = JSON.parse(readFileSync(join(root, 'data', 'cases', '_index.json'), 'utf8'));
+      assert.equal(index['08603854'].commentCount, 4);
 
       const saved = JSON.parse(readFileSync(casePath(root), 'utf8'));
       // One top-level comment with 3 replies in subs

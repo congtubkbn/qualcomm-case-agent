@@ -199,13 +199,6 @@ export function migrateIds(cached) {
   // nested shape at the end via buildNestedTree.
   const before = flattenComments(cached.comments || []);
   const { comments } = assignIds(before);
-  const remap = new Map();
-  before.forEach((c, i) => { if (c.id !== comments[i].id) remap.set(c.id, comments[i].id); });
-  if (!remap.size && !('enrichment' in cached) && !before.some(c => c.subs !== undefined)) {
-    // Already on content ids, no enrichment, was already flat — no-op.
-    // (We skip the "return cached" shortcut here because we always want the
-    // flat form returned so callers don't have to special-case.)
-  }
   const { enrichment, ...rest } = cached;
   return { ...rest, comments };
 }
@@ -370,16 +363,19 @@ export function hasDescriptionComment(comments, description) {
   return comments.some(c => c && typeof c.body === 'string' && c.body.trim() === target);
 }
 
+// Count all comments recursively through nested subs.
+export function countAllComments(comments) {
+  if (!Array.isArray(comments)) return 0;
+  return comments.reduce((n, c) => n + 1 + countAllComments(c?.subs), 0);
+}
+
 // The synthesized description comment is a presentation convenience derived
 // from the Case's description field, not a captured Chatter feed item — the
 // completeness gate must compare against genuine portal comments only.
 // Counts recursively through subs so nested replies are included (the portal's
 // displayedCommentCount counts every Chatter post regardless of reply nesting).
 export function genuineCommentCount(comments, description) {
-  const countAll = cs => Array.isArray(cs)
-    ? cs.reduce((n, c) => n + 1 + countAll(c.subs), 0)
-    : 0;
-  const total = countAll(comments);
+  const total = countAllComments(comments);
   const topLevel = Array.isArray(comments) ? comments : [];
   return hasDescriptionComment(topLevel, description) ? total - 1 : total;
 }
@@ -975,7 +971,7 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
   }
   index[caseCode] = {
     syncedAt: out.extractedAt,
-    commentCount: out.comments.length,
+    commentCount: countAllComments(out.comments),
     hash: out.hash,
   };
   writeFileSync(indexPath, JSON.stringify(index, null, 2), 'utf8');
@@ -1003,7 +999,7 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
   return {
     code: EXIT.OK,
     caseCode,
-    commentCount: out.comments.length,
+    commentCount: countAllComments(out.comments),
     hash: out.hash,
     path: outPath,
     ...mergeVerdict,

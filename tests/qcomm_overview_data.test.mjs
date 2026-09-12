@@ -129,6 +129,56 @@ describe('cases_overview: extractCaseOverview', () => {
     rmSync(casesDir, { recursive: true, force: true });
   });
 
+  it('extracts newestComment and latestComments including replies in subs', () => {
+    const casesDir = createTempCasesDir();
+    const caseDir = join(casesDir, '08603856');
+    mkdirSync(caseDir, { recursive: true });
+
+    const caseData = {
+      caseNumber: '08603856',
+      title: 'Case with reply in subs',
+      status: 'Open',
+      priority: '2 - High',
+      comments: [
+        {
+          id: 'c1',
+          author: 'Alice',
+          timestamp: 'July 20, 2026 at 10:00 AM',
+          body: 'First post',
+          subs: [
+            {
+              id: 'c1_reply',
+              author: 'Bob',
+              timestamp: 'July 25, 2026 at 09:00 AM',
+              body: 'Latest reply to first post',
+              subs: [],
+            },
+          ],
+        },
+        {
+          id: 'c2',
+          author: 'Charlie',
+          timestamp: 'July 21, 2026 at 10:00 AM',
+          body: 'Second post',
+          subs: [],
+        },
+      ],
+    };
+
+    writeFileSync(join(caseDir, 'case.json'), JSON.stringify(caseData, null, 2), 'utf8');
+
+    const result = extractCaseOverview(caseDir, '08603856');
+    assert.ok(result);
+    assert.equal(result.commentCount, 3);
+    assert.equal(result.lastCommentAt, 'July 25, 2026 at 09:00 AM');
+    assert.equal(result.lastCommentAuthor, 'Bob');
+    assert.equal(result.latestComments[0].id, 'c1_reply');
+    assert.equal(result.latestComments[0].author, 'Bob');
+    assert.equal(result.latestComments[0].snippet, 'Latest reply to first post');
+
+    rmSync(casesDir, { recursive: true, force: true });
+  });
+
   it('propagates ballInCourt from summary.json executive into the overview record (#201)', () => {
     const casesDir = createTempCasesDir();
     const caseDir = join(casesDir, '08603855');
