@@ -72,3 +72,19 @@ if (!resolvedUser && existsSync(USER_PATH)) {
   } catch {}
 }
 export const QUALCOMM_USER = resolvedUser;
+
+// `node _paths.mjs --json` prints the resolved paths as one JSON line. This is
+// the seam _paths.ps1 shells out to, instead of re-implementing the walk-up /
+// git-worktree-pointer resolution above in PowerShell (the two used to drift
+// out of sync by hand).
+if (process.argv[1] === fileURLToPath(import.meta.url) && process.argv.includes('--json')) {
+  process.stdout.write(JSON.stringify({
+    skillRoot: SKILL_ROOT,
+    projectRoot: PROJECT_ROOT,
+    dataDir: DATA_DIR,
+    secretPath: SECRET_PATH,
+    profileDir: PROFILE_DIR,
+    userPath: USER_PATH,
+    user: QUALCOMM_USER,
+  }));
+}
