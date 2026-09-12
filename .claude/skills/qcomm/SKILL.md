@@ -111,23 +111,19 @@ Parse the stdout JSON line and branch strictly on `status`:
 }
 ```
 
-4. **Write Payload**: Save the synthesized batch to `data/cases/<CODE>/.summary_temp.json`:
-```json
-{
-  "comments": [...],
-  "flow": "...",
-  "executive": { ... }
-}
-```
+4. **Write Payload & Finalize**:
+Save/pass the synthesized batch directly via single-step CLI parameter (`--payload '<json>'` or `--input <file.json>`) or standard input stream. Alternatively, save to `data/cases/<CODE>/.summary_temp.json` for legacy two-phase finalization.
 
-*Completion Criterion:* Intermediate file `data/cases/<CODE>/.summary_temp.json` written containing digests for all `deltaComments` and updated `flow`.
+*Completion Criterion:* Digests synthesized for all `deltaComments` and updated `flow`.
 
 ### Step 3 — Finalize & Persist
-Run the finalize CLI:
+Run single-step summarization CLI (recommended):
 ```bash
-node .claude/skills/qcomm/scripts/run_summary.mjs finalize <CODE> --input data/cases/<CODE>/.summary_temp.json
+node .claude/skills/qcomm/scripts/run_summary.mjs <CODE> --payload '{"comments":[...],"flow":"...","executive":{...}}'
 ```
-Script merges new summaries with historical records, updates `summary.json`, renders `summary.md`, and refreshes the overview index.
+*(Or legacy two-phase finalization: `node .claude/skills/qcomm/scripts/run_summary.mjs finalize <CODE> --input data/cases/<CODE>/.summary_temp.json`)*
+
+Script internalizes `.summary_temp.json` state management and cleanup, merges new summaries with historical records, updates `summary.json`, renders `summary.md`, and refreshes the overview index.
 
 *Completion Criterion:* Process exits 0 with `{ status: "summarized", summaryPath, mdPath, newCount }`.
 

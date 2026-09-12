@@ -427,3 +427,64 @@ describe('finalize()', () => {
     assert.match(warnings, /Warning: overview auto-sync failed \(boom: simulated sync failure\)/);
   });
 });
+
+describe('summarize() single-step interface', () => {
+  it('single-step summarize with payload creates summary and cleans up .summary_temp.json', async (t) => {
+    mockDeps(t, { status: 'created' });
+    writeCaseJson('08000040', {
+      status: 'Open',
+      comments: [{ id: 'c1', timestamp: 't1', author: 'A', body: 'first' }],
+    });
+
+    const { summarize } = await importOrchestrator();
+    const payload = {
+      comments: [{ id: 'c1', timestamp: 't1', author: 'A', issue: 'x', nextAction: 'wait' }],
+      flow: 'Customer reported x.',
+    };
+
+    const result = await summarize('08000040', payload);
+    assert.equal(result.status, 'summarized');
+    assert.ok(existsSync(result.summaryPath));
+    assert.ok(existsSync(result.mdPath));
+
+    const tempFile = join(caseDir('08000040'), '.summary_temp.json');
+    assert.equal(existsSync(tempFile), false, '.summary_temp.json must be cleaned up after summarization');
+  });
+
+  it('single-step summarize on up-to-date case returns no-delta and leaves no temp file', async (t) => {
+    mockDeps(t, { status: 'no-update' });
+    writeCaseJson('08000041', {
+      status: 'Closed',
+      comments: [{ id: 'c1', timestamp: 't1', author: 'A', body: 'first' }],
+    });
+    writeSummaryJson('08000041', {
+      caseNumber: '08000041',
+      status: 'Closed',
+      summarizedCommentIds: ['c1'],
+      comments: [{ id: 'c1', issue: 'x' }],
+      flow: 'Done.',
+      lastSummarizedAt: '2026-08-20T00:00:00.000Z',
+    });
+
+    const { summarize } = await importOrchestrator();
+    const result = await summarize('08000041', { comments: [], flow: 'Done.' });
+    assert.equal(result.status, 'no-delta');
+
+    const tempFile = join(caseDir('08000041'), '.summary_temp.json');
+    assert.equal(existsSync(tempFile), false);
+  });
+
+  it('single-step summarize without payload returns needs-summary preparation verdict', async (t) => {
+    mockDeps(t, { status: 'created' });
+    writeCaseJson('08000042', {
+      status: 'Open',
+      comments: [{ id: 'c1', timestamp: 't1', author: 'A', body: 'first' }],
+    });
+
+    const { summarize } = await importOrchestrator();
+    const result = await summarize('08000042', null);
+    assert.equal(result.status, 'needs-summary');
+    assert.equal(result.deltaComments.length, 1);
+  });
+});
+

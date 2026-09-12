@@ -15,7 +15,7 @@
 //
 // Only deps.mjs (captureCase) is an effect; delta/cap/merge/render below are pure.
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
@@ -294,16 +294,74 @@ export function finalize(code, { comments: newComments, flow, executive }, optio
   return { status: 'summarized', summaryPath, mdPath, newCount: newComments.length };
 }
 
+export async function summarize(code, payload, options = {}) {
+  const prep = await prepare(code);
+  if (prep.status !== 'needs-summary') {
+    return prep;
+  }
+  if (!payload) {
+    return prep;
+  }
+  const casesDir = options.casesDir || DATA_DIR;
+  const caseFolder = join(casesDir, code);
+  const tempFile = join(caseFolder, '.summary_temp.json');
+  try {
+    if (existsSync(caseFolder)) {
+      writeFileSync(tempFile, JSON.stringify(payload, null, 2));
+    }
+    const r = finalize(code, payload, options);
+    return r;
+  } finally {
+    if (existsSync(tempFile)) {
+      try {
+        unlinkSync(tempFile);
+      } catch {}
+    }
+  }
+}
+
+async function readPayloadFromArgs(args) {
+  const payloadIdx = args.indexOf('--payload');
+  if (payloadIdx !== -1 && args[payloadIdx + 1]) {
+    return JSON.parse(args[payloadIdx + 1]);
+  }
+  const inputIdx = args.indexOf('--input') !== -1 ? args.indexOf('--input') : args.indexOf('--payload-file');
+  if (inputIdx !== -1 && args[inputIdx + 1]) {
+    return JSON.parse(readFileSync(args[inputIdx + 1], 'utf8'));
+  }
+  if (!process.stdin.isTTY) {
+    const chunks = [];
+    for await (const chunk of process.stdin) {
+      chunks.push(chunk);
+    }
+    const content = Buffer.concat(chunks).toString('utf8').trim();
+    if (content) {
+      return JSON.parse(content);
+    }
+  }
+  return null;
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const [step, code, ...rest] = process.argv.slice(2);
-  if (step === 'prepare' && code) {
-    prepare(code)
+  const [firstArg, secondArg, ...rest] = process.argv.slice(2);
+  if (!firstArg) {
+    process.stdout.write(
+      JSON.stringify({
+        status: 'error',
+        reason: 'usage: run_summary.mjs [prepare|finalize|summarize] <CODE> [--payload <json> | --input <file.json>]',
+      }) + '\n',
+    );
+    process.exit(1);
+  }
+
+  if (firstArg === 'prepare' && secondArg) {
+    prepare(secondArg)
       .then((r) => process.stdout.write(JSON.stringify(r) + '\n'))
       .catch((e) => {
         process.stdout.write(JSON.stringify({ status: 'error', reason: e.message }) + '\n');
         process.exit(1);
       });
-  } else if (step === 'finalize' && code) {
+  } else if (firstArg === 'finalize' && secondArg) {
     const inputIdx = rest.indexOf('--input');
     const inputPath = inputIdx !== -1 ? rest[inputIdx + 1] : null;
     if (!inputPath) {
@@ -312,7 +370,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     } else {
       try {
         const input = JSON.parse(readFileSync(inputPath, 'utf8'));
-        const r = finalize(code, input);
+        const r = finalize(secondArg, input);
         process.stdout.write(JSON.stringify(r) + '\n');
       } catch (e) {
         process.stdout.write(JSON.stringify({ status: 'error', reason: e.message }) + '\n');
@@ -320,7 +378,23 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       }
     }
   } else {
-    process.stdout.write(JSON.stringify({ status: 'error', reason: 'usage: run_summary.mjs prepare|finalize <CODE> [--input <file.json>]' }) + '\n');
-    process.exit(1);
+    let code = firstArg;
+    let remainingArgs = [secondArg, ...rest].filter(Boolean);
+    if (firstArg === 'summarize' && secondArg) {
+      code = secondArg;
+      remainingArgs = rest;
+    }
+
+    (async () => {
+      try {
+        const payload = await readPayloadFromArgs(remainingArgs);
+        const r = await summarize(code, payload);
+        process.stdout.write(JSON.stringify(r) + '\n');
+      } catch (e) {
+        process.stdout.write(JSON.stringify({ status: 'error', reason: e.message }) + '\n');
+        process.exit(1);
+      }
+    })();
   }
 }
+
