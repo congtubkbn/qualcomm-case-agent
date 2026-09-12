@@ -1,6 +1,6 @@
 ---
 name: qcomm
-description: "Fetch/sync live Qualcomm support cases by 8-digit code, summarize technical comments and narrative, or inspect cached cases and open the case dashboard. Trigger on 'capture case <CODE>', 'fetch case <CODE>', 'sync case <CODE>', 'summarize case <CODE>', 'case summary <CODE>', or when asked to list, view, filter cases, or open the dashboard."
+description: "Fetch/sync live Qualcomm support cases by 8-digit code, summarize technical comments and narrative, delete a case's local cache, or inspect cached cases and open the case dashboard. Trigger on 'capture case <CODE>', 'fetch case <CODE>', 'sync case <CODE>', 'summarize case <CODE>', 'case summary <CODE>', 'delete case <CODE>', 'remove case <CODE> from cache', or when asked to list, view, filter cases, or open the dashboard."
 ---
 
 # Qualcomm Case Management (qcomm)
@@ -77,7 +77,7 @@ Parse the stdout JSON line and branch strictly on `status`:
 |---|---|---|
 | `needs-summary` | Unsummarized comments present (`deltaComments`, `priorFlow`, `caseStatus`) | Proceed to **Step 2** |
 | `no-delta` | Case unchanged since last summary | Output verbatim `caseStatus` and summary from verdict payload; STOP |
-| `auth-required` / `not-found` / `blocked` / `busy` / `error` | Upstream capture incomplete | Report capture verdict guidance directly to user; STOP |
+| `auth-required` / `otp-timeout` / `not-found` / `blocked` / `busy` / `port-conflict` / `error` | Upstream capture incomplete (verbatim passthrough of the underlying `run_case.mjs` verdict — see the Fetch/Sync table above for what each means) | Report capture verdict guidance directly to user; STOP |
 
 *Completion Criterion:* Exactly one branch executed: stopped with message from verdict, or proceed to Step 2 with `deltaComments`.
 
@@ -144,6 +144,40 @@ Report concise case highlights directly to the user:
 *(Note: Convert backslashes `\` in `mdPath` and `summaryPath` from the CLI verdict to forward slashes `/` to form valid clickable `file:///` URLs on any OS).*
 
 *Completion Criterion:* Report rendered containing case status, flow highlights, and clickable links derived directly from the verdict payload.
+
+---
+
+## Delete a Case's Local Cache
+
+Permanently removes one case's cached directory (`data/cases/<CODE>/`), its `_index.json` entry,
+and resyncs the overview/dashboard. There is no undo — the next capture starts from scratch.
+
+### Step 1 — Confirm With User
+Extract the 8-digit case code from input (strip optional `CASE-` prefix).
+- Missing or non-8-digit code: Ask user for the 8-digit case code, then stop.
+
+**Ask the user to confirm the deletion by case code before running anything** (per [ADR
+0003](../../../docs/adr/0003-case-delete-is-cli-only-confirmed-in-chat.md): every delete is
+agent-mediated so a confirmation step can never be skipped). Do not run Step 2 on an unconfirmed
+request, even if the user's phrasing already sounds decisive (e.g. a dashboard-copied instruction).
+
+*Completion Criterion:* User has explicitly confirmed the specific case code to delete, or
+execution stopped.
+
+### Step 2 — Run Delete CLI
+```bash
+node .claude/skills/qcomm/scripts/delete_case.mjs <CODE> --yes
+```
+
+| `status` | Condition | Action |
+|---|---|---|
+| `deleted` | Cache removed (or already absent everywhere) | Report success |
+| `not-found` | No local cache existed for this code | Report there was nothing to delete |
+| `busy` | Locked by another capture | Wait 30s, retry once; if still busy report to user |
+| `error` | Bad code, or `--yes` missing | Report `reason` from verdict |
+
+*Completion Criterion:* Process exits with a valid single-line JSON verdict, and the corresponding
+branch above is executed.
 
 ---
 
