@@ -1,10 +1,21 @@
 # Case Detail Schema + Threaded Comments
 
-> **Partially superseded 2026-08-27** (case 08516422 review): §3's "Variant A" — strict
-> Oldest → Newest, no renumbering by thread — is no longer what's persisted. `case.json`/`case.md`
-> now order comments newest-first with each Reply grouped immediately after its parent
-> (`scrape_case.mjs`'s `orderCommentsForPresentation`). See ADR 0002's addendum. §1/§2 (field
-> schema, `parentId` derivation) are unaffected and still current.
+> **Superseded again 2026-09** (#233/#234/#235, closed out by #236): the 2026-08-27 newest-first
+> decision below is reverted. `case.json`'s `comments` are a nested tree — each Comment carries
+> `subs: []` holding its replies — not a flat array with a `parentId` field; `parentId` is resolved
+> during merge and stripped before persistence (`finalize_case.mjs`'s `buildNestedTree()`). Both
+> `case.json` and `case.md` (and, since #235, `summary.json`/`summary.md`) order oldest-first at
+> every level — top-level Comments oldest→newest, and each Comment's `subs` oldest→newest — restoring
+> §3's original "Variant A" ordering call, now expressed via tree nesting instead of a flat
+> renumbering rule. `render_case.mjs`'s `walkCommentTree()` walks the tree and assigns hierarchical
+> numbers (`1`, `1.1`, `1.2`, `2`, …) instead of the strict flat `1..N` this doc originally specified.
+> See `docs/issues/02-comment-threading.md`'s own superseded note for the shipped shape. §1 (field
+> schema) is unaffected and still current.
+>
+> **Partially superseded 2026-08-27** (case 08516422 review, now itself superseded above): §3's
+> "Variant A" — strict Oldest → Newest, no renumbering by thread — was briefly not what got
+> persisted. `case.json`/`case.md` ordered comments newest-first with each Reply grouped immediately
+> after its parent (`scrape_case.mjs`'s `orderCommentsForPresentation`). See ADR 0002's addendum.
 
 ## Problem Statement
 

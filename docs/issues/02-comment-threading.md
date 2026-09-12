@@ -5,10 +5,22 @@ Blocked by: []
 Type: Tracer Bullet
 ---
 
+> **Superseded 2026-09 (#233/#234/#235, closed out by #236).** The shipped shape is a nested
+> `subs: []` tree, not a flat `parentId` field: each top-level Comment carries `subs: []` holding
+> its replies (oldest→newest; Chatter has no reply-to-reply, so `subs` is single-level and each
+> reply's own `subs` is always `[]`). `parentId` is a transient merge-time field only —
+> `finalize_case.mjs`'s `buildNestedTree()` resolves it into tree position and then strips it, so it
+> never appears in persisted `case.json`. `depth` is still not persisted; a reader derives it from
+> tree position (`0` for a top-level Comment, `1` for anything inside a `subs` array). Both
+> `case.json` and `case.md` order oldest-first at every level — this also supersedes ADR 0002's
+> newest-first presentation decision (see `docs/prd/case-detail-and-threaded-comments.md`'s own
+> superseded note). The `parentId`-based description below is the original (unbuilt) design; read it
+> for the DOM-derivation algorithm, which is still accurate, not for the final persisted shape.
+
 ## Parent
 Part of #105 — spec: `docs/prd/case-detail-and-threaded-comments.md`
 
-## What to build
+## What to build (original design — superseded, see note above)
 Add `parentId: string | null` to each Comment in `case.json`'s `comments` array — `null` for a
 top-level Post, the parent Post's content-hash `id` for a Reply. No `depth` field is persisted (it's
 always derivable as `parentId ? 1 : 0`). Algorithm and id-timing constraint per #106.

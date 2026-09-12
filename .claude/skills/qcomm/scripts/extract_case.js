@@ -385,7 +385,12 @@
 
     const timestamp = extractTimestamp(a, named, author);
     const attachments = extractAttachments(a);
-    const isReply = a.classList.contains('cuf-comment') || Boolean(a.closest && a.closest('ul.cuf-replies, .cuf-replies, li.cuf-reply'));
+    // 'cuf-comment'/'ul.cuf-replies'/'li.cuf-reply' are Salesforce Classic
+    // Chatter markup; the live Lightning DOM instead marks a reply's own
+    // <article> as 'cuf-commentItem' and wraps it in 'li.cuf-commentLi' with
+    // no distinguishing wrapper class on its <ul> — check both DOM shapes.
+    const isReply = a.classList.contains('cuf-comment') || a.classList.contains('cuf-commentItem')
+      || Boolean(a.closest && a.closest('ul.cuf-replies, .cuf-replies, li.cuf-reply, li.cuf-commentLi'));
 
     // Secondary ordering signal for comments whose parsed timestamps tie (e.g.
     // two posts both "15 days ago"): the article's on-page vertical position,

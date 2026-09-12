@@ -1481,6 +1481,50 @@ test('extract_case.js deep Shadow DOM metadata and Description extraction', asyn
       assert.equal(result.comments[1].isReply, true);
     });
 
+    await st.test('fixture 3b: real Lightning DOM reply markup, no cuf-replies/cuf-reply wrapper (Case 08687727)', () => {
+      const doc = createMockDocument();
+      doc.title = 'Case: 08687727 - Request test SBA CR 4665890';
+
+      // Top-level post: real markup is `article.cuf-feedElement.cuf-feedItem`,
+      // not the `cuf-comment`/`cuf-reply`/`ul.cuf-replies` classes the DOM-walk
+      // reply detector originally assumed.
+      const topArticle = createMockElement('article', { className: 'cuf-feedElement cuf-feedItem', id: 'post_01' });
+      const topAuthor = createMockElement('a', { className: 'cuf-actorName' }, 'Luyen Kieu Ba');
+      const topTs = createMockElement('a', { className: 'cuf-timestamp' }, 'September 3, 2026 at 8:36 PM');
+      const topBody = createMockElement('div', { className: 'feedBodyInner' }, 'Top-level post content');
+      topArticle.appendChild(topAuthor);
+      topArticle.appendChild(topTs);
+      topArticle.appendChild(topBody);
+      doc.body.appendChild(topArticle);
+
+      // Reply: real markup nests `article.cuf-commentItem...forceChatterComment`
+      // inside `div.forceChatterThreadedComment` inside `li.cuf-commentLi`
+      // inside a plain, unclassed `<ul>` — no `cuf-replies`/`cuf-reply` anywhere.
+      const repliesUl = createMockElement('ul', {});
+      const replyLi = createMockElement('li', { className: 'cuf-commentLi  published' });
+      const replyWrap = createMockElement('div', { className: 'forceChatterThreadedComment' });
+      const replyArticle = createMockElement('article', {
+        className: 'cuf-commentItem slds-comment slds-media comment--threadedCommunity forceChatterComment',
+        id: 'reply_01',
+      });
+      const replyAuthor = createMockElement('a', { className: 'cuf-actorName' }, 'Prabhat (Prabhat Kumar) Kumar');
+      const replyTs = createMockElement('a', { className: 'cuf-timestamp' }, '8 days ago');
+      const replyBody = createMockElement('div', { className: 'feedBodyInner' }, 'I will create ST and share the SBA soon.');
+      replyArticle.appendChild(replyAuthor);
+      replyArticle.appendChild(replyTs);
+      replyArticle.appendChild(replyBody);
+      replyWrap.appendChild(replyArticle);
+      replyLi.appendChild(replyWrap);
+      repliesUl.appendChild(replyLi);
+      doc.body.appendChild(repliesUl);
+
+      const result = runInMockContext(EXTRACT_SCRIPT, { doc });
+      assert.equal(result.comments.length, 2);
+      assert.equal(result.comments[0].isReply, false);
+      assert.equal(result.comments[1].isReply, true);
+      assert.equal(result.comments[1].parentIndex, 0);
+    });
+
     await st.test('fixture 4: comment attachment card with download URL and display name (Case 08642051)', () => {
       const doc = createMockDocument();
       doc.title = 'Case: 08642051 - [SIDIA Ecall Test]';

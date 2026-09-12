@@ -1,7 +1,7 @@
 # 0002. Add case-summary as a separate skill instead of reopening ADR 0001
 
 Date: 2026-08-22
-Status: Accepted, partially superseded 2026-08-27 (see Addendum)
+Status: Accepted, partially superseded 2026-08-27 and 2026-09 (see Addenda)
 
 ADR 0001 dropped all model-in-the-loop analysis from `qualcomm-case-agent`'s capture pipeline. A
 later need arose — Case Status visibility, per-comment Comment Summaries, and a Case Flow narrative
@@ -51,3 +51,12 @@ Consequence: the "two independently-evolving orderings" problem above is gone �
 (via `qualcomm-case-summary`'s `merge.mjs`/`render_summary.mjs`) now simply mirrors `case.json`'s
 order (new batch prepended, no reverse needed) instead of independently reversing it. See
 `CONTEXT.md`'s Capture/Reply entries for the current contract.
+
+## Addendum (2026-09): reverted again — nested tree, oldest-first, closed out by #236
+
+This Addendum's newest-first `orderCommentsForPresentation` pass is gone (#233/#234/#235). `case.json`
+now persists comments as a nested tree — each Comment carries `subs: []` holding its replies — not a
+flat, presentation-reordered array. Both `case.json`/`case.md` and, since #235, `summary.json`/
+`summary.md` order oldest-first at every level (top-level Comments oldest→newest, each Comment's
+`subs` oldest→newest), restoring this Addendum's "rejected" original call. See
+`docs/prd/case-detail-and-threaded-comments.md`'s superseded note for the shipped shape.
