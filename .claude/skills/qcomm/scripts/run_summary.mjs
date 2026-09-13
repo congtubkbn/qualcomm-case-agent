@@ -23,7 +23,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { afterFinalize } from './overview_store.mjs';
 import { sortCommentsChronological } from './finalize_case.mjs';
-import { walkCommentTree } from './render_case.mjs';
+import { walkCommentTree, cloneCommentTree, findCommentNode } from './comment_tree.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -66,19 +66,6 @@ export async function captureCase(code) {
   }
   const line = stdout.trim().split('\n').pop();
   return JSON.parse(line);
-}
-
-function cloneCommentTree(nodes) {
-  return (nodes || []).map((n) => ({ ...n, subs: cloneCommentTree(n.subs) }));
-}
-
-function findCommentNode(nodes, id) {
-  for (const n of nodes) {
-    if (n.id === id) return n;
-    const found = findCommentNode(n.subs || [], id);
-    if (found) return found;
-  }
-  return null;
 }
 
 // Merges new digests into the nested comment tree (subs:[], mirrors case.json's shape

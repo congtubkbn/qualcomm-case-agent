@@ -157,22 +157,6 @@ describe('genuineCommentCount', () => {
   });
 });
 
-describe('countAllComments', () => {
-  it('counts comments recursively through subs', () => {
-    const comments = [
-      { id: '1', subs: [{ id: '1a', subs: [] }, { id: '1b', subs: [] }] },
-      { id: '2', subs: [] },
-    ];
-    assert.equal(m.countAllComments(comments), 4);
-  });
-
-  it('returns 0 for non-array or empty input', () => {
-    assert.equal(m.countAllComments([]), 0);
-    assert.equal(m.countAllComments(null), 0);
-    assert.equal(m.countAllComments(undefined), 0);
-  });
-});
-
 describe('parseHeaderFlags', () => {
   it('honours only the header keys, ignoring anything else on the line', () => {
     assert.deepEqual(
@@ -369,79 +353,6 @@ describe('synthesizeDescriptionComment', () => {
 // each comment has subs:[] (never undefined), no parentId in the output.
 // Supersedes the old orderCommentsForPresentation (newest-first flat list);
 // reverts the 2026-08-27 presentation-only decision back to PRD #105-109 "Variant A".
-describe('buildNestedTree', () => {
-  it('returns a flat (no-reply) list unchanged, oldest-first, each with subs:[]', () => {
-    const flat = m.assignIds([
-      comment('Alice', 'first', { timestamp: '5 days ago' }),
-      comment('Bob', 'second', { timestamp: '3 days ago' }),
-      comment('Carol', 'third', { timestamp: '1 day ago' }),
-    ]).comments.map(c => ({ ...c, parentId: null }));
-
-    const tree = m.buildNestedTree(flat);
-    assert.deepEqual(tree.map(c => c.author), ['Alice', 'Bob', 'Carol']);
-    for (const c of tree) {
-      assert.ok(Array.isArray(c.subs), 'subs must be an array');
-      assert.equal(c.subs.length, 0);
-      assert.equal('parentId' in c, false, 'parentId must not appear in output');
-    }
-  });
-
-  it('puts replies in their parent\'s subs, oldest-first', () => {
-    const withIds = m.assignIds([
-      comment('Alice', 'post 1', { timestamp: '10 days ago' }),
-      comment('Bob', 'reply to post 1, early', { timestamp: '9 days ago' }),
-      comment('Carol', 'post 2', { timestamp: '5 days ago' }),
-      comment('Dave', 'reply to post 1, later', { timestamp: '4 days ago' }),
-      comment('Eve', 'reply to post 2', { timestamp: '3 days ago' }),
-    ]).comments;
-    const [post1, reply1a, post2, reply1b, reply2a] = withIds;
-    const flat = [
-      { ...post1, parentId: null },
-      { ...reply1a, parentId: post1.id },
-      { ...post2, parentId: null },
-      { ...reply1b, parentId: post1.id },
-      { ...reply2a, parentId: post2.id },
-    ];
-
-    const tree = m.buildNestedTree(flat);
-    // Top-level: oldest→newest
-    assert.deepEqual(tree.map(c => c.author), ['Alice', 'Carol']);
-    // post1's subs: oldest→newest
-    assert.deepEqual(tree[0].subs.map(s => s.author), ['Bob', 'Dave']);
-    // post2's subs
-    assert.deepEqual(tree[1].subs.map(s => s.author), ['Eve']);
-    // no parentId anywhere
-    for (const c of tree) {
-      assert.equal('parentId' in c, false);
-      for (const s of c.subs) assert.equal('parentId' in s, false);
-    }
-    // leaf subs always have subs:[]
-    for (const s of [...tree[0].subs, ...tree[1].subs]) {
-      assert.deepEqual(s.subs, []);
-    }
-  });
-
-  it('treats a reply whose parent is missing from the array as top-level', () => {
-    const flat = m.assignIds([
-      comment('Alice', 'post 1', { timestamp: '2 days ago' }),
-      comment('Bob', 'orphan reply', { timestamp: '1 day ago' }),
-    ]).comments;
-    const tree = m.buildNestedTree([
-      { ...flat[0], parentId: null },
-      { ...flat[1], parentId: 'missing-parent-id' },
-    ]);
-    assert.deepEqual(tree.map(c => c.author), ['Alice', 'Bob']);
-    assert.deepEqual(tree[0].subs, []);
-    assert.deepEqual(tree[1].subs, []);
-  });
-
-  it('returns [] for empty/non-array input', () => {
-    assert.deepEqual(m.buildNestedTree([]), []);
-    assert.deepEqual(m.buildNestedTree(null), []);
-  });
-});
-
-
 describe('hasDescriptionComment', () => {
   it('returns true if a comment body matches the description', () => {
     const desc = 'Problem description body';

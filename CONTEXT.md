@@ -20,10 +20,9 @@ _Avoid_: state (ambiguous with a capture-pipeline verdict)
 The deterministic, model-free pipeline (`qcomm`) that signs in, finds a case, and
 writes it verbatim to `case.json`/`case.md`. Internally, comments are merged/deduped/hashed in strict
 Oldest → Newest order (`sortCommentsChronological`) — that ascending order is load-bearing for the
-pipeline's dedup/hash logic. The array actually PERSISTED to `case.json`/`case.md` is then reordered
-one final time (`orderCommentsForPresentation`) to newest-first with each Reply grouped immediately
-after its parent — see Reply. Supersedes PRD #105-109's original choice to persist strict
-Oldest → Newest.
+pipeline's dedup/hash logic. The array actually PERSISTED to `case.json`/`case.md` is built into a
+Comment Tree (`buildNestedTree`) — Oldest → Newest throughout, both top-level and within each
+Comment's `subs`. Supersedes PRD #105-109's original newest-first, parentId-flat persisted shape.
 _Avoid_: sync, scrape
 
 **Comment**:
@@ -39,6 +38,12 @@ Chatter feed (a Salesforce `<article>` inside `ul.cuf-replies`/`li.cuf-reply`). 
 (a Post) has `parentId: null`. Still stored in the same flat `comments` array — not a nested tree —
 but ordered so every Reply immediately follows its parent Post, both newest-first (see Capture).
 `parentId` is metadata for rendering/grouping a thread, not a second storage structure.
+
+**Comment Tree**:
+The nested `subs:[]` shape a case's Comments are persisted in — one level deep (Chatter has no
+reply-to-reply), Oldest → Newest at the top level and within each Comment's `subs`. Sole owner is
+`comment_tree.mjs` (flatten/build/count/find/clone/walk); every other module depends on it instead
+of re-deriving its own traversal.
 
 **Comment Summary**:
 A short, technical, per-comment digest (issue / status / next-action, applied as it fits the

@@ -38,6 +38,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
 import { afterFinalize } from './overview_store.mjs';
+import { flattenComments, buildNestedTree, countAllComments } from './comment_tree.mjs';
 
 // ---- Exit codes (exported so tests can import) ----
 export const EXIT = {
@@ -363,12 +364,6 @@ export function hasDescriptionComment(comments, description) {
   return comments.some(c => c && typeof c.body === 'string' && c.body.trim() === target);
 }
 
-// Count all comments recursively through nested subs.
-export function countAllComments(comments) {
-  if (!Array.isArray(comments)) return 0;
-  return comments.reduce((n, c) => n + 1 + countAllComments(c?.subs), 0);
-}
-
 // The synthesized description comment is a presentation convenience derived
 // from the Case's description field, not a captured Chatter feed item — the
 // completeness gate must compare against genuine portal comments only.
@@ -650,59 +645,6 @@ export function sortCommentsChronological(comments, referenceDate = new Date()) 
   });
 
   return indexed.map(item => item.c);
-}
-
-// Flatten a nested tree (case.json's subs:[] shape) back to a flat array
-// with parentId re-attached. Used when loading a cached case.json for merging:
-// the merge engine (mergeComments / sortCommentsChronological) always works on
-// a flat list, so the tree must be flattened on read and rebuilt on write.
-export function flattenComments(comments) {
-  if (!Array.isArray(comments)) return [];
-  const out = [];
-  for (const c of comments) {
-    if (!c || typeof c !== 'object') continue;
-    const { subs, ...rest } = c;
-    // A top-level comment that never had parentId set (legacy flat shape or
-    // new nested shape) comes through as parentId:null.
-    out.push({ ...rest, parentId: rest.parentId !== undefined ? rest.parentId : null });
-    for (const s of (subs || [])) {
-      const { subs: _ss, ...sr } = s;
-      out.push({ ...sr, parentId: c.id });
-    }
-  }
-  return out;
-}
-
-// Build a nested tree from a flat list that already has parentId set.
-// Input: flat array in chronological order (oldest→newest, sortCommentsChronological output).
-// Output: top-level comments oldest→newest; each comment has subs:[] (never undefined)
-//         holding its replies oldest→newest. parentId is dropped from the output.
-// This is the final shape written to case.json (supersedes the old newest-first
-// flat array — reverts the 2026-08-27 presentation-only decision per PRD #105-109).
-export function buildNestedTree(comments) {
-  if (!Array.isArray(comments) || comments.length === 0) return [];
-  const byId = new Map(comments.map(c => [c.id, c]));
-  const childrenOf = new Map();
-  const topLevel = [];
-  for (const c of comments) {
-    const parent = c.parentId != null && c.parentId !== c.id ? byId.get(c.parentId) : null;
-    if (parent) {
-      if (!childrenOf.has(parent.id)) childrenOf.set(parent.id, []);
-      childrenOf.get(parent.id).push(c);
-    } else {
-      topLevel.push(c);
-    }
-  }
-  // topLevel is already chronological (sortCommentsChronological's ascending output).
-  return topLevel.map(c => {
-    const { parentId, ...rest } = c;
-    const kids = (childrenOf.get(c.id) || []).map(k => {
-      const { parentId: _p, ...kr } = k;
-      // Chatter has no reply-to-reply; leaf subs always carry an empty subs:[].
-      return { ...kr, subs: [] };
-    });
-    return { ...rest, subs: kids };
-  });
 }
 
 // Merge raw comments not already cached and enforce chronological sorting (Oldest -> Newest).

@@ -14,7 +14,8 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { classifyRole, buildNestedTree } from './finalize_case.mjs';
+import { classifyRole } from './finalize_case.mjs';
+import { walkCommentTree } from './comment_tree.mjs';
 
 const S = v => (v == null ? '' : String(v));
 const arr = v => (Array.isArray(v) ? v : []);
@@ -90,45 +91,6 @@ export function formatBody(body) {
   }
 
   return out.join('\n');
-}
-
-/* ----------------------------- Tree Walk ----------------------------- */
-/**
- * Walks a nested comment tree (with subs: []) and yields a flat list of comment entries
- * decorated with hierarchical numbers (e.g. "1", "1.1", "1.2", "2", "2.1", etc.).
- *
- * If a visitor callback is provided, it is invoked for each comment: visitor(comment, entry).
- * Returns an array of { comment, number, depth, isReply, parent }.
- */
-export function walkCommentTree(comments, visitor, prefix = '', depth = 0, parent = null) {
-  if (!Array.isArray(comments)) return [];
-  // Defensive normalization: if comments contain legacy flat parentId entries without subs,
-  // nest them before walking.
-  let nodes = comments;
-  if (depth === 0 && !comments.some(c => Array.isArray(c?.subs)) && comments.some(c => c?.parentId != null)) {
-    nodes = buildNestedTree(comments);
-  }
-  const result = [];
-  for (let i = 0; i < nodes.length; i++) {
-    const c = nodes[i];
-    if (!c || typeof c !== 'object') continue;
-    const num = prefix ? `${prefix}.${i + 1}` : `${i + 1}`;
-    const entry = {
-      comment: c,
-      number: num,
-      depth,
-      isReply: depth > 0 || c.parentId != null,
-      parent,
-    };
-    result.push(entry);
-    if (typeof visitor === 'function') {
-      visitor(c, entry);
-    }
-    if (Array.isArray(c.subs) && c.subs.length > 0) {
-      result.push(...walkCommentTree(c.subs, visitor, num, depth + 1, c));
-    }
-  }
-  return result;
 }
 
 /* ----------------------------- Markdown ----------------------------- */

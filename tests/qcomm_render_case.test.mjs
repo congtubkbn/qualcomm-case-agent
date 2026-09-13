@@ -10,7 +10,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { walkCommentTree } from '../.claude/skills/qcomm/scripts/render_case.mjs';
 
 const SCRIPT = fileURLToPath(new URL('../.claude/skills/qcomm/scripts/render_case.mjs', import.meta.url));
 
@@ -210,45 +209,6 @@ describe('render_case: case.md content structure', () => {
     assert.match(md, /> Second reply with logs attached\./);
   });
 
-  it('renders hierarchical numbering for legacy flat parentId comments (no subs field, pre-#233 cache)', () => {
-    const legacyFlatCase = {
-      caseNumber: '08633581',
-      title: 'Modem crash during handover',
-      status: 'Open',
-      comments: [
-        {
-          id: 'c1',
-          author: 'Alice',
-          timestamp: '2026-08-18T08:00:00.000Z',
-          body: 'Top-level post describing the handover crash.',
-          parentId: null,
-        },
-        {
-          id: 'c2',
-          author: 'Bob (Qualcomm)',
-          timestamp: '2026-08-18T09:00:00.000Z',
-          body: 'First reply asking for logs.',
-          parentId: 'c1',
-        },
-        {
-          id: 'c3',
-          author: 'Alice',
-          timestamp: '2026-08-18T10:00:00.000Z',
-          body: 'Second reply with logs attached.',
-          parentId: 'c1',
-        },
-      ],
-    };
-
-    const r = renderFixture(legacyFlatCase);
-    assert.equal(r.exit, 0);
-    const md = r.md();
-
-    assert.match(md, /### 1\. 2026-08-18T08:00:00\.000Z · Alice/);
-    assert.match(md, /### 1\.1\. ↳ 2026-08-18T09:00:00\.000Z · Bob \(Qualcomm\)/);
-    assert.match(md, /### 1\.2\. ↳ 2026-08-18T10:00:00\.000Z · Alice/);
-  });
-
   it('renders multiple top-level comment threads in oldest-first order with hierarchical numbers', () => {
     const multiThreadCase = {
       caseNumber: '08771122',
@@ -322,37 +282,6 @@ describe('render_case: case.md content structure', () => {
     assert.ok(h2 > h1_2, '2 must follow 1.2');
     assert.ok(h3 > h2, '3 must follow 2');
     assert.ok(h3_1 > h3, '3.1 must follow 3');
-  });
-
-  it('renders legacy flat comments with parentId into hierarchical structure via fallback', () => {
-    const legacyCase = {
-      caseNumber: '08633581',
-      title: 'Legacy flat parentId structure',
-      status: 'Open',
-      comments: [
-        {
-          id: 'c1',
-          author: 'Alice',
-          timestamp: '2026-08-18T08:00:00.000Z',
-          body: 'Top-level post.',
-          parentId: null,
-        },
-        {
-          id: 'c2',
-          author: 'Bob (Qualcomm)',
-          timestamp: '2026-08-18T09:00:00.000Z',
-          body: 'Reply to post.',
-          parentId: 'c1',
-        },
-      ],
-    };
-
-    const r = renderFixture(legacyCase);
-    assert.equal(r.exit, 0);
-    const md = r.md();
-
-    assert.match(md, /### 1\. 2026-08-18T08:00:00\.000Z · Alice/);
-    assert.match(md, /### 1\.1\. ↳ 2026-08-18T09:00:00\.000Z · Bob/);
   });
 
   it('does not render obsolete enrichment / LLM sections', () => {
@@ -854,90 +783,6 @@ describe('render_case: issue #122 portal line — no Web Link', () => {
 
     assert.doesNotMatch(md, /\*\*Portal:\*\*/);
     assert.doesNotMatch(md, /Web Link/);
-  });
-});
-
-describe('walkCommentTree helper', () => {
-  it('returns empty array when comments is not an array or is empty', () => {
-    assert.deepEqual(walkCommentTree(null), []);
-    assert.deepEqual(walkCommentTree(undefined), []);
-    assert.deepEqual(walkCommentTree([]), []);
-  });
-
-  it('assigns hierarchical numbers and metadata to nested comment trees', () => {
-    const tree = [
-      {
-        id: 'c1',
-        author: 'A',
-        subs: [
-          { id: 'c1_1', author: 'B', subs: [] },
-          { id: 'c1_2', author: 'C', subs: [] },
-        ],
-      },
-      {
-        id: 'c2',
-        author: 'D',
-        subs: [{ id: 'c2_1', author: 'E', subs: [] }],
-      },
-      {
-        id: 'c3',
-        author: 'F',
-        subs: [],
-      },
-    ];
-
-    const walked = walkCommentTree(tree);
-    assert.equal(walked.length, 6);
-
-    assert.equal(walked[0].number, '1');
-    assert.equal(walked[0].depth, 0);
-    assert.equal(walked[0].isReply, false);
-    assert.equal(walked[0].parent, null);
-    assert.equal(walked[0].comment.id, 'c1');
-
-    assert.equal(walked[1].number, '1.1');
-    assert.equal(walked[1].depth, 1);
-    assert.equal(walked[1].isReply, true);
-    assert.equal(walked[1].parent, tree[0]);
-    assert.equal(walked[1].comment.id, 'c1_1');
-
-    assert.equal(walked[2].number, '1.2');
-    assert.equal(walked[2].depth, 1);
-    assert.equal(walked[2].isReply, true);
-    assert.equal(walked[2].parent, tree[0]);
-    assert.equal(walked[2].comment.id, 'c1_2');
-
-    assert.equal(walked[3].number, '2');
-    assert.equal(walked[3].depth, 0);
-    assert.equal(walked[3].isReply, false);
-    assert.equal(walked[3].parent, null);
-    assert.equal(walked[3].comment.id, 'c2');
-
-    assert.equal(walked[4].number, '2.1');
-    assert.equal(walked[4].depth, 1);
-    assert.equal(walked[4].isReply, true);
-    assert.equal(walked[4].parent, tree[1]);
-    assert.equal(walked[4].comment.id, 'c2_1');
-
-    assert.equal(walked[5].number, '3');
-    assert.equal(walked[5].depth, 0);
-    assert.equal(walked[5].isReply, false);
-    assert.equal(walked[5].parent, null);
-    assert.equal(walked[5].comment.id, 'c3');
-  });
-
-  it('invokes visitor callback for each node when provided', () => {
-    const tree = [
-      {
-        id: 'c1',
-        subs: [{ id: 'c1_1', subs: [] }],
-      },
-    ];
-    const visited = [];
-    walkCommentTree(tree, (c, item) => {
-      visited.push(`${item.number}:${c.id}`);
-    });
-    assert.deepEqual(visited, ['1:c1', '1.1:c1_1']);
   });
 });
 
