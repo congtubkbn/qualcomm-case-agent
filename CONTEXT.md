@@ -17,27 +17,25 @@ The case's own status field from the Qualcomm Salesforce portal (e.g. "Closed-Cu
 _Avoid_: state (ambiguous with a capture-pipeline verdict)
 
 **Capture**:
-The deterministic, model-free pipeline (`qcomm`) that signs in, finds a case, and
-writes it verbatim to `case.json`/`case.md`. Internally, comments are merged/deduped/hashed in strict
-Oldest → Newest order (`sortCommentsChronological`) — that ascending order is load-bearing for the
-pipeline's dedup/hash logic. The array actually PERSISTED to `case.json`/`case.md` is built into a
-Comment Tree (`buildNestedTree`) — Oldest → Newest throughout, both top-level and within each
-Comment's `subs`. Supersedes PRD #105-109's original newest-first, parentId-flat persisted shape.
+The deterministic, model-free pipeline that signs in, finds a case, and writes it verbatim to
+`case.json`/`case.md`, persisting Comments as a Comment Tree (see Comment Tree). Comments are
+merged/deduped/hashed in strict Oldest → Newest order — this ascending order is load-bearing for
+the dedup/hash logic.
 _Avoid_: sync, scrape
 
 **Comment**:
-One entry in `case.json`'s `comments` array — a verbatim Chatter feed item (Salesforce `<article>`).
-Covers both top-level posts and replies; which one a given comment is is carried by `parentId`, not
-by a separate concept. Stored flat (not nested) — see Reply.
+One item in a case's Comment Tree (`case.json`'s `comments` array) — a verbatim Chatter feed item
+(Salesforce `<article>`). Covers both top-level posts and replies; which one a given Comment is is
+carried by `parentId`, not by a separate concept.
 _Avoid_: post (ambiguous — a top-level Comment reads as a Chatter "Post" in the portal UI, but the
 field name and array stay `comments`/`comment` everywhere in code)
 
 **Reply**:
 A Comment whose `parentId` is set to the id of the Comment it's nested under in the portal's
 Chatter feed (a Salesforce `<article>` inside `ul.cuf-replies`/`li.cuf-reply`). A top-level Comment
-(a Post) has `parentId: null`. Still stored in the same flat `comments` array — not a nested tree —
-but ordered so every Reply immediately follows its parent Post, both newest-first (see Capture).
-`parentId` is metadata for rendering/grouping a thread, not a second storage structure.
+(a Post) has `parentId: null`. Persisted inside its parent's `subs` array in the Comment Tree, not
+as a separate structure — `parentId` is metadata carried along for rendering/grouping, not a second
+storage shape.
 
 **Comment Tree**:
 The nested `subs:[]` shape a case's Comments are persisted in — one level deep (Chatter has no

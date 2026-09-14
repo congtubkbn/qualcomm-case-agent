@@ -16,19 +16,7 @@ Before implementing:
 - If a simpler approach exists, say so. Push back when warranted.
 - If something is unclear, stop. Name what's confusing. Ask.
 
-## 2. Simplicity First
-
-**Minimum code that solves the problem. Nothing speculative.**
-
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
-
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
-## 3. Surgical Changes
+## 2. Surgical Changes
 
 **Touch only what you must. Clean up only your own mess.**
 
@@ -44,7 +32,7 @@ When your changes create orphans:
 
 The test: Every changed line should trace directly to the user's request.
 
-## 4. Goal-Driven Execution
+## 3. Goal-Driven Execution
 
 **Define success criteria. Loop until verified.**
 
@@ -107,17 +95,19 @@ generated/curated, not hand-summarized — read it directly for anything beyond 
 ```
 Runbooks (SKILL.md, .clinerules, references/*)
   → Orchestration (run_case.mjs)
-    → Browser adapter (browser.mjs: argv-array spawn, eval -b, CDP attach)
-      → Page scripts (login_fill.js, expand_step.js, extract_case.js, switch_tab.js, check_collapsed.js — run INSIDE the tab)
-    → Persistence + integrity (intake.mjs, finalize_case.mjs, lock.mjs, _paths.mjs)
+    → PortalDriver seam (portal_driver.mjs — CdpPortalDriver for live Chrome, FixturePortalDriver for offline replay)
+      → Browser adapter (browser.mjs: argv-array spawn, eval -b; cdp_client.mjs: WebSocket CDP; fast_landing.mjs: search/landing)
+        → dom_extractor.js (window.__QC_DOM__ — login, feed expand, tab switch, extraction, all consolidated; runs INSIDE the tab)
+    → Persistence + integrity (intake.mjs, finalize_case.mjs, lock.mjs, _paths.mjs, comment_tree.mjs)
       → Presentation (render_case.mjs → case.md)
 ```
 
 Two invariants worth preserving when touching this layer stack:
 - **Nothing crosses a shell.** `browser.mjs` spawns `agent-browser` with an argv array; page
   scripts cross as base64 — no quoting, no shell dialect issues.
-- **Page scripts return counters, never DOM dumps.** e.g. `expand_step.js` clicks inside the page
-  in a loop and returns `{articles, displayed, anchorIdx, clicked…}`, not a snapshot.
+- **Page scripts return counters, never DOM dumps.** e.g. `dom_extractor.js`'s `QC.expandStep`
+  clicks inside the page in a loop and returns `{articles, displayed, anchorIdx, clicked…}`, not a
+  snapshot.
 
 **Entry point:** `node .claude/skills/qcomm/scripts/run_case.mjs <8-digit-code>`
 prints exactly one JSON verdict line on stdout (`status`: `created`/`updated`/`no-update`/
@@ -126,8 +116,9 @@ branch on the `status` field in stdout, never on the shell exit-code label alone
 non-success statuses are deliberate, expected outcomes, not crashes. Full contract in
 `.claude/skills/qcomm/SKILL.md`.
 
-**One Claude Code skill** lives under `.claude/skills/`: `qcomm` — intake → login →
-finalize → render.
+**Two Claude Code skills** live under `.claude/skills/`: `qcomm` — intake → login →
+finalize → render — and `qualcomm-issue-precedent` — matches a free-text tester-reported issue
+against already-captured cases.
 
 **Session/auth:** Okta OAuth with email OTP, persisted in `data/chrome-profile/` (a real Chrome
 `--user-data-dir` attached over CDP 9773, not bundled Chromium). A lapsed session surfaces as
@@ -139,7 +130,7 @@ mismatch surfaces as `port-conflict` instead of silently misusing the wrong brow
 
 **Tests** (`tests/*.test.mjs`, run via `node --experimental-test-module-mocks --test`) mock
 `browser.mjs` at the module level rather than driving a real browser — see
-`node --test tests/run_case.test.mjs` for the pattern before adding pipeline tests.
+`node --test tests/qcomm_run_case.test.mjs` for the pattern before adding pipeline tests.
 `npm test` globs `tests/*.test.mjs` — a new test file is picked up automatically, no registration
 needed.
 
