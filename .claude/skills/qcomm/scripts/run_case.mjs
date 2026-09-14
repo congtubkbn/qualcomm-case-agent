@@ -33,7 +33,6 @@ import { DATA_DIR, QUALCOMM_USER, SECRET_PATH } from './_paths.mjs';
 import { intake } from './intake.mjs';
 import { acquireLockOrWaitForSameCode, releaseLock } from './lock.mjs';
 import * as browser from './browser.mjs';
-import { BrowserError, CDP_PORT, PortConflictError } from './browser.mjs';
 import * as fastLanding from './fast_landing.mjs';
 import { CdpPortalDriver } from './cdp_portal_driver.mjs';
 import { FixturePortalDriver } from './fixture_portal_driver.mjs';
@@ -157,12 +156,13 @@ export async function run(code, opts = {}) {
 
   const driver = opts.driver
     || (USE_FIXTURE_DRIVER ? new FixturePortalDriver() : new CdpPortalDriver({ cdp: opts.cdp, browser, fastLanding }));
-  await driver.connect();
+  const connectResult = await driver.connect();
 
   if (!driver.isConnected()) {
     return {
-      status: 'blocked',
-      reason: `CDP client connection unavailable on port ${CDP_PORT} (check Chrome instance)`,
+      status: connectResult.stage === 'port-conflict' ? 'port-conflict' : 'blocked',
+      reason: connectResult.reason,
+      ...(connectResult.detail !== undefined ? { detail: connectResult.detail } : {}),
     };
   }
 
@@ -482,9 +482,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
   run(code, opts)
     .catch(e => ({
-      status: e instanceof PortConflictError ? 'port-conflict' : (e instanceof BrowserError ? 'blocked' : 'error'),
+      status: 'error',
       reason: e.message,
-      detail: e.detail,
     }))
     .then(v => {
       releaseLock();

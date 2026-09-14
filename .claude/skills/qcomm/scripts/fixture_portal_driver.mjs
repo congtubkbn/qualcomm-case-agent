@@ -52,7 +52,7 @@ export class FixturePortalDriver extends PortalDriver {
 
   async connect() {
     this._connected = true;
-    return true;
+    return { ok: true };
   }
 
   isConnected() {

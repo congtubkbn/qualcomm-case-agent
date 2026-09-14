@@ -533,6 +533,41 @@ describe('run() fast landing & verdict integration', () => {
     assert.equal(formatted.screenshot, 'feed_missing.png');
   });
 
+  it('surfaces a raw browser.mjs throw during the empty-probe reopen retry as a neutral no-articles descriptor, not an uncaught exception (seam containment)', async (t) => {
+    const mockCdp = {
+      isConnected: () => true,
+      // fast_landing.mjs always calls navigate(url, { waitUntil, timeout, ... });
+      // expandAndExtract()'s empty-probe reopen retry is the only caller that
+      // invokes navigate(caseUrl) with no options object — that's the one
+      // this test throws from, to exercise the reopen-retry seam in isolation.
+      navigate: async (_url, opts) => { if (opts === undefined) throw new Error('agent-browser open exited 1'); },
+      eval: async () => ({
+        state: 'ON_CASE',
+        href: REAL_HREF,
+        fields: { title: 't' },
+      }),
+      click: async () => true,
+      close: async () => {},
+    };
+
+    mockBrowser(t, (file, vars) => {
+      const action = vars?.__ACTION;
+      if (action === 'switchTab') {
+        return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
+      }
+      if (action === 'expandStep') {
+        return { articles: 0 };
+      }
+      throw new Error(`Unexpected evalFile: ${file} (action=${action})`);
+    }, mockCdp);
+
+    const { run } = await importRunCase();
+    const v = await run('08000005', { mode: 'auto', enrich: 'none', noPdf: true, cdp: mockCdp });
+
+    assert.equal(v.status, 'blocked');
+    assert.match(v.reason, /agent-browser open exited 1/);
+  });
+
   it('coordinates switching to Detail tab to extract metadata and merging with Feed comments', async (t) => {
     const targetUrl = 'https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/08603854';
     const mockCdp = {
@@ -900,6 +935,61 @@ describe('run() fast landing & verdict integration', () => {
     assert.equal(v.retryable, undefined);
     assert.equal(v.finalizeOut, undefined);
     assert.equal(v.scrapeOut, undefined);
+  });
+});
+
+describe('run() connect() failure classification (through the PortalDriver seam)', () => {
+  class BrowserError extends Error {
+    constructor(message, detail) {
+      super(message);
+      this.name = 'BrowserError';
+      this.detail = detail;
+    }
+  }
+  class PortConflictError extends BrowserError {
+    constructor(message, detail) {
+      super(message, detail);
+      this.name = 'PortConflictError';
+    }
+  }
+
+  function mockBrowserConnectFailure(t, error) {
+    t.mock.module(BROWSER_URL, {
+      exports: {
+        click: () => {},
+        open: () => {},
+        sleep: async () => {},
+        ensureChrome: async () => { throw error; },
+        pdf: () => {},
+        screenshot: () => {},
+        getCdpClient: async () => { throw new Error('must not be called: ensureChrome already failed'); },
+        evalFile: () => { throw new Error('must not be called: connect() failed'); },
+        evalFileViaCdp: async () => { throw new Error('must not be called: connect() failed'); },
+      },
+    });
+  }
+
+  it('reports status:port-conflict with the real PortConflictError reason (not a generic CDP_PORT string)', async (t) => {
+    mockBrowserConnectFailure(t, new PortConflictError(
+      'CDP port 9773 is held by a process that is not this project\'s Chrome',
+      { port: 9773, commandLine: 'other-tool.exe' },
+    ));
+
+    const { run } = await importRunCase();
+    const v = await run('08900001', { mode: 'auto', enrich: 'none', noPdf: true });
+
+    assert.equal(v.status, 'port-conflict');
+    assert.equal(v.reason, 'CDP port 9773 is held by a process that is not this project\'s Chrome');
+  });
+
+  it('reports status:blocked with the real BrowserError reason when no Chrome is reachable at all', async (t) => {
+    mockBrowserConnectFailure(t, new BrowserError('no Chrome on CDP 9773 (profile X) — start it, then retry'));
+
+    const { run } = await importRunCase();
+    const v = await run('08900002', { mode: 'auto', enrich: 'none', noPdf: true });
+
+    assert.equal(v.status, 'blocked');
+    assert.equal(v.reason, 'no Chrome on CDP 9773 (profile X) — start it, then retry');
   });
 });
 

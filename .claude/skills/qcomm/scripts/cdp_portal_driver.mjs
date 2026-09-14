@@ -11,8 +11,12 @@
 //
 // Everything that touches browser.mjs or fast_landing.mjs lives here now —
 // run_case.mjs holds no reference to evalFileViaCdp, a CDP client,
-// ensureChrome, or fastLandOnCase; it just imports both modules once (as it
-// always has) and hands the namespaces to this constructor.
+// ensureChrome, BrowserError/PortConflictError, or fastLandOnCase; it just
+// imports both modules once (as it always has) and hands the namespaces to
+// this constructor. connect() catches BrowserError/PortConflictError the
+// same way expandAndExtract() catches its own failure modes — into the
+// neutral descriptor above, never letting the concrete error classes cross
+// the seam.
 //
 // Why `browser`/`fastLanding` are injected rather than imported here
 // directly: tests mock browser.mjs and fast_landing.mjs per-test via node's
@@ -60,16 +64,26 @@ export class CdpPortalDriver extends PortalDriver {
     this._ownsCdp = !cdp; // never close a connection the caller handed us
   }
 
+  // Neutral descriptor on failure — { ok: false, stage: 'port-conflict' | 'blocked',
+  // reason, detail? } — the same convention expandAndExtract() uses, so
+  // run_case.mjs never needs to import or instanceof-check browser.mjs's
+  // BrowserError/PortConflictError to build a verdict.
   async connect() {
-    await this.browser.ensureChrome();
-    if (this.cdp) return this.cdp; // pre-injected (test/programmatic seam)
+    try {
+      await this.browser.ensureChrome();
+    } catch (e) {
+      this.cdp = null; // isConnected() must reflect the failure even if a cdp was pre-injected
+      return { ok: false, stage: e.name === 'PortConflictError' ? 'port-conflict' : 'blocked', reason: e.message, ...(e.detail !== undefined ? { detail: e.detail } : {}) };
+    }
+    if (this.cdp) return { ok: true }; // pre-injected (test/programmatic seam)
     try {
       this.cdp = await this.browser.getCdpClient();
     } catch (e) {
       process.stderr.write(`[CDP] Direct connection failed: ${e.message}\n`);
       this.cdp = null;
+      return { ok: false, stage: 'blocked', reason: e.message };
     }
-    return this.cdp;
+    return { ok: true };
   }
 
   isConnected() {
@@ -165,10 +179,14 @@ export class CdpPortalDriver extends PortalDriver {
     let probe = await probeFeed();
     if (!probe || !probe.articles) {
       if (caseUrl) {
-        if (typeof cdp.navigate === 'function') {
-          await cdp.navigate(caseUrl);
-        } else {
-          open(caseUrl);
+        try {
+          if (typeof cdp.navigate === 'function') {
+            await cdp.navigate(caseUrl);
+          } else {
+            open(caseUrl);
+          }
+        } catch (e) {
+          return { ok: false, stage: 'no-articles', reason: `could not reopen case page for a feed retry: ${e.message}` };
         }
         probe = await probeFeed();
       }

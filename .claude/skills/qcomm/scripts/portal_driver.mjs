@@ -15,9 +15,16 @@
 // Contract each method must honor (see cdp_portal_driver.mjs for the
 // reference implementation run_case.mjs is written against):
 //
-//   connect()
+//   connect() -> descriptor
 //     Establish whatever session the driver needs. Idempotent — calling it
 //     again with an already-live session is a cheap no-op, not a re-connect.
+//     Never lets a concrete adapter's own exception types escape — catches
+//     them internally and returns a neutral descriptor, same convention as
+//     expandAndExtract() below: { ok: true } on success, or
+//       { ok: false, stage: 'port-conflict' | 'blocked', reason, detail? }
+//     for run_case.mjs to map to a verdict. isConnected() remains the actual
+//     gate callers check; this return value only supplies the stage/reason
+//     to explain a failed isConnected().
 //
 //   isConnected()
 //     Synchronous. True iff a subsequent navigateToCase()/expandAndExtract()
