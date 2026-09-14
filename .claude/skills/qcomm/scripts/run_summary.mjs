@@ -23,7 +23,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { afterFinalize } from './overview_store.mjs';
 import { sortCommentsChronological } from './finalize_case.mjs';
-import { walkCommentTree, cloneCommentTree, findCommentNode } from './comment_tree.mjs';
+import { walkCommentTree, findCommentNode } from './comment_tree.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -42,15 +42,18 @@ export function applyCharCapToComments(comments, cap = CHAR_CAP) {
   return comments.map((c) => ({ ...c, body: applyCharCap(c.body, cap) }));
 }
 
+// Flattens a nested comment tree (subs:[], per #233) or a flat legacy array to plain
+// comment objects at every depth (subs stripped) — walkCommentTree handles both shapes.
+function flattenTreeComments(tree) {
+  return walkCommentTree(tree).map(({ comment: { subs, ...rest } }) => rest);
+}
+
 // ---- delta.mjs inline ----
-// caseComments may be a nested tree (subs:[], per #233) or a flat legacy array;
-// walkCommentTree handles both and flattens to every comment at every depth, so a
-// reply the top-level filter used to miss is still checked against summarizedIds.
+// A reply the top-level filter used to miss is still checked against summarizedIds,
+// since flattenTreeComments walks every depth.
 export function computeDelta(caseComments, summarizedIds) {
   const seen = new Set(summarizedIds);
-  return walkCommentTree(caseComments)
-    .map(({ comment: { subs, ...rest } }) => rest)
-    .filter((c) => !seen.has(c.id));
+  return flattenTreeComments(caseComments).filter((c) => !seen.has(c.id));
 }
 
 // ---- deps.mjs inline ----
@@ -73,33 +76,23 @@ export async function captureCase(code) {
 // the tree rather than splicing by index. Top-level comments and each node's subs stay
 // oldest->newest, same ordering rule as #233/#234 (case.json/case.md).
 //
-// Comments generally arrive oldest-first (prepare sorts delta chronologically), but
-// insertion is multi-pass so any reply to a same-batch parent nests correctly under its
-// parent (already-merged or newly-inserted this batch) regardless of input order. A
-// digest whose parent never resolves (unknown id, or a cycle) is treated as new
-// top-level content.
+// Every call rebuilds the tree from scratch off parentIdOf/commentOrder (both derived
+// from a full walk of case.json — see finalize() below) rather than trusting whatever
+// shape priorComments happens to already be in. That's what lets one code path cover
+// both an already-nested prior and a pre-#235 legacy-flat one (whose reply parent links
+// were never persisted): flattening via walkCommentTree and re-placing via parentIdOf
+// recovers the correct structure either way. Insertion is multi-pass so any reply to a
+// same-batch parent nests correctly under its parent (already-merged or newly-inserted
+// this batch) regardless of input order, at any depth. A digest whose parent never
+// resolves (unknown id, or a cycle) is treated as new top-level content.
 function insertCommentsByParent(priorComments, newComments, parentIdOf, commentOrder) {
-  // Pre-#235 summary.json stored comments as a flat array with no subs/parentId at
-  // all, so a legacy reply's parent link was never persisted -- and each finalize()
-  // used to prepend its batch, so the array itself is newest-batch-first, not
-  // chronological. Detect that shape, sort by commentOrder (finalize()'s walk of the
-  // full case.json tree, i.e. the true oldest-first order), and re-place every prior
-  // comment via parentIdOf instead of assuming priorComments is already correctly
-  // nested and ordered.
-  const isLegacyFlat = priorComments.length > 0 && !priorComments.some((c) => Array.isArray(c.subs));
-  let tree = [];
-  let pending;
-  if (isLegacyFlat) {
-    const orderIndex = new Map((commentOrder || []).map((id, i) => [id, i]));
-    const sortedPrior = [...priorComments].sort(
-      (a, b) => (orderIndex.get(a.id) ?? Infinity) - (orderIndex.get(b.id) ?? Infinity),
-    );
-    pending = [...sortedPrior, ...newComments];
-  } else {
-    tree = cloneCommentTree(priorComments);
-    pending = [...newComments];
-  }
+  const orderIndex = new Map((commentOrder || []).map((id, i) => [id, i]));
+  const flattenedPrior = flattenTreeComments(priorComments);
+  const pending = [...flattenedPrior, ...newComments].sort(
+    (a, b) => (orderIndex.get(a.id) ?? Infinity) - (orderIndex.get(b.id) ?? Infinity),
+  );
 
+  const tree = [];
   while (pending.length > 0) {
     let placedAny = false;
     for (let i = 0; i < pending.length; i++) {
