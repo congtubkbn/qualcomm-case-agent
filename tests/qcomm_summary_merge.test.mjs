@@ -303,4 +303,37 @@ describe('mergeSummary', () => {
       { id: 'c9', issue: 'orphan reply', subs: [] },
     ]);
   });
+
+  it('a well-formed prior whose nesting is stale relative to current parentIdOf gets re-derived, not preserved as-is', () => {
+    // c2 is wrongly top-level in the prior summary (e.g. case.json's parent link for
+    // it changed since the last summarize) -- finalize() re-derives parentIdOf fresh
+    // from the current case.json every call, so this should self-heal into c1's subs
+    // instead of staying top-level the way a clone-and-append merge would have left it.
+    const prior = {
+      caseNumber: '08633581',
+      status: 'Open',
+      summarizedCommentIds: ['c1', 'c2'],
+      comments: [
+        { id: 'c1', issue: 'x', subs: [] },
+        { id: 'c2', issue: 'x follow-up', subs: [] },
+      ],
+      flow: 'Customer reported x; followed up.',
+      lastSummarizedAt: '2026-08-23T09:00:00.000Z',
+    };
+    const result = mergeSummary(prior, {
+      caseNumber: '08633581',
+      status: 'Pending Qualcomm',
+      newComments: [{ id: 'c3', issue: 'x follow-up 2' }],
+      parentIdOf: { c2: 'c1', c3: 'c1' },
+      commentOrder: ['c1', 'c2', 'c3'],
+      flow: 'Customer reported x; followed up twice.',
+      now: '2026-08-24T09:00:00.000Z',
+    });
+    assert.deepEqual(result.comments, [
+      { id: 'c1', issue: 'x', subs: [
+        { id: 'c2', issue: 'x follow-up', subs: [] },
+        { id: 'c3', issue: 'x follow-up 2', subs: [] },
+      ] },
+    ]);
+  });
 });

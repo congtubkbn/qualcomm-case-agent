@@ -15,9 +15,11 @@
 //     speculatively, just kept.
 //
 // walkCommentTree assumes its input is already a built tree (`subs:[]`
-// present). It does not fall back to building one from a flat/parentId
-// array — every persisted case.json and summary.json has been nested since
-// #233-236, and no locally cached case still uses the old flat shape.
+// present) — it does not itself fall back to building one from a flat/parentId
+// array. case.json and freshly-written summary.json are nested since #233-236,
+// but a still-flat legacy summary.json can reach here as input; reconstructing
+// nesting for that case is the caller's job (run_summary.mjs's
+// insertCommentsByParent re-derives it via parentIdOf), not this module's.
 
 // Flatten a nested tree (case.json's subs:[] shape) back to a flat array
 // with parentId re-attached. Used when loading a cached case.json for merging:
