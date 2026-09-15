@@ -1,23 +1,46 @@
 ---
 name: qcomm
-description: "Fetch/sync live Qualcomm support cases by 8-digit code, summarize technical comments and narrative, delete a case's local cache, or inspect cached cases and open the case dashboard. Trigger on 'capture case <CODE>', 'fetch case <CODE>', 'sync case <CODE>', 'summarize case <CODE>', 'case summary <CODE>', 'delete case <CODE>', 'remove case <CODE> from cache', or when asked to list, view, filter cases, or open the dashboard."
+description: "Capture a live Qualcomm support case by 8-digit code, summarize a case's comments into an executive digest, delete a case's local cache, or show the case overview. Trigger on 'capture case <CODE>', 'summarize case <CODE>', 'delete case <CODE>', or 'show case overview'."
 ---
 
 # Qualcomm Case Management (qcomm)
 
 Unified skill for live portal capture/sync, narrative and comment summarization, and aggregate case overview/dashboard.
 
+## References
+
+- [`references/manual-flow.md`](references/manual-flow.md) — recovery runbook for every non-success verdict (`otp-timeout`, `auth-required`, `not-found`, `blocked`, `busy`, `port-conflict`, `error`). Load when Step 3's verdict table below names it.
+- [`references/workflow.md`](references/workflow.md) — end-to-end diagram of the Summarize pipeline and its agent/script split. Load when explaining or changing how the Summarize workflow divides work between scripts and agent judgment.
+- [`references/consumer-guide.md`](references/consumer-guide.md) — `case.json`/`summary.json` schema and rules for downstream consumers. Load before another skill or script reads `data/cases/` directly.
+- [`references/extraction.md`](references/extraction.md) — DOM extraction, merge, and threading mechanics inside `finalize_case.mjs`. Load when diagnosing a `blocked` verdict or changing extraction/finalize logic.
+- [`references/dom-selectors.md`](references/dom-selectors.md) — Salesforce Lightning selector mappings for `dom_extractor.js`. Load when a portal DOM change breaks extraction and selectors need updating.
+
+## Input Contract
+
+Fetch/Sync, Summarize, and Delete each take one 8-digit case code: strip an optional `CASE-` prefix, then bind the remaining digits. When no 8-digit code is present in the input, ask the user for one and stop before running that workflow's next step.
+
+## Artifact Link Convention
+
+Render every generated artifact as a clickable link, built the same way in every workflow below:
+
+1. Start from the path — a verdict field (`casePath`, `mdPath`, `summaryPath`, …) or a known relative path (`data/cases/dashboard.html`).
+2. Resolve a relative path against the project root — the nearest ancestor containing `.git` (the same root `_paths.mjs` walks up to), not the process's cwd; a git worktree's cwd is not the checkout that owns `data/`.
+3. Convert `\` to `/`.
+4. Prefix `file:///`.
+
+---
+
 ## Fetch / Sync a Case
 
 Live portal capture and sync pipeline saving cases to local storage (`data/cases/<CODE>/`).
 
-### Step 1 — Input Normalization
-Extract the 8-digit case code from input (strip optional `CASE-` prefix).
-- Missing or non-8-digit code: Ask user for the 8-digit case code, then stop.
+### Step 1 — Bind Case Code
+
+Apply the [Input Contract](#input-contract).
 
 *Completion Criterion:* Exactly one 8-digit numeric code is bound, or clarification requested and execution stopped.
 
-### Step 2 — Run Capture Pipeline
+### Step 2 — Run Capture Pipeline (Deterministic)
 Run the capture CLI:
 ```bash
 node .claude/skills/qcomm/scripts/run_case.mjs <CODE>
@@ -49,11 +72,9 @@ Format report using fields from the stdout JSON verdict (`code`, `title`, `statu
 
 - **Case**: `<CODE>` — *<title>* (`<status>`)
 - **Comments**: `<commentCount>` total (`<newComments>` new)
-- **Artifacts**:
+- **Artifacts** (per the [Artifact Link Convention](#artifact-link-convention)):
   - [`data/cases/<CODE>/case.json`](file:///<normalized_casePath>)
   - [`data/cases/<CODE>/case.md`](file:///<normalized_mdPath>)
-
-*(Note: Convert backslashes `\` in `casePath` and `mdPath` to forward slashes `/` to form valid clickable `file:///` URLs on any OS).*
 
 *Completion Criterion:* Report rendered containing case metadata and clickable links derived directly from the verdict payload.
 
@@ -61,13 +82,11 @@ Format report using fields from the stdout JSON verdict (`code`, `title`, `statu
 
 ## Summarize a Case
 
-Summarize cached or live Qualcomm support cases into an executive digest, chronological flow narrative, and technical comment summaries in `data/cases/<CODE>/`.
+Summarize cached or live Qualcomm support cases into an executive digest, chronological flow narrative, and technical comment summaries in `data/cases/<CODE>/`. See [`references/workflow.md`](references/workflow.md) for the full diagram behind the three steps below.
 
-### Step 1 — Intake & Delta Preparation
-Extract the 8-digit case code from input (strip optional `CASE-` prefix).
-- Missing or non-8-digit code: Ask user for the 8-digit case code, then stop.
+### Step 1 — Prepare Delta (Deterministic)
 
-Run the prepare CLI from repo root:
+Apply the [Input Contract](#input-contract), then run the prepare CLI from repo root:
 ```bash
 node .claude/skills/qcomm/scripts/run_summary.mjs prepare <CODE>
 ```
@@ -81,8 +100,8 @@ Parse the stdout JSON line and branch strictly on `status`:
 
 *Completion Criterion:* Exactly one branch executed: stopped with message from verdict, or proceed to Step 2 with `deltaComments`.
 
-### Step 2 — Single-Pass Technical Summarization
-*Only execute when Step 1 returns `needs-summary`.*
+### Step 2 — Summarize the Delta (Agent Judgment)
+*Only execute when Step 1 returns `needs-summary`.* Every field below is synthesized by you in one pass — no script computes it.
 
 1. **Per-Comment Digest**: For every comment in `deltaComments`, generate a digest object in a single pass (populate only fields relevant to the comment):
 ```json
@@ -111,13 +130,12 @@ Parse the stdout JSON line and branch strictly on `status`:
 }
 ```
 
-4. **Write Payload & Finalize**:
-Save/pass the synthesized batch directly via single-step CLI parameter (`--payload '<json>'` or `--input <file.json>`) or standard input stream. Alternatively, save to `data/cases/<CODE>/.summary_temp.json` for legacy two-phase finalization.
+4. **Hold the Payload**: Keep the synthesized batch in agent context as `{ comments: [...], flow: "...", executive: {...} }`, ready to pass to Step 3 via `--payload`/`--input`/stdin. Only the legacy two-phase path (`--input <file.json>`, see Step 3) needs it written to `data/cases/<CODE>/.summary_temp.json` first.
 
 *Completion Criterion:* Digests synthesized for all `deltaComments` and updated `flow`.
 
-### Step 3 — Finalize & Persist
-Run single-step summarization CLI (recommended):
+### Step 3 — Finalize & Persist (Deterministic)
+Everything from here is mechanical: no further agent judgment is involved. Run the single-step CLI (recommended):
 ```bash
 node .claude/skills/qcomm/scripts/run_summary.mjs <CODE> --payload '{"comments":[...],"flow":"...","executive":{...}}'
 ```
@@ -133,11 +151,9 @@ Report concise case highlights directly to the user:
 - **Executive Summary**: Ball in court, next milestone, root cause/resolution (if present).
 - **Case Flow**: Current flow narrative.
 - **Recent Updates**: Highlights of newly synthesized comments.
-- **Artifacts**:
+- **Artifacts** (per the [Artifact Link Convention](#artifact-link-convention)):
   - [`data/cases/<CODE>/summary.md`](file:///<normalized_mdPath>)
   - [`data/cases/<CODE>/summary.json`](file:///<normalized_summaryPath>)
-
-*(Note: Convert backslashes `\` in `mdPath` and `summaryPath` from the CLI verdict to forward slashes `/` to form valid clickable `file:///` URLs on any OS).*
 
 *Completion Criterion:* Report rendered containing case status, flow highlights, and clickable links derived directly from the verdict payload.
 
@@ -146,16 +162,16 @@ Report concise case highlights directly to the user:
 ## Delete a Case's Local Cache
 
 Permanently removes one case's cached directory (`data/cases/<CODE>/`), its `_index.json` entry,
-and resyncs the overview/dashboard. There is no undo — the next capture starts from scratch.
+and resyncs the overview/dashboard. Deletion is permanent — the next capture starts from scratch.
 
 ### Step 1 — Confirm With User
-Extract the 8-digit case code from input (strip optional `CASE-` prefix).
-- Missing or non-8-digit code: Ask user for the 8-digit case code, then stop.
 
-**Ask the user to confirm the deletion by case code before running anything** (per [ADR
+Apply the [Input Contract](#input-contract).
+
+Run Step 2 only once the user has explicitly confirmed this exact case code in this conversation (per [ADR
 0003](../../../docs/adr/0003-case-delete-is-cli-only-confirmed-in-chat.md): every delete is
-agent-mediated so a confirmation step can never be skipped). Do not run Step 2 on an unconfirmed
-request, even if the user's phrasing already sounds decisive (e.g. a dashboard-copied instruction).
+agent-mediated so a confirmation step can never be skipped) — treat a dashboard-copied or
+already-decisive-sounding instruction as unconfirmed until the user says so directly.
 
 *Completion Criterion:* User has explicitly confirmed the specific case code to delete, or
 execution stopped.
@@ -202,8 +218,8 @@ Append optional flags when explicitly requested by the user:
 Present a concise snapshot in the final response:
 1. **Summary Metrics**: Total case count and breakdown by status.
 2. **Active Cases**: List open cases (case number, title, product, owner/opener, and recent comment snippet). Cap at the 10 most recent if total exceeds 10.
-3. **Artifact Links**: Direct clickable links to generated local artifacts:
-   - Dashboard: [dashboard.html](data/cases/dashboard.html)
-   - Overview Index: [_overview.json](data/cases/_overview.json)
+3. **Artifact Links** (per the [Artifact Link Convention](#artifact-link-convention)):
+   - [dashboard.html](file:///<normalized path to data/cases/dashboard.html>)
+   - [_overview.json](file:///<normalized path to data/cases/_overview.json>)
 
-*Completion Criterion:* Response contains verified counts from CLI output, active case highlights, and valid relative links to both artifacts.
+*Completion Criterion:* Response contains verified counts from CLI output, active case highlights, and valid clickable links to both artifacts.
