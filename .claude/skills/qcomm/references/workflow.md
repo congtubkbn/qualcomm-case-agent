@@ -36,21 +36,25 @@ flowchart TD
     subgraph S2_AGENT ["Step 2 Agent Judgment (Single-Pass)"]
         STEP2 --> SUM_COMMENTS["Summarize each comment in deltaComments:<br/>- kind / summary / impact / owner / nextAction / references"]
         SUM_COMMENTS --> UPD_FLOW["Update case flow narrative (incremental based on priorFlow)"]
-        UPD_FLOW --> WRITE_TEMP["Write intermediate batch to scratch/temp JSON<br/>{ comments: [...], flow: '...', executive: {...} }"]
+        UPD_FLOW --> WRITE_TEMP["Build payload in agent context<br/>{ comments: [...], flow: '...', executive: {...} }"]
     end
     
-    WRITE_TEMP --> STEP3["Step 3 (CLI): run_summary.mjs finalize &lt;CODE&gt; --input &lt;temp.json&gt;"]
+    WRITE_TEMP -->|"recommended"| STEP3["Step 3 (CLI): run_summary.mjs &lt;CODE&gt; --payload '&lt;json&gt;'<br/>(single-step: reruns prepare + finalizes)"]
+    WRITE_TEMP -.->|"legacy, file-only"| STEP3ALT["write .summary_temp.json,<br/>then: run_summary.mjs finalize &lt;CODE&gt; --input &lt;file.json&gt;"]
+    STEP3ALT -.-> STEP3
     
     subgraph S3_FINALIZER ["Step 3 Finalizer (Deterministic)"]
-        STEP3 --> MERGE["merge.mjs: mergeSummary()<br/>Preserve prior summaries + append new batch + update flow, status, metadata & executive"]
+        STEP3 --> MERGE["merge.mjs: mergeSummary()<br/>insertCommentsByParent(): nests new comments into prior's<br/>tree by parentId, oldest-first at every level (#233-#236);<br/>updates flow, status, metadata & executive"]
         MERGE --> W_JSON["Write: data/cases/&lt;CODE&gt;/summary.json"]
-        W_JSON --> RENDER["render_summary.mjs: renderSummaryMd()<br/>Format newest-first presentation"]
+        W_JSON --> RENDER["render_summary.mjs: renderSummaryMd()<br/>Format oldest-first presentation"]
         RENDER --> W_MD["Write: data/cases/&lt;CODE&gt;/summary.md"]
         W_MD --> OUT_FINAL["Return status: 'summarized'<br/>{ summaryPath, mdPath, newCount }"]
     end
     
     OUT_FINAL --> REPORT_USER(["Report to User: Case Status + Flow narrative + Newest comment summaries"])
 ```
+
+`STEP3ALT` is the legacy two-phase path: the agent writes the payload to a temp file itself and calls `finalize --input <file.json>`, which only accepts a file path (no `--payload`/stdin). Both paths merge through the same `mergeSummary()`.
 
 ---
 
@@ -73,13 +77,15 @@ flowchart TD
   - Produces per-comment digest: `id`, `timestamp`, `author`, `kind`, `summary`, `impact`, `owner`, `nextAction`, `references` (as applicable).
   - Updates the `flow` narrative incrementally using `priorFlow` as context.
   - Optionally produces an `executive` object (`ballInCourt`, `blockerOrNextMilestone`, `rootCause`, `resolution`) — a standup-ready snapshot, updated incrementally like `flow`.
-- Saves payload `{ comments: [...], flow: "...", executive: {...} }` into a temporary JSON file (e.g. `temp/summary_<CODE>.json`); `executive` is optional.
+- Holds the payload `{ comments: [...], flow: "...", executive: {...} }` in agent context; `executive` is optional. No scratch file is required for the recommended path — only the legacy path below writes one.
 
-### Step 3: Finalize (`run_summary.mjs finalize <CODE> --input <temp.json>`)
-- Pure merge via `mergeSummary()`: Preserves previous comment summaries untouched, appends new ones in canonical order, updates `flow`, `status`, and `lastSummarizedAt`.
+### Step 3: Finalize
+- **Recommended, single CLI call**: `run_summary.mjs <CODE> --payload '<json>'` (or `--input <file.json>`, or pipe JSON on stdin). This reruns `prepare` internally and finalizes in one process — no intermediate file needed.
+- **Legacy, two-phase**: agent writes the payload to `data/cases/<CODE>/.summary_temp.json` itself, then runs `run_summary.mjs finalize <CODE> --input <file.json>`. The `finalize` subcommand only accepts `--input <file.json>` — no `--payload` string and no stdin.
+- Both paths merge via `mergeSummary()` → `insertCommentsByParent()`: rebuilds the nested comment tree from `case.json`'s `parentIdOf`/`commentOrder`, nests each new digest under its parent (or top-level if unresolved), oldest-first at every level (#233-#236) — prior comment summaries are untouched, new ones are inserted into the tree, not appended flat.
 - Also carries `title`/`url`/`priority`/`product` through from `case.json` (no agent involvement — read directly by the orchestrator) and updates `executive` when the Step 2 payload includes one; a field missing from either source falls back to the prior merged value.
 - Persists structured `summary.json`.
-- Renders human-readable `summary.md` in **Newest-First** order, with a case metadata header and optional `## Executive Summary` section above `## Case Flow`.
+- Renders human-readable `summary.md` in **Oldest-First**, hierarchically-numbered order (mirrors `case.json`), with a case metadata header and optional `## Executive Summary` section above `## Case Flow`.
 
 ### Step 4: User Reporting
 - Outputs:
@@ -94,8 +100,8 @@ flowchart TD
 | File | Owner | Format / Ordering | Purpose |
 |:---|:---|:---|:---|
 | `summary.json` | `qcomm` | JSON · Canonical storage | Structured summaries, comment IDs, flow narrative, and metadata |
-| `summary.md` | `qcomm` | Markdown · **Newest-First** | Quick technical digestion for engineers |
-| `case.json` | `qcomm` | JSON · **Newest-First** (replies grouped under parent) | Read-only input source of truth |
+| `summary.md` | `qcomm` | Markdown · **Oldest-First**, hierarchical numbering | Quick technical digestion for engineers |
+| `case.json` | `qcomm` | JSON · **Oldest-First**, nested tree (`subs`) | Read-only input source of truth |
 
 ---
 
@@ -104,4 +110,4 @@ flowchart TD
 1. **Downstream Read-Only Consumer**: Never mutates `case.json`, `_index.json`, or the capture pipeline.
 2. **Deterministic Mechanics, Model for Judgment**: Script manages filesystem, delta, and formatting; LLM is used only for synthesizing technical meaning.
 3. **Delta Efficiency**: Unchanged cases cost 0 model calls; updated cases process only unsummarized comments.
-4. **Ordering**: `case.json` is newest-first (`orderCommentsForPresentation` — supersedes the original Oldest → Newest design in PRD #105-109); `summary.md` mirrors that newest-first order (ADR 0002, updated).
+4. **Ordering**: `case.json` and `summary.json`/`summary.md` are oldest-first, nested-tree at every level (top-level and each comment's `subs`) — reverted from a 2026-08-27 newest-first experiment, closed out by #233-#236 (ADR 0002 Addendum).
