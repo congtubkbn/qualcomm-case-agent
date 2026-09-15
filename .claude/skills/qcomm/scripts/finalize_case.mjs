@@ -75,14 +75,14 @@ export function computeHash(raw) {
 // never actually expanded — see run_case.mjs's stuck-loop detection) still
 // extracts fine, just with the collapsed teaser text plus the control's own
 // label trailing the body (Chatter renders it as a sibling INSIDE the same
-// container extract_case.js reads). This is root-cause-agnostic: it catches a
+// container dom_extractor.js's QC.extractCase() reads). This is root-cause-agnostic: it catches a
 // stuck click loop, a selector drift, or any other way a post ends up
 // half-captured, by looking at the one thing that's always true of a genuine
 // full expansion — the label is gone from the body.
 const COLLAPSED_BODY_RE = /\bExpand Post\s*$/i;
 
 // Only check comments NEW to this capture — a --merge (and a full re-capture
-// of a cache) deliberately leaves OLD posts collapsed (see expand_step.js) and
+// of a cache) deliberately leaves OLD posts collapsed (see dom_extractor.js's QC.expandStep) and
 // keeps their cached verbatim bodies, so those legitimately still carry the
 // label in the freshly re-extracted DOM. Checking the whole list would reject
 // every routine update run.
@@ -634,7 +634,7 @@ export function sortCommentsChronological(comments, referenceDate = new Date()) 
     }
     // Tied timestamp (e.g. both "15 days ago"): prefer displayPosition, the
     // article's on-page vertical offset captured independently of extraction
-    // order (extract_case.js). originalIndex is only a fallback for comments
+    // order (dom_extractor.js's QC.extractCase()). originalIndex is only a fallback for comments
     // that never got a displayPosition (e.g. legacy cached data).
     const aPos = a.c.displayPosition;
     const bPos = b.c.displayPosition;

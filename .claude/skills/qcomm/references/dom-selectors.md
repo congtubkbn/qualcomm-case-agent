@@ -1,6 +1,6 @@
 # Qualcomm Support Portal — DOM Selector Reference
 
-Selector mappings and Salesforce Lightning DOM patterns for `scripts/extract_case.js`. **Maintenance reference** — load when Salesforce DOM changes break extraction and selectors need updating.
+Selector mappings and Salesforce Lightning DOM patterns for `QC.extractCase()` in the unified **`scripts/dom_extractor.js`** module. **Maintenance reference** — load when Salesforce DOM changes break extraction and selectors need updating.
 
 For the extraction pipeline, finalization, and merge mechanics, see [`extraction.md`](extraction.md).
 
@@ -24,7 +24,7 @@ DOM structures and selector mappings for Qualcomm Support portal (Salesforce Lig
 | Top-level Feed post | `article.cuf-feedItem:not(.cuf-comment)` | Top-level post container. Direct child of feed list, NOT inside `ul.cuf-replies` |
 | Nested Chatter reply | `ul.cuf-replies article.cuf-comment` | Marked with `.cuf-comment` and nested within `ul.cuf-replies` |
 | → author | First `<a>` inside article in DOM order | Actor name link (e.g. "Duc Hoang", "Sushmita Suresh Rao") |
-| → timestamp (top-level) | `span.cuf-timestamp[title]` / `a.cuf-timestamp` | Top-level posts provide absolute date string (e.g. `"August 10, 2026 at 7:59 PM"`) in `title` attribute or link text (see fallback chain in `extract_case.js`) |
+| → timestamp (top-level) | `span.cuf-timestamp[title]` / `a.cuf-timestamp` | Top-level posts provide absolute date string (e.g. `"August 10, 2026 at 7:59 PM"`) in `title` attribute or link text (see fallback chain in `QC.extractTimestamp()`, `dom_extractor.js`) |
 | → timestamp (nested reply) | `span.cuf-timestamp > a.cuf-timestamp` (no `title`) | Replies render relative text only (e.g. `"12 days ago"`); normalized at capture time to absolute ISO strings |
 | → body (clean) | **`.feedBodyInner`** (alias `.cuf-feedBodyText`) | Post text excluding headers/footers. `domLines()` reconstructs structural line breaks (`<p>`, `<div>`, `<br>`) bypassing `innerText` layout dependencies; `cleanBody()` removes separator noise |
 | Feed item count | `status "N Chatter Feed Items"` (`role="status"`) | Counts **top-level** feed items only (excluding nested replies). Match `/(\d+)\s+Chatter\s+Feed\s+Items?/i` |

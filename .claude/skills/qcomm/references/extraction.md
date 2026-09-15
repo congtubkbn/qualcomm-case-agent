@@ -4,21 +4,22 @@
 
 For DOM selector mappings and Salesforce Lightning markup patterns, see [`dom-selectors.md`](dom-selectors.md).
 
-The pipeline evaluates `scripts/extract_case.js` (or an updated copy) via Chrome DevTools Protocol (CDP) `Runtime.evaluate` (`CdpClient.eval()`) against the **already-expanded live DOM**. The script's final evaluated expression is the raw case object. The extractor inspects the live DOM directly in browser context and hands the resulting raw JSON to `finalize_case.mjs` for normalization, deduplication, and persistence.
+The pipeline evaluates the unified `scripts/dom_extractor.js` module (`window.__QC_DOM__`) via `evalFileViaCdp()` (`browser.mjs`), which reads the file, strips comments, and sends it straight over the already-open CDP WebSocket as a `Runtime.evaluate` payload — no `agent-browser` subprocess, no base64, no shell in the loop. Dispatch is by an injected `__ACTION` variable; extraction runs `{ __ACTION: 'extractCase' }`, which the script's dispatcher routes to `QC.extractCase()` against the **already-expanded live DOM**. The module's final evaluated expression is the raw case object, handed to `finalize_case.mjs` for normalization, deduplication, and persistence.
 
-> **Pre-condition — expansion is already done.** The expansion loop fully expands the page before extraction: it clicks **"View More Posts"** to a fixpoint, expands every **"Expand Post"** link (top-level and nested Chatter replies), and clicks the **"Description"** button. Do not re-navigate or reload the case URL — doing so discards the expanded DOM. Extract from the page in its fully expanded state.
+> **Pre-condition — expansion is already done.** The expansion loop (`QC.expandStep`, action `expandStep`) fully expands the page before extraction: it clicks **"View More Posts"** to a fixpoint, expands every **"Expand Post"** link (top-level and nested Chatter replies), and clicks the **"Description"** button. Do not re-navigate or reload the case URL — doing so discards the expanded DOM. Extract from the page in its fully expanded state.
 
-> **Live DOM verification.** The portal's DOM is only accessible after authentication and may evolve over time. Maintainers should inspect the container/field structure from the live DOM, update `scripts/extract_case.js` as needed, evaluate in browser context, and validate via `finalize_case.mjs`.
+> **Live DOM verification.** The portal's DOM is only accessible after authentication and may evolve over time. Maintainers should inspect the container/field structure from the live DOM, update `QC.extractCase()` / `QC.sectionValue()` in `scripts/dom_extractor.js` as needed, evaluate in browser context, and validate via `finalize_case.mjs`.
 
-## Step 1 — Extract the Case via Extractor Script
+## Step 1 — Extract the Case via the Unified DOM Extractor
 
-The canonical extractor script is located at **`scripts/extract_case.js`**, configured for Salesforce Lightning structures. The target case folder (`data/cases/<CODE>/`) is prepared at the start of capture.
+The canonical extractor lives in **`scripts/dom_extractor.js`**, a single module namespaced under `window.__QC_DOM__` that consolidates the Chatter feed expander, case-state observer, login helper, tab switcher, search-results parser, and DOM extractor (`QC.extractCase()`) — configured for Salesforce Lightning structures. The target case folder (`data/cases/<CODE>/`) is prepared at the start of capture.
 
 Three essential rules govern browser script evaluation:
 
-1. **Wrap in an IIFE; do NOT use a bare top-level `return`.** CDP script evaluation runs in expression context (similar to a REPL). A bare `return extractCase();` at the top level throws `SyntaxError: Illegal return statement`. Encapsulate logic inside a function and let the IIFE execution be the final evaluated expression.
+1. **Wrap in an IIFE; do NOT use a bare top-level `return`.** CDP script evaluation runs in expression context (similar to a REPL). A bare `return extractCase();` at the top level throws `SyntaxError: Illegal return statement`. `dom_extractor.js` is a single IIFE that assigns `window.__QC_DOM__` and, at the bottom, dispatches on `__ACTION` as its own final expression.
 2. **Return the Object, not `JSON.stringify(object)`.** The CDP evaluation runtime serializes the object automatically. Returning a stringified string causes redundant escaping.
-3. **Ensure UTF-8 clean output** when persisting raw capture results to disk for finalization.
+3. **Injected vars must be function-scoped, never page globals.** `evalFileViaCdp(cdp, scriptPath, vars)` wraps the script in a function that declares each `vars` key (`__ACTION`, `__ANCHOR`, `__PROBE`, …) as a local `var`. A bare top-level `var __PROBE = true` in `Runtime.evaluate` becomes a property of the page's global object and **survives the call** — a leaked `__PROBE` once caused every later `expandStep` tick to short-circuit at the probe branch silently, with nothing left to expand ever reported. Never inject a raw preamble at the top level.
+4. **Ensure UTF-8 clean output** when persisting raw capture results to disk for finalization.
 
 Sanity-check the raw extraction file, then finalize:
 
@@ -59,11 +60,11 @@ node ".claude/skills/qcomm/scripts/finalize_case.mjs" <CODE> "data/cases/<CODE>/
 - **Verdict Emission:** Outputs `newComments`, `newCommentIds`, `headerChanged`, and `changed`. If `newComments: 0` and no headers changed, the verdict reports `no-update`.
 - `--merge` invoked without an existing `data/cases/<CODE>/case.json` exits with code 2 to mandate a full capture.
 
-**Header Metadata on Detail Tab:** Header fields (Title/Subject, Status, Priority, Severity, Customer Project, Account Name) reside on the case **Detail tab** and global search results row rather than the Chatter Feed view. `extract_case.js` initializes these fields to `""`; `run_case.mjs` switches to the Detail tab to extract them or accepts `--title`/`--status`/`--priority`/`--severity` flags.
+**Header Metadata on Detail Tab:** Header fields (Title/Subject, Status, Priority, Severity, Customer Project, Account Name) reside on the case **Detail tab** and global search results row rather than the Chatter Feed view. `QC.extractCase()` leaves these fields empty when the Feed tab lacks the matching Detail elements; `run_case.mjs` switches to the Detail tab (`{ __ACTION: 'switchTab', __TARGET_TAB: 'Detail' }`) to extract them or accepts `--title`/`--status`/`--priority`/`--severity` flags.
 
-## The Extractor Script
+## The Extractor Module
 
-The canonical extractor is **`scripts/extract_case.js`**, evaluated via CDP `Runtime.evaluate` (`CdpClient.eval()`). It encapsulates the three execution rules (IIFE / return-object / UTF-8) and selector mappings, operating directly against the already-expanded DOM.
+The canonical extractor is `QC.extractCase()` inside **`scripts/dom_extractor.js`**, invoked via `evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'extractCase' })`, which evaluates over the CDP WebSocket (`Runtime.evaluate`, native `cdp_client.mjs`, no `agent-browser` CLI hop). It encapsulates the three execution rules (IIFE / return-object / UTF-8) and selector mappings, operating directly against the already-expanded DOM.
 
 ### Raw Extractor Output Schema
 
@@ -112,7 +113,7 @@ Raw extractor output undergoes multi-stage processing inside `finalize_case.mjs`
    - Positional IDs in legacy caches are migrated on read (`migrateIds`), dropping stale `enrichment` fields.
 
 2. **`parentId` Resolution Ordering Constraint**:
-   - `extract_case.js` tags each comment with `isReply` (via `.cuf-comment` or `ul.cuf-replies`) and `parentIndex` (referencing `lastTopLevelIndex` in initial DOM traversal order).
+   - `QC.extractCase()` tags each comment with `isReply` (via `.cuf-comment` or `ul.cuf-replies`) and `parentIndex` (referencing `lastTopLevelIndex` in initial DOM traversal order).
    - Resolving `parentIndex` into `parentId` in `finalize_case.mjs` follows a strict sequence:
      - **Must run AFTER `assignIds`**: `fresh.comments[c.parentIndex].id` must resolve to the parent post's assigned content ID.
      - **Must run BEFORE `sortCommentsChronological` / `mergeComments`**: Reordering comments by timestamp changes array indices. Resolving `parentIndex` against a reordered array causes invalid parent references or out-of-bounds errors.

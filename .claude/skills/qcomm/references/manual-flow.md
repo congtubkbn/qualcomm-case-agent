@@ -37,7 +37,7 @@ Chrome starts with `--user-data-dir=data/chrome-profile` attached to CDP port `9
 
 When an Okta session lapses, the portal redirects to `account.qualcomm.com`. `fastLandOnCase()` detects the `AUTH` state and coordinates automated autofill and manual OTP handoff:
 
-- **Password Autofill**: `login_fill.js` (evaluated via `CdpClient.eval()`) fills username and password fields from the DPAPI-protected secret at `data/.secrets/qid.bin`, retrying up to 3 times for transient DOM readiness.
+- **Password Autofill**: `QC.loginFill()` in the unified `scripts/dom_extractor.js` module (dispatched via `evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'loginFill', ... })` over the CDP WebSocket) fills username and password fields from the DPAPI-protected secret at `data/.secrets/qid.bin`, retrying up to 3 times for transient DOM readiness.
 - **OTP Polling Loop**: Once Okta accepts the password and presents the OTP challenge, `handleAuth()` automatically enters a 2-second polling loop for up to 5 minutes (matching OTP expiration). As soon as the human enters the OTP and navigation completes, capture resumes automatically without re-invoking the command.
 - **Account Lockout Protection**: If Okta rejects the stored password (`reason: password-rejected`), `data/.secrets/qid.bin` is deleted immediately and never retried blindly, preventing account lockout.
 
@@ -78,7 +78,7 @@ Triggered when pre-flight checks fail (missing username or secret file) or when 
 Triggered when the stored password was successfully accepted by Okta, but the user did not enter the 6-digit email MFA OTP within the ~5 minute window.
 
 ### Automated Handling
-- `fastLandOnCase()` automatically autofills credentials via `login_fill.js` over CDP.
+- `fastLandOnCase()` automatically autofills credentials via `QC.loginFill()` (`dom_extractor.js`) over CDP.
 - Okta accepts the password and navigates to the MFA challenge.
 - `fast_landing.mjs` automatically polls every 2 seconds for up to 5 minutes waiting for human OTP entry.
 
@@ -149,7 +149,7 @@ Triggered when the portal DOM fails to hydrate or the feed expansion loop hits s
    ```bash
    node ".claude/skills/qcomm/scripts/run_case.mjs" <CODE> --mode full
    ```
-3. If portal UI has changed, inspect `.claude/skills/qcomm/scripts/expand_step.js` or `extract_case.js`.
+3. If portal UI has changed, inspect the relevant action in `.claude/skills/qcomm/scripts/dom_extractor.js` (`QC.expandStep` or `QC.extractCase`).
 
 ---
 

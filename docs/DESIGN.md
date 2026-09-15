@@ -100,7 +100,7 @@ graph TD
   A["Runbooks — SKILL.md · .clinerules · references/*<br/>harness-agnostic prose, loaded on demand"]
   B["Orchestration — run_case.mjs"]
   C["Browser adapter & Fast Landing — browser.mjs · cdp_client.mjs · fast_landing.mjs"]
-  D["Page scripts — login_fill.js · expand_step.js · extract_case.js · switch_tab.js · check_collapsed.js<br/>run INSIDE the tab, return small objects"]
+  D["Page script — dom_extractor.js (window.__QC_DOM__)<br/>unified loginFill · expandStep · extractCase · switchTab · checkCollapsed actions<br/>run INSIDE the tab, return small objects"]
   E["Persistence + integrity — intake.mjs · finalize_case.mjs · lock.mjs · _paths.mjs"]
   F["Presentation — render_case.mjs (case.md)"]
   A --> B --> C --> D
@@ -126,13 +126,13 @@ flowchart TD
   end
 
   subgraph ThuThập["3. Mở rộng & Trích xuất dữ liệu"]
-    RunCase --> Expand["scripts/expand_step.js<br/>(Chạy trong tab: Click mọi nút 'Expand Post' / 'More comments')"]
-    RunCase --> Extract["scripts/extract_case.js<br/>(Trích xuất metadata, posts, attachments ra JSON)"]
+    RunCase --> Expand["dom_extractor.js — __ACTION: 'expandStep'<br/>(Chạy trong tab: Click mọi nút 'Expand Post' / 'More comments')"]
+    RunCase --> Extract["dom_extractor.js — __ACTION: 'extractCase'<br/>(Trích xuất metadata, posts, attachments ra JSON)"]
   end
 
   subgraph XửLýLưuTrữ["4. Lưu trữ, Kiểm thử & Xuất file"]
     RunCase --> Finalize["scripts/finalize_case.mjs<br/>(Gán ID comment, tính Hash, ghi case.json & _index.json)"]
-    RunCase --> Verify["scripts/verify_case.mjs<br/>+ scripts/check_collapsed.js<br/>(Kiểm tra không bị sót comment bị đóng)"]
+    RunCase --> Verify["scripts/verify_case.mjs<br/>+ dom_extractor.js — __ACTION: 'checkCollapsed'<br/>(Kiểm tra không bị sót comment bị đóng)"]
     RunCase --> Render["scripts/render_case.mjs<br/>(Tạo case.md)"]
   end
 ```
@@ -140,11 +140,12 @@ flowchart TD
 Two properties fall out of this layering and are worth stating as rules, because most of the
 project's historical bugs were violations of them:
 
-- **Nothing crosses a shell.** `browser.mjs` spawns `agent-browser` with an argv array; page
-  scripts cross as base64 or run via native WebSocket CDP (`cdp_client.mjs`). No quoting, no dialect (§4, D4/D5).
-- **Page scripts return counters, never DOM dumps.** `expand_step.js` clicks *inside the page* in a
-  loop and returns `{articles, displayed, anchorIdx, clicked…}` — a few dozen bytes replacing ~15
-  snapshot round-trips per case.
+- **Nothing crosses a shell.** `browser.mjs` spawns `agent-browser` with an argv array (used only for
+  `open`/navigation); the page script itself crosses as a `Runtime.evaluate` payload straight over the
+  native WebSocket CDP client (`evalFileViaCdp()`, `cdp_client.mjs`) — no shell, no base64, no quoting (§4, D4/D5).
+- **Page scripts return counters, never DOM dumps.** `dom_extractor.js`'s `QC.expandStep` (action
+  `expandStep`) clicks *inside the page* in a loop and returns `{articles, displayed, anchorIdx,
+  clicked…}` — a few dozen bytes replacing ~15 snapshot round-trips per case.
 
 ### 3.3 Component responsibilities
 
@@ -154,9 +155,9 @@ project's historical bugs were violations of them:
 | `browser.mjs` | Chrome lifecycle on CDP 9773, `eval -b` transport, error typing (`BrowserError`) | Knowing anything about cases |
 | `cdp_client.mjs` | Native lightweight WebSocket CDP client (zero external binary dependencies for core landing) | DOM logic or parsing |
 | `fast_landing.mjs` | Fast-path direct navigation (cached SFID) + event-driven DOM MutationObserver search landing | Scraping comment feeds |
-| `login_fill.js` | Fill Okta username/password via CDP and classify outcome: AUTHENTICATED/OTP_REQUIRED/REJECTED | DOM parsing outside Okta |
-| `expand_step.js` | One expansion/pagination tick; doubles as the fast no-update probe | Extraction |
-| `extract_case.js` | Read the expanded DOM into the raw case object | Completeness policy |
+| `dom_extractor.js` (`QC.loginFill`, action `loginFill`) | Fill Okta username/password via CDP and classify outcome: AUTHENTICATED/OTP_REQUIRED/REJECTED | DOM parsing outside Okta |
+| `dom_extractor.js` (`QC.expandStep`, action `expandStep`) | One expansion/pagination tick; doubles as the fast no-update probe | Extraction |
+| `dom_extractor.js` (`QC.extractCase`, action `extractCase`) | Read the expanded DOM into the raw case object | Completeness policy |
 | `finalize_case.mjs` | Completeness gates, merge policy, SHA-256 identity, canonical write, index update | Browser, analysis |
 | `render_case.mjs` | Deterministic formatting of whatever is in `case.json` | Summarizing, reordering, inventing |
 
@@ -171,8 +172,8 @@ that is what makes it reviewable.
 |---|---|---|---|---|
 | D1 | **Real system Chrome over CDP 9773 with a persistent `--user-data-dir`** | Playwright's bundled Chromium; a fresh headless context per run | The bundled build's CDP handshake broke (`os error 10060`); more fundamentally, the Okta session must *survive between runs* (C2) — a persistent, OS-trusted, signed browser profile is what makes MFA one-time (~30 days) instead of per-run | A real desktop session is required; the machine must be logged in; profile is user-bound and non-portable |
 | D2 | **Capture is deterministic code — zero model tokens** (§3.1) | Agent-drives-browser choreography | C4: ~123k → ~5k tokens per case | The pipeline must encode DOM knowledge that a model could have improvised; DOM drift becomes a code change |
-| D3 | **In-page click loops** (`expand_step.js`) instead of snapshot→ref→click | `agent-browser snapshot -c` + one click per control | Removes the dominant token cost and ~15 round-trips per case; the loop is trivially bounded | The page script cannot ask for help; it must be defensive and return diagnostics |
-| D4 | **`agent-browser eval -b <base64>`** for every page script | `eval --stdin`, `<` redirection, inline JS | `--stdin` **silently returns `null`** when fed from a PowerShell pipe (reproduced live, flow 1784759542159 §3); base64 has no shell metacharacters, so the nested-quote class of bug disappears too | 8191-char cmd.exe ceiling → `browser.mjs` strips comments and refuses payloads > 7000 b64 chars |
+| D3 | **In-page click loops** (`dom_extractor.js`'s `QC.expandStep`) instead of snapshot→ref→click | `agent-browser snapshot -c` + one click per control | Removes the dominant token cost and ~15 round-trips per case; the loop is trivially bounded | The page script cannot ask for help; it must be defensive and return diagnostics |
+| D4 | **`evalFileViaCdp()` sends the page script straight over the CDP WebSocket** (`Runtime.evaluate`, native `cdp_client.mjs`) | `agent-browser eval -b <base64>`; `eval --stdin`; `<` redirection; inline JS | The original base64-via-`agent-browser` transport avoided `--stdin`'s silent `null` return on a PowerShell pipe (reproduced live, flow 1784759542159 §3) and shell metacharacters, but still capped payloads at the 8191-char cmd.exe line ceiling; moving eval onto the already-open WebSocket removes that ceiling entirely — scripts of any size are safe | Injected vars (`__ACTION`, `__ANCHOR`, …) must be declared function-scoped by `buildPayload()`, never as bare top-level `var`s, or they leak onto the page's global object and survive across calls (see the comment on `buildPayload()` in `browser.mjs`) |
 | D5 | **Node `spawnSync` with an argv array; on Windows one hand-built `cmd.exe` line rejecting metacharacters** | `shell: true`, PowerShell wrappers | Five distinct quoting failures in one flow (flow 1784759542159 §1). An argv array is not re-tokenized on POSIX; on Windows the metachar check turns a silent mangling into a loud error | A path containing `& \| < > ^ " % !` fails fast rather than being escaped (§11, I7) |
 | D6 | **The agent↔code contract is one JSON line + a distinct exit code per outcome** | Prose output, or the agent reading `case.json` | Machine-checkable, cheap, and needs no model in the loop to branch on | The verdict schema is now public API — a status rename is a breaking change for every caller |
 | D7 | **Incremental sync via SHA-256 over verbatim fields only** (`computeHash`) | Timestamp comparison; hashing the whole file | Identity should track only what a human wrote, not incidental fields elsewhere in the file. Stable field order ⇒ stable hash across runs | The hash covers relative timestamps, which drift, so a full re-capture can hash differently with no real change (§11, I16) |
@@ -267,7 +268,7 @@ The aggregated case index (`_overview.json`) and the offline static HTML dashboa
 <!-- BEGIN GENERATED: reference -->
 
 > Generated by `npm run docs` from the source tree — **do not edit by hand**.
-> Source fingerprint `6f6aff76bf26` over 87 files.
+> Source fingerprint `18dbe0d9e3db` over 87 files.
 > Stale block ⇒ `npm run docs:check` fails.
 
 #### Qcomm scripts
@@ -364,7 +365,7 @@ Exported API — qcomm scripts:
 | `fast_landing.mjs` | `fastLandOnCase(code, options = {})` | async fn | Fast-path direct navigation and event-driven landing engine. |
 | `finalize_case.mjs` | `EXIT` | value | Exit codes (exported so tests can import) |
 | `finalize_case.mjs` | `computeHash(raw)` | function | Hash only the raw, verbatim fields. |
-| `finalize_case.mjs` | `findCollapsed(comments, newIds)` | function | Only check comments NEW to this capture — a merge (and a full re-capture of a cache) deliberately leaves OLD posts collapsed (see expand_step.js) and keeps their cached verbatim bodies, so those legitimately still carry the label in the freshly re-extracted DOM. |
+| `finalize_case.mjs` | `findCollapsed(comments, newIds)` | function | Only check comments NEW to this capture — a merge (and a full re-capture of a cache) deliberately leaves OLD posts collapsed (see dom_extractor.js's QC.expandStep) and keeps their cached verbatim bodies, so those legitimately still carry the label in the freshly re-extracted DOM. |
 | `finalize_case.mjs` | `countAssert(capturedCount, displayedCount)` | function | Completeness gate comparison (Issue #91): The Salesforce Chatter badge ("N Chatter Feed Items") counts only top-level posts, whereas our Feed extractor captures both top-level posts AND nested replies (e.g. |
 | `finalize_case.mjs` | `HEADER_KEYS` | value | Header fields the agent already holds in-context from the PHASE 1 search row. |
 | `finalize_case.mjs` | `DETAIL_KEYS` | value | Salesforce Lightning Detail tab metadata fields persisted to canonical case.json. |
