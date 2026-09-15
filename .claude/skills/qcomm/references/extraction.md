@@ -37,11 +37,11 @@ node ".claude/skills/qcomm/scripts/finalize_case.mjs" <CODE> "data/cases/<CODE>/
 
 `finalize_case.mjs` normalizes fields before persisting:
 - Assigns stable content-derived hashes for comment IDs (`assignIds`).
-- Resolves and injects `parentId` from DOM-order `parentIndex`.
+- Resolves and injects `parentId` from DOM-order `parentIndex` (consumed when building the tree, then dropped).
 - Normalizes any relative or non-ISO absolute timestamp into an ISO-8601 string (preserving original text in `rawTimestamp`).
 - Generates 1–2 sentence preview summaries (`summary`).
 - Strips transient extraction fields (`isReply`, `parentIndex`, `displayPosition`).
-- Reorders comments for presentation (newest activity first with replies grouped under parent posts).
+- Builds the nested comment tree (`subs:[]`): top-level posts oldest→newest, each post's replies also oldest→newest.
 
 ## Update Runs (`--merge`) — Incremental Capture of Cached Cases
 
@@ -124,13 +124,14 @@ Raw extractor output undergoes multi-stage processing inside `finalize_case.mjs`
    - The hierarchy is strictly **Post → Reply only** (no reply-to-reply nesting).
    - In `case.json`, every reply's `parentId` references a top-level post (never another reply).
 
-4. **Chronological Sorting & Presentation Ordering**:
+4. **Chronological Sorting & Nested-Tree Ordering**:
    - `sortCommentsChronological` orders comments ascending (Oldest → Newest). Missing timestamps are interpolated between known sibling bounds, breaking ties with `displayPosition` (`getBoundingClientRect().top`).
-   - `orderCommentsForPresentation` establishes final persisted ordering in `case.json`: **newest activity first, with each reply grouped immediately after its parent post**. Both top-level posts and thread replies are ordered newest-first.
+   - `buildNestedTree` (`scripts/comment_tree.mjs`) builds the final persisted structure from that chronological list: top-level posts oldest→newest, each post's `subs` (its replies) also oldest→newest. `parentId` is dropped in the process — position inside `subs` is the only parent/child signal that survives into `case.json`.
 
 5. **Canonical Persisted Comment Schema**:
    - Transient extraction fields (`isReply`, `parentIndex`, `displayPosition`, and legacy `role`/`company`) are removed prior to persistence.
    - Summaries (`summary`) are generated via `extractSummary(body)` (1–2 concise sentences with salutations and expand markers stripped).
+   - `parentId` is dropped once `buildNestedTree` runs — position inside `subs` is the only parent/child signal in the persisted shape.
    - The canonical persisted comment shape in `case.json`:
      ```js
      {
@@ -140,7 +141,7 @@ Raw extractor output undergoes multi-stage processing inside `finalize_case.mjs`
        author: string,          // Author display name
        body: string,            // Cleaned comment body text
        attachments: Array<{ name: string, url: string }>,
-       parentId: string | null, // Parent post content ID, or null if top-level
+       subs: Array<Comment>,    // Replies to this post, same shape, oldest-first; always [] on a reply (no reply-to-reply in Chatter)
        summary: string          // Concise 1-2 sentence preview summary
      }
      ```
@@ -162,7 +163,7 @@ genuineCommentCount(comments, description) >= displayedCommentCount
 Before accepting extracted data:
 - `comments.length` matches the count observed on the expanded page.
 - No comment contains an empty `body` when visibly populated on screen.
-- All timestamps parse to valid dates, sorting newest-first with stable ordering.
+- All timestamps parse to valid dates, sorting oldest-first with stable ordering.
 
 ## Virtualized Lists
 

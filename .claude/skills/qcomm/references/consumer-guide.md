@@ -53,8 +53,10 @@ The root `data/cases/` holds the global index, multi-case overview, and dashboar
       "author": "string",
       "body": "verbatim text",
       "summary": "1-2 sentence preview",
-      "parentId": "string | null",
-      "attachments": [{ "name": "string", "url": "string" }]
+      "attachments": [{ "name": "string", "url": "string" }],
+      "subs": [
+        { "...": "same Comment shape, oldest-first; always [] on a reply (no reply-to-reply)" }
+      ]
     }
   ],
   "detailExtracted": true,
@@ -77,6 +79,7 @@ The root `data/cases/` holds the global index, multi-case overview, and dashboar
 - **`comments[].summary`** (`string`, always present): 1-2 sentence preview automatically generated from `body`. Derived directly from verbatim comment text.
 - **`comments[].rawTimestamp`** (`string`, conditional): When the portal's timestamp (relative, e.g. "13h ago", or absolute-but-non-ISO, e.g. "September 2, 2026 at 11:55 PM") was resolved to an ISO-8601 string, the original portal string is preserved in `rawTimestamp`. `comments[].timestamp` is always ISO-8601 once normalized.
 - **`comments[].attachments`** (`array`): Objects contain `name` and `url` (download URL on the Qualcomm Support portal). Note the property is `url`, not `href`.
+- **`comments[].subs`** (`array`, always present): Replies to this post, one level deep only (Chatter has no reply-to-reply, so a reply's own `subs` is always `[]`). Replies do **not** appear in the top-level `comments` array — `comments.length` or a flat `.map()` undercounts and misses every reply; recurse into `subs` (or use `countAllComments`/`walkCommentTree` from `scripts/comment_tree.mjs`) to reach the full set.
 - **`capture`** (`object`): Expansion and QA telemetry recorded during extraction (`pendingExpand`, `pendingMoreComments`, `clicks`, `detailTabExtracted`, `screenshot`).
 
 ## Invoke pattern
@@ -110,7 +113,7 @@ const verdict = JSON.parse(result.stdout.trim().split('\n').pop());
 if (['created', 'updated', 'no-update'].includes(verdict.status)) {
   const casePath = `data/cases/${CODE}/case.json`;
   const caseData = JSON.parse(readFile(casePath));
-  const comments = caseData.comments; // newest-first, replies grouped under parent
+  const comments = caseData.comments; // oldest-first nested tree: each comment's replies live in its own `subs` array
 } else {
   // Handle auth-required, blocked, not-found, busy, etc. per SKILL.md
 }
@@ -120,7 +123,7 @@ if (['created', 'updated', 'no-update'].includes(verdict.status)) {
 
 - **Immutability & Local Ownership**: Treat all files and records under `data/cases/` as immutable read-only resources. Case artifacts, global index (`_index.json`), and overview caches (`_overview.json`) are maintained exclusively by `qcomm`.
 - **Confidentiality & NDA Containment**: Retain all case data, comments (`comments[].body`), and previews (`comments[].summary`) strictly within the local workspace environment to uphold Qualcomm NDA compliance. Process all downstream analysis locally.
-- **Presentation Ordering**: Rely on the pre-ordered comment structure (newest activity first at index 0, with reply threads nested directly beneath their parent post per `finalize_case.mjs`'s `orderCommentsForPresentation`).
+- **Presentation Ordering**: Rely on the pre-ordered comment tree — oldest-first at every level (top-level posts and each post's `subs`), built by `finalize_case.mjs` via `buildNestedTree` (`scripts/comment_tree.mjs`).
 - **Unconditional Synchronization**: Invoke capture directly prior to reading data to maintain cache freshness automatically without manual file existence checks.
 
 ## Full schema reference
