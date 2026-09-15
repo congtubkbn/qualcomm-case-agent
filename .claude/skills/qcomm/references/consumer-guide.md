@@ -81,44 +81,28 @@ The root `data/cases/` holds the global index, multi-case overview, and dashboar
 
 ## Invoke pattern
 
-To ensure case data is present and fresh, invoke `qcomm` with the 8-digit case code unconditionally before reading. The pipeline operates incrementally, resolving cache freshness and returning `no-update` when the local cache is current.
+To ensure case data is present and fresh, invoke `qcomm` with the 8-digit case code unconditionally before reading. The pipeline operates incrementally, resolving cache freshness and returning `no-update` when the local cache is current. Every invocation surface below runs the same underlying capture CLI:
 
 ```bash
 node .claude/skills/qcomm/scripts/run_case.mjs <CODE>
 ```
 
----
+- **Node.js automation**: `const result = await exec(`node .claude/skills/qcomm/scripts/run_case.mjs ${CODE}`);`
+- **Agent-to-agent (Claude Code, Cline, Antigravity)**: invoke the `qcomm` skill, or instruct the agent directly — `sync case <CODE>` or `Run qcomm for case <CODE> to ensure cache freshness.`
 
-## Skill-to-Skill Invocations
-
-Invoke the `qcomm` skill or instruct the agent to capture/sync the case code:
-
-```markdown
-Run `qcomm` for case 08603854 to ensure cache freshness.
-```
-
-Or from Node.js automation:
-
-```javascript
-const result = await exec(`node .claude/skills/qcomm/scripts/run_case.mjs ${CODE}`);
-```
 Stdout returns exactly one JSON verdict line:
 ```json
 {"status":"created"|"updated"|"no-update", ...}
 ```
 
-**Agent invocation (Claude Code, Cline, Antigravity):**
-Invoke the `qcomm` skill or instruct the agent to capture/sync the case code:
-```
-sync case <CODE>
-```
+---
 
 ## Pseudocode
 
 Matching the pattern used by `run_summary.mjs`:
 
 ```javascript
-// 1. Invoke capture/sync unconditionally (incremental: fast no-op if unchanged)
+// 1. Invoke capture/sync unconditionally (incremental: fast no-op if unchanged) — see Invoke pattern above
 const result = await exec(`node .claude/skills/qcomm/scripts/run_case.mjs ${CODE}`);
 const verdict = JSON.parse(result.stdout.trim().split('\n').pop());
 
@@ -148,4 +132,4 @@ For code implementation of data assembly, serialization, QA validation, and mark
 - `scripts/verify_case.mjs`: Post-capture structural invariant checks and QA gate validation.
 - `scripts/render_case.mjs`: Verbatim markdown rendering to `case.md`.
 
-For the authoritative verdict status table and exit code contract, consult [`SKILL.md`](../SKILL.md#step-3--branch-on-json-verdict).
+For the authoritative verdict status table and exit code contract, consult [`SKILL.md`](../SKILL.md#step-3--dispatch-on-verdict).

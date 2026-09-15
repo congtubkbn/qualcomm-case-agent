@@ -6,7 +6,7 @@ Authoritative runbook for resolving pipeline blockers when `scripts/run_case.mjs
 
 ## Recovery Index
 
-For the authoritative JSON verdict table and exit code contract, see [`SKILL.md`](../SKILL.md#step-3--branch-on-json-verdict). Use this index to route directly to the applicable recovery procedure:
+For the authoritative JSON verdict table and exit code contract, see [`SKILL.md`](../SKILL.md#step-3--dispatch-on-verdict). Use this index to route directly to the applicable recovery procedure:
 
 | Verdict `status` | Exit | Meaning | Recovery Procedure |
 |------------------|------|---------|-------------------|
@@ -39,7 +39,7 @@ When an Okta session lapses, the portal redirects to `account.qualcomm.com`. `fa
 
 - **Password Autofill**: `QC.loginFill()` in the unified `scripts/dom_extractor.js` module (dispatched via `evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'loginFill', ... })` over the CDP WebSocket) fills username and password fields from the DPAPI-protected secret at `data/.secrets/qid.bin`, retrying up to 3 times for transient DOM readiness.
 - **OTP Polling Loop**: Once Okta accepts the password and presents the OTP challenge, `handleAuth()` automatically enters a 2-second polling loop for up to 5 minutes (matching OTP expiration). As soon as the human enters the OTP and navigation completes, capture resumes automatically without re-invoking the command.
-- **Account Lockout Protection**: If Okta rejects the stored password (`reason: password-rejected`), `data/.secrets/qid.bin` is deleted immediately and never retried blindly, preventing account lockout.
+- **Account Lockout Protection**: If Okta rejects the stored password (`reason: password-rejected`), `data/.secrets/qid.bin` is deleted immediately; autofill resumes only after the manual recapture in [Recovery for `auth-required`](#recovery-for-auth-required-exit-3--okta-sign-in--credential-recapture) restores a fresh secret.
 
 ---
 
@@ -101,7 +101,7 @@ See [ADR 0004](../../../../docs/adr/0004-revive-password-autofill-otp-stays-manu
 Triggered when the stored password is rejected by Okta (password changed or stale secret), when autofill retries are exhausted, or when an unfamiliar Okta challenge requires direct interaction.
 
 ### Automated Handling
-- If Okta rejects the password, `fast_landing.mjs` immediately clears `data/.secrets/qid.bin` to protect against account lockout (never blindly retries a rejected password).
+- If Okta rejects the password, `fast_landing.mjs` immediately clears `data/.secrets/qid.bin` to protect against account lockout; only the manual recapture below restores autofill.
 
 ### Human-Only Recovery Steps
 1. **If password was rejected (`reason: password-rejected`)**:
@@ -179,10 +179,10 @@ Triggered when `data/.capture.lock` is held by another capture process.
 
 ## Recovery for `port-conflict` (Exit 7) — Port Conflict
 
-Triggered when CDP port 9773 is active, but the process attached to it does not match this project's dedicated Chrome profile (e.g. an external tool scanned and attached to the port). The pipeline never auto-kills foreign processes.
+Triggered when CDP port 9773 is active, but the process attached to it does not match this project's dedicated Chrome profile (e.g. an external tool scanned and attached to the port). The pipeline halts safely and leaves termination to a human decision below.
 
 ### Automated Handling
-- `ensureChrome()` verifies `--user-data-dir` match before connecting and halts safely with exit code 7 to protect foreign processes and prevent profile contamination.
+- `ensureChrome()` verifies `--user-data-dir` match before connecting and halts safely with exit code 7, protecting foreign processes and profile contamination by deferring the kill decision to the Human-Only Recovery Steps below.
 
 ### Human-Only Recovery Steps
 1. **Diagnose foreign process (read-only)**:
