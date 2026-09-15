@@ -108,7 +108,7 @@ Stdout returns exactly one JSON verdict line:
 ```
 
 **Agent invocation (Claude Code, Cline, Antigravity):**
-Invoke the `qualcomm-case-agent` skill or instruct the agent to capture/sync the case code:
+Invoke the `qcomm` skill or instruct the agent to capture/sync the case code:
 ```
 sync case <CODE>
 ```
@@ -119,7 +119,7 @@ Matching the pattern used by `run_summary.mjs`:
 
 ```javascript
 // 1. Invoke capture/sync unconditionally (incremental: fast no-op if unchanged)
-const result = await exec(`node .claude/skills/qualcomm-case-agent/scripts/run_case.mjs ${CODE}`);
+const result = await exec(`node .claude/skills/qcomm/scripts/run_case.mjs ${CODE}`);
 const verdict = JSON.parse(result.stdout.trim().split('\n').pop());
 
 // 2. Branch on verdict status

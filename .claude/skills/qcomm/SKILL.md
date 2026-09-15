@@ -34,8 +34,8 @@ Parse `status` from the JSON verdict and branch:
 | `created` | New case captured | Proceed to Step 4 |
 | `updated` | New comments merged | Proceed to Step 4 |
 | `no-update` | Already current | Report case is up to date, then stop |
-| `otp-timeout` | OTP window expired | Load [`references/login-flow.md`](references/login-flow.md), guide user OTP input |
-| `auth-required` | Session expired | Load [`references/login-flow.md`](references/login-flow.md), guide user login |
+| `otp-timeout` | OTP window expired | Load [`references/manual-flow.md`](references/manual-flow.md), guide user OTP input |
+| `auth-required` | Session expired | Load [`references/manual-flow.md`](references/manual-flow.md), guide user login |
 | `not-found` | Missing / unauthorized | Report case not found or unauthorized, then stop |
 | `blocked` | Extraction stalled | Retry once if `retryable: true`; else load [`references/manual-flow.md`](references/manual-flow.md) |
 | `busy` | Locked by other task | Wait 30s, retry once; if still busy load [`references/manual-flow.md`](references/manual-flow.md) |

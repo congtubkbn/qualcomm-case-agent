@@ -20,6 +20,29 @@ For the authoritative JSON verdict table and exit code contract, see [`SKILL.md`
 
 ---
 
+## Authentication Architecture
+
+Authentication relies on **Persistent Chrome Profile Session Reuse**:
+
+| Item | Value |
+|------|-------|
+| Qualcomm ID (login) | Configured in `data/.secrets/qid.user` |
+| Auth provider | Okta OAuth at `account.qualcomm.com` → redirects to `support.qualcomm.com` |
+| Password | Autofilled automatically from a DPAPI-protected secret (`data/.secrets/qid.bin`) when the session lapses. See [ADR 0004](../../../../docs/adr/0004-revive-password-autofill-otp-stays-manual.md). |
+| MFA | **Email OTP** — 6-digit code emailed to the user's mailbox, which Claude/agent cannot read. **Expires in ~5 min. Always entered manually by the user**, directly in the visible Chrome window. |
+| Browser | **Real Google Chrome** on CDP `9773` (launched detached via `scripts/connect_chrome.ps1`) with persistent `--user-data-dir`. |
+| Session store | `data/chrome-profile/` — Chrome persistent profile (cookies/tokens). Git-ignored. Isolated from personal browser instances. |
+
+Chrome starts with `--user-data-dir=data/chrome-profile` attached to CDP port `9773`. Authenticated session cookies and security tokens remain persisted across runs. While the Okta session is active, all case captures and searches execute autonomously with **zero credentials or OTP required**.
+
+When an Okta session lapses, the portal redirects to `account.qualcomm.com`. `fastLandOnCase()` detects the `AUTH` state and coordinates automated autofill and manual OTP handoff:
+
+- **Password Autofill**: `login_fill.js` (evaluated via `CdpClient.eval()`) fills username and password fields from the DPAPI-protected secret at `data/.secrets/qid.bin`, retrying up to 3 times for transient DOM readiness.
+- **OTP Polling Loop**: Once Okta accepts the password and presents the OTP challenge, `handleAuth()` automatically enters a 2-second polling loop for up to 5 minutes (matching OTP expiration). As soon as the human enters the OTP and navigation completes, capture resumes automatically without re-invoking the command.
+- **Account Lockout Protection**: If Okta rejects the stored password (`reason: password-rejected`), `data/.secrets/qid.bin` is deleted immediately and never retried blindly, preventing account lockout.
+
+---
+
 ## Recovery for `error` (Exit 1) — Credentials / CDP Reset
 
 Triggered when pre-flight checks fail (missing username or secret file) or when the CDP connection is refused (`ECONNREFUSED` on port 9773).
@@ -69,7 +92,7 @@ Triggered when the stored password was successfully accepted by Okta, but the us
    ```
    *Note*: The password step already succeeded. A fresh Okta session is picked up immediately without restarting password entry.
 
-See [`login-flow.md`](login-flow.md) and [ADR 0004](../../../../docs/adr/0004-revive-password-autofill-otp-stays-manual.md) for full authentication architecture.
+See [ADR 0004](../../../../docs/adr/0004-revive-password-autofill-otp-stays-manual.md) for full authentication architecture decisions.
 
 ---
 
@@ -173,6 +196,15 @@ Triggered when CDP port 9773 is active, but the process attached to it does not 
    ```
 3. **Retry capture**:
    ```bash
-   node ".claude/skills/qualcomm-case-agent/scripts/run_case.mjs" <CODE>
+   node ".claude/skills/qcomm/scripts/run_case.mjs" <CODE>
    ```
    If Okta session state was reset, proceed to [Recovery for `auth-required` (Exit 3)](#recovery-for-auth-required-exit-3--okta-sign-in--credential-recapture).
+
+### Profile Reset
+If the Chrome profile becomes corrupted:
+```powershell
+# Terminate Chrome instances using CDP 9773 and remove the profile directory
+powershell -ExecutionPolicy Bypass -File ".claude/skills/qcomm/scripts/recover_chrome.ps1"
+Remove-Item -Recurse -Force "data/chrome-profile"
+```
+Re-running capture will launch a fresh profile ready for sign-in.
