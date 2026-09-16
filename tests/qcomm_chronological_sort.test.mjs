@@ -10,7 +10,11 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const SCRIPT = fileURLToPath(new URL('../.claude/skills/qcomm/scripts/finalize_case.mjs', import.meta.url));
-const m = await import(new URL('../.claude/skills/qcomm/scripts/finalize_case.mjs', import.meta.url));
+const m = {
+  ...(await import(new URL('../.claude/skills/qcomm/scripts/finalize_normalize.mjs', import.meta.url))),
+  ...(await import(new URL('../.claude/skills/qcomm/scripts/finalize_identity.mjs', import.meta.url))),
+  ...(await import(new URL('../.claude/skills/qcomm/scripts/finalize_merge.mjs', import.meta.url))),
+};
 
 const comment = (author, body, timestamp, extra = {}) => ({
   author,

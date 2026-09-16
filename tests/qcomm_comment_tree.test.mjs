@@ -15,7 +15,7 @@ import {
   cloneCommentTree,
   walkCommentTree,
 } from '../.claude/skills/qcomm/scripts/comment_tree.mjs';
-import { assignIds } from '../.claude/skills/qcomm/scripts/finalize_case.mjs';
+import { assignIds } from '../.claude/skills/qcomm/scripts/finalize_identity.mjs';
 
 const comment = (author, body, extra = {}) => ({ author, body, timestamp: '2 days ago', ...extra });
 

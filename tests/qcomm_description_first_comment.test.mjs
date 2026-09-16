@@ -14,9 +14,9 @@ import {
   synthesizeDescriptionComment,
   hasDescriptionComment,
   extractSummary,
-  assignIds,
-  EXIT,
-} from '../.claude/skills/qcomm/scripts/finalize_case.mjs';
+} from '../.claude/skills/qcomm/scripts/finalize_description.mjs';
+import { assignIds } from '../.claude/skills/qcomm/scripts/finalize_identity.mjs';
+import { EXIT } from '../.claude/skills/qcomm/scripts/finalize_case.mjs';
 
 const FINALIZE_SCRIPT = fileURLToPath(new URL('../.claude/skills/qcomm/scripts/finalize_case.mjs', import.meta.url));
 const RENDER_SCRIPT = fileURLToPath(new URL('../.claude/skills/qcomm/scripts/render_case.mjs', import.meta.url));

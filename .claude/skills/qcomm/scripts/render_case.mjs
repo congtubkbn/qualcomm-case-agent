@@ -14,7 +14,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { classifyRole } from './finalize_case.mjs';
+import { classifyRole } from './finalize_normalize.mjs';
 import { walkCommentTree } from './comment_tree.mjs';
 
 const S = v => (v == null ? '' : String(v));

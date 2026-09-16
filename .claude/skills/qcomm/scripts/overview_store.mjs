@@ -5,7 +5,7 @@ import { basename, join } from 'node:path';
 import { DATA_DIR } from './_paths.mjs';
 import { renderDashboardHtml } from './dashboard_renderer.mjs';
 import { acquireOverviewLock, releaseOverviewLock, withOverviewLock } from './overview_lock.mjs';
-import { sortCommentsChronological } from './finalize_case.mjs';
+import { sortCommentsChronological } from './finalize_normalize.mjs';
 import { countAllComments, flattenComments } from './comment_tree.mjs';
 
 export { acquireOverviewLock, releaseOverviewLock };
