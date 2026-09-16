@@ -77,6 +77,31 @@ export function mergeDetailFields(raw, detailRaw, fields) {
 }
 
 /**
+ * Infer pipeline action/step name from verdict properties or reason context.
+ */
+function inferAction(v) {
+  if (v.action) return v.action;
+  if (v.stage === 'feed-switch') return 'switchTab';
+  if (v.stage === 'no-articles') return 'observeCaseState';
+  if (v.stage === 'stuck-expand') return 'expandStep';
+  if (v.stage === 'no-comments') return 'extractCase';
+  if (v.stage === 'port-conflict') return 'connectChrome';
+
+  const r = String(v.reason || '');
+  if (/finalize/i.test(r) || typeof v.finalizeCode === 'number') return 'finalizeCase';
+  if (/render_case/i.test(r)) return 'renderCase';
+  if (/verify_case/i.test(r) || (Array.isArray(v.verifyErrors) && v.verifyErrors.length > 0)) return 'verifyCase';
+  if (/qualcomm credentials/i.test(r) || /credential/i.test(r)) return 'checkCredentials';
+  if (/intake/i.test(r) || /invalid case code/i.test(r) || /case code must be/i.test(r)) return 'intake';
+  if (/bad --mode/i.test(r) || /parseargs/i.test(r)) return 'parseArgs';
+  if (/lock acquisition/i.test(r) || /acquirelock/i.test(r)) return 'acquireLock';
+  if (/connect/i.test(r) || /chrome/i.test(r) || /cdp/i.test(r)) return 'connectChrome';
+  if (/search/i.test(r) || /landing/i.test(r) || /stub/i.test(r) || /not found/i.test(r) || /navigate/i.test(r) || /no fixture/i.test(r)) return 'navigateToCase';
+
+  return 'runCase';
+}
+
+/**
  * Standardize single-line verdict output object.
  */
 export function formatVerdict(code, v = {}, started) {
@@ -89,10 +114,23 @@ export function formatVerdict(code, v = {}, started) {
   };
   const status = v.status || 'error';
   const caseUrl = v.caseUrl || v.url || v.href || undefined;
+
+  let action = v.action;
+  let reason = v.reason;
+
+  if (status === 'blocked' || status === 'error') {
+    action = inferAction(v);
+    if (reason && typeof reason === 'string' && !reason.startsWith(`${action}:`)) {
+      reason = `${action}: ${reason}`;
+    }
+  }
+
   return {
     ...v,
     code,
     status,
+    ...(action ? { action } : {}),
+    ...(reason !== undefined ? { reason } : {}),
     caseUrl,
     timing,
   };
@@ -250,6 +288,7 @@ export async function run(code, opts = {}) {
       const shot = await shoot(caseDir, 'feed_switch_failed.png', driver);
       return {
         status: 'blocked',
+        action: 'switchTab',
         retryable: true,
         reason: expandResult.reason,
         caseUrl,
@@ -262,6 +301,7 @@ export async function run(code, opts = {}) {
       const shot = await shoot(caseDir, 'feed_missing.png', driver);
       return {
         status: 'blocked',
+        action: 'observeCaseState',
         reason: expandResult.reason,
         probe: expandResult.probe,
         caseUrl,
@@ -274,6 +314,7 @@ export async function run(code, opts = {}) {
       await shoot(caseDir, 'capture.png', driver);
       return {
         status: 'blocked',
+        action: 'expandStep',
         retryable: true,
         reason: expandResult.reason,
         evidence: expandResult.evidence,
@@ -282,7 +323,7 @@ export async function run(code, opts = {}) {
       };
     }
     // 'no-comments'
-    return { status: 'blocked', reason: expandResult.reason, timing: { landingMs: landingDurationMs } };
+    return { status: 'blocked', action: 'extractCase', reason: expandResult.reason, timing: { landingMs: landingDurationMs } };
   }
 
   if (expandResult.noUpdate) {
@@ -430,13 +471,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     code = intake(process.argv[2]);
   } catch (e) {
-    const verdict = formatVerdict(process.argv[2] ?? null, { status: 'error', reason: e.message }, started);
+    const verdict = formatVerdict(process.argv[2] ?? null, { status: 'error', action: 'intake', reason: e.message }, started);
     process.stdout.write(JSON.stringify(verdict) + '\n');
     process.exit(1);
   }
   const opts = parseArgs(process.argv.slice(3));
   if (!['auto', 'full', 'update'].includes(opts.mode)) {
-    const verdict = formatVerdict(code, { status: 'error', reason: `bad --mode ${opts.mode}` }, started);
+    const verdict = formatVerdict(code, { status: 'error', action: 'parseArgs', reason: `bad --mode ${opts.mode}` }, started);
     process.stdout.write(JSON.stringify(verdict) + '\n');
     process.exit(1);
   }
@@ -451,6 +492,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (!existsSync(resolvedSecretPath)) missing.push('Qualcomm ID password');
     const verdict = formatVerdict(code, {
       status: 'error',
+      action: 'checkCredentials',
       reason: `Qualcomm credentials not configured (missing ${missing.join(', ')}). Please run: npm run setup:credentials`
     }, started);
     process.stdout.write(JSON.stringify(verdict) + '\n');
@@ -461,7 +503,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     lock = await acquireLockOrWaitForSameCode(undefined, code);
   } catch (e) {
-    const verdict = formatVerdict(code, { status: 'error', reason: `lock acquisition failed: ${e.message}` }, started);
+    const verdict = formatVerdict(code, { status: 'error', action: 'acquireLock', reason: `lock acquisition failed: ${e.message}` }, started);
     process.stdout.write(JSON.stringify(verdict) + '\n');
     process.exit(1);
   }
@@ -480,6 +522,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   run(code, opts)
     .catch(e => ({
       status: 'error',
+      action: 'runCase',
       reason: e.message,
     }))
     .then(v => {

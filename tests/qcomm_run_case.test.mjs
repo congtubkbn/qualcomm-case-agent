@@ -207,6 +207,38 @@ describe('STATUS_EXIT & formatVerdict', () => {
     assert.ok(v.timing.elapsedMs >= 200);
     assert.equal(v.timing.landingMs, 80);
   });
+
+  it('prefixes reason with failing action/step name and sets action field for blocked/error verdicts', async () => {
+    const { formatVerdict } = await importRunCase();
+    const started = Date.now() - 100;
+
+    const blockedVerd = formatVerdict('08000001', {
+      status: 'blocked',
+      stage: 'stuck-expand',
+      reason: 'expand loop stuck on round 1 (2 pending items remaining)',
+    }, started);
+    assert.equal(blockedVerd.status, 'blocked');
+    assert.equal(blockedVerd.action, 'expandStep');
+    assert.equal(blockedVerd.reason, 'expandStep: expand loop stuck on round 1 (2 pending items remaining)');
+
+    const errorVerd = formatVerdict('08000002', {
+      status: 'error',
+      action: 'intake',
+      reason: 'invalid case code',
+    }, started);
+    assert.equal(errorVerd.status, 'error');
+    assert.equal(errorVerd.action, 'intake');
+    assert.equal(errorVerd.reason, 'intake: invalid case code');
+
+    const verifyVerd = formatVerdict('08000003', {
+      status: 'blocked',
+      action: 'verifyCase',
+      reason: 'verify_case gate failed: missing case.md',
+    }, started);
+    assert.equal(verifyVerd.status, 'blocked');
+    assert.equal(verifyVerd.action, 'verifyCase');
+    assert.equal(verifyVerd.reason, 'verifyCase: verify_case gate failed: missing case.md');
+  });
 });
 
 describe('run() expand-loop stuck detection', () => {

@@ -127,4 +127,22 @@ describe('offline CLI contract (#241)', () => {
     const overview = JSON.parse(readFileSync(join(root, 'data', 'cases', '_overview.json'), 'utf8'));
     assert.ok(!overview.cases.some((c) => c.caseNumber === CODE), 'deleted case should be gone from the overview');
   });
+
+  it('run_case error status verdict names failing action (intake) in reason', async () => {
+    const { env } = makeIsolatedEnv();
+    const result = await runCli('run_case.mjs', ['invalid_code'], env);
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.verdict.status, 'error');
+    assert.equal(result.verdict.action, 'intake');
+    assert.match(result.verdict.reason, /^intake:/);
+  });
+
+  it('run_case blocked status verdict names failing action in reason', async () => {
+    const { env } = makeIsolatedEnv();
+    const result = await runCli('run_case.mjs', ['08999999'], env); // No fixture for 08999999
+    assert.equal(result.exitCode, 5);
+    assert.equal(result.verdict.status, 'blocked');
+    assert.equal(result.verdict.action, 'observeCaseState');
+    assert.match(result.verdict.reason, /^observeCaseState:/);
+  });
 });
