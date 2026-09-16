@@ -71,6 +71,7 @@ function runOverviewCli(casesDir, args = []) {
     process.execPath,
     [SCRIPT_OVERVIEW, `--cases-dir=${casesDir}`, ...args],
     {
+      env: { ...process.env, QUALCOMM_NO_BROWSER: '1', NODE_ENV: 'test' },
       encoding: 'utf8',
     }
   );
