@@ -29,11 +29,10 @@ Read `tests/qcomm_run_case.test.mjs` for the mocking pattern.
 
 ## Skills
 
-Two Claude Code skills under `.claude/skills/`:
+One Claude Code skill under `.claude/skills/`:
 - **qcomm** — intake → login → finalize → render.
   Entry: `node .claude/skills/qcomm/scripts/run_case.mjs <8-digit-code>`.
   Returns a JSON verdict (`status` field); branch on status, not exit code.
-- **qualcomm-issue-precedent** — match free-text issue against captured cases.
 
 ## Session / auth
 

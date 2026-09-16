@@ -1,6 +1,6 @@
 # qcomm — Consumer Interface Guide
 
-For downstream agents, skills (e.g. `qualcomm-issue-precedent`), and automated workflows that consume Qualcomm case data produced by `qcomm`. Consult this guide before accessing `data/cases/`.
+For downstream agents, skills, and automated workflows that consume Qualcomm case data produced by `qcomm`. Consult this guide before accessing `data/cases/`.
 
 ## Quick start (3 steps)
 

@@ -25,7 +25,6 @@ const END = '<!-- END GENERATED: reference -->';
 // adds it — that is the whole point.
 const GROUPS = [
   ['Qcomm scripts', '.claude/skills/qcomm/scripts'],
-  ['Precedent scripts', '.claude/skills/qualcomm-issue-precedent/scripts'],
   ['Dashboard', 'web'],
   ['Tests', 'tests'],
   ['Doc tooling', 'tools'],
