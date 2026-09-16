@@ -1,5 +1,5 @@
-// Offline CLI contract suite (#241): exercises all 4 qcomm CLI entry points —
-// run_case, run_summary, delete_case, cases_overview — as real child
+// Offline CLI contract suite (#241): exercises all 3 qcomm CLI entry points —
+// run_case, delete_case, cases_overview — as real child
 // processes (real stdout, real exit code), each against an isolated
 // QUALCOMM_ROOT and FixturePortalDriver (via QCOMM_FIXTURE_DIR, wired in
 // run_case.mjs for #241). No live Chrome, no network: this is what proves
@@ -90,33 +90,6 @@ describe('offline CLI contract (#241)', () => {
     const noUpdate = await runCli('run_case.mjs', [CODE], env);
     assert.equal(noUpdate.exitCode, 0);
     assert.equal(noUpdate.verdict.status, 'no-update');
-  });
-
-  it('run_summary: prepare -> finalize against a freshly captured case, summary.json/summary.md written', async () => {
-    const { root, env } = makeIsolatedEnv();
-    const caseDir = join(root, 'data', 'cases', CODE);
-
-    const captured = await runCli('run_case.mjs', [CODE], env);
-    assert.equal(captured.verdict.status, 'created');
-
-    const prepared = await runCli('run_summary.mjs', ['prepare', CODE], env);
-    assert.equal(prepared.exitCode, 0);
-    assert.equal(prepared.stdout.trim().split('\n').length, 1);
-    assert.equal(prepared.verdict.status, 'needs-summary');
-    assert.ok(prepared.verdict.deltaComments.length > 0);
-
-    const inputPath = join(root, 'summary-input.json');
-    writeFileSync(inputPath, JSON.stringify({
-      comments: prepared.verdict.deltaComments.map((c) => ({ ...c, kind: 'note', summary: 'Fixture summary.' })),
-      flow: 'Fixture case flow narrative.',
-    }));
-
-    const finalized = await runCli('run_summary.mjs', ['finalize', CODE, '--input', inputPath], env);
-    assert.equal(finalized.exitCode, 0);
-    assert.equal(finalized.stdout.trim().split('\n').length, 1);
-    assert.equal(finalized.verdict.status, 'summarized');
-    assert.ok(existsSync(join(caseDir, 'summary.json')), 'summary.json should be written');
-    assert.ok(existsSync(join(caseDir, 'summary.md')), 'summary.md should be rendered');
   });
 
   it('cases_overview: --rebuild --json writes _overview.json and dashboard.html', async () => {

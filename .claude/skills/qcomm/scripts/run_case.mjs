@@ -46,9 +46,6 @@ const PORTAL = 'https://support.qualcomm.com';
 // Set once at module load: the CLI process itself (not just an in-process
 // caller passing opts.driver) can then run offline against
 // FixturePortalDriver — see fixture_portal_driver.mjs and #241.
-// run_summary.mjs's captureCase() spawns this file as a child process and
-// forwards its own env, so setting this once at the top of a test also
-// covers that subprocess for free.
 const USE_FIXTURE_DRIVER = Boolean(process.env.QCOMM_FIXTURE_DIR);
 
 export const STATUS_EXIT = {

@@ -1,5 +1,5 @@
 // Tests for comment_tree.mjs — the sole owner of the Comment Tree shape
-// (case.json/summary.json's nested subs:[] structure). Moved here from
+// (case.json's nested subs:[] structure). Moved here from
 // qcomm_finalize_case.test.mjs and qcomm_render_case.test.mjs when those
 // files' own copies of flatten/build/walk were consolidated (#241 follow-up).
 //     node --test tests/

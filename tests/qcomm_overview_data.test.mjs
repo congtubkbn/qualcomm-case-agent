@@ -9,7 +9,6 @@ import { fileURLToPath } from 'node:url';
 import {
   buildOverviewData,
   createCommentSnippet,
-  extractAiSummary,
   extractCaseOverview,
   extractProductFromTitle,
   syncCaseOverview,
@@ -44,34 +43,10 @@ describe('cases_overview: helpers', () => {
     assert.equal(extractProductFromTitle(null), '');
   });
 
-  it('extractAiSummary handles string, object, and missing executive summaries', () => {
-    assert.equal(extractAiSummary(null), null);
-    assert.equal(extractAiSummary({}), null);
-    assert.equal(extractAiSummary({ summary: 'Simple summary' }), 'Simple summary');
-    assert.equal(
-      extractAiSummary({
-        executive: {
-          resolution: 'Fix applied',
-          rootCause: 'Null pointer',
-          blockerOrNextMilestone: 'None — fix delivered and case closed',
-        },
-      }),
-      'Resolution: Fix applied | Root cause: Null pointer'
-    );
-    assert.equal(
-      extractAiSummary({
-        executive: {
-          resolution: 'Fix pending',
-          blockerOrNextMilestone: 'Awaiting customer log',
-        },
-      }),
-      'Resolution: Fix pending | Next: Awaiting customer log'
-    );
-  });
 });
 
 describe('cases_overview: extractCaseOverview', () => {
-  it('extracts metadata, summary, and top 3 newest comments from valid case directory', () => {
+  it('extracts metadata and top 3 newest comments from valid case directory', () => {
     const casesDir = createTempCasesDir();
     const caseDir = join(casesDir, '08603854');
     mkdirSync(caseDir, { recursive: true });
@@ -93,17 +68,7 @@ describe('cases_overview: extractCaseOverview', () => {
       ],
     };
 
-    const summaryData = {
-      caseNumber: '08603854',
-      title: '[DE.3.1.4][SM7635] epsfb_if_emc_and_no_vonr does not work',
-      executive: {
-        resolution: 'CR3798678 fix delivered via test SBA',
-        rootCause: 'nr5g_full_voice_support forced to EPSFB(0)',
-      },
-    };
-
     writeFileSync(join(caseDir, 'case.json'), JSON.stringify(caseData, null, 2), 'utf8');
-    writeFileSync(join(caseDir, 'summary.json'), JSON.stringify(summaryData, null, 2), 'utf8');
 
     const result = extractCaseOverview(caseDir, '08603854');
     assert.ok(result, 'Result should not be null');
@@ -117,8 +82,6 @@ describe('cases_overview: extractCaseOverview', () => {
     assert.equal(result.commentCount, 4);
     assert.equal(result.lastCommentAt, 'July 22, 2026 at 5:42 AM');
     assert.equal(result.lastCommentAuthor, 'Luyen Kieu Ba');
-    assert.equal(result.hasSummary, true);
-    assert.ok(result.aiSummary.includes('CR3798678 fix delivered'));
     assert.equal(result.latestComments.length, 3);
     // Should have top 3 newest comments (c4, c3, c2)
     assert.equal(result.latestComments[0].id, 'c4');
@@ -240,8 +203,6 @@ describe('cases_overview: extractCaseOverview', () => {
     const result = extractCaseOverview(caseDir, '08123456');
     assert.ok(result);
     assert.equal(result.caseNumber, '08123456');
-    assert.equal(result.hasSummary, false);
-    assert.equal(result.aiSummary, null);
     assert.equal(result.commentCount, 1);
     assert.equal(result.latestComments.length, 1);
     assert.equal(result.latestComments[0].author, 'John Doe');

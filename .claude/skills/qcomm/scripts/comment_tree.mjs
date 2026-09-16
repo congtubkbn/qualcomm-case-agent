@@ -1,10 +1,10 @@
 // scripts/comment_tree.mjs
 //
 // Sole owner of the Comment Tree shape: the nested `subs:[]` structure that
-// case.json and summary.json both persist (a Comment's replies live in its
-// own `subs` array, not a separate structure — see CONTEXT.md's Comment Tree
-// entry). Every module that flattens, builds, walks, finds, or clones this
-// shape does it through here instead of re-deriving its own traversal.
+// case.json persists (a Comment's replies live in its own `subs` array, not a
+// separate structure — see CONTEXT.md's Comment Tree entry). Every module
+// that flattens, builds, walks, finds, or clones this shape does it through
+// here instead of re-deriving its own traversal.
 //
 // Two different depth contracts on purpose, not an oversight:
 //   - flattenComments/buildNestedTree are hardcoded to ONE level of nesting,
@@ -16,10 +16,8 @@
 //
 // walkCommentTree assumes its input is already a built tree (`subs:[]`
 // present) — it does not itself fall back to building one from a flat/parentId
-// array. case.json and freshly-written summary.json are nested since #233-236,
-// but a still-flat legacy summary.json can reach here as input; reconstructing
-// nesting for that case is the caller's job (run_summary.mjs's
-// insertCommentsByParent re-derives it via parentIdOf), not this module's.
+// array. case.json has been nested since #233-236; reconstructing nesting from
+// a flat/parentId array is a caller's job, not this module's.
 
 // Flatten a nested tree (case.json's subs:[] shape) back to a flat array
 // with parentId re-attached. Used when loading a cached case.json for merging:
@@ -47,8 +45,8 @@ export function flattenComments(comments) {
 // Input: flat array in chronological order (oldest→newest, sortCommentsChronological output).
 // Output: top-level comments oldest→newest; each comment has subs:[] (never undefined)
 //         holding its replies oldest→newest. parentId is dropped from the output.
-// This is the shape written to case.json/summary.json. One level only: Chatter
-// has no reply-to-reply, so a leaf's subs is always [].
+// This is the shape written to case.json. One level only: Chatter has no
+// reply-to-reply, so a leaf's subs is always [].
 export function buildNestedTree(comments) {
   if (!Array.isArray(comments) || comments.length === 0) return [];
   const byId = new Map(comments.map(c => [c.id, c]));

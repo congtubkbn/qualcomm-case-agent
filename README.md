@@ -82,7 +82,6 @@ The skills are **harness-agnostic** — they drive `node` through a terminal, so
 data/chrome-profile/            # persistent Chrome --user-data-dir (real Chrome via CDP)
 data/cases/<CODE>/case.json     # complete per-case data (source of truth, machine-readable)
 data/cases/<CODE>/case.md       # full readable snapshot (every comment verbatim)
-data/cases/<CODE>/summary.json  # per-comment technical digest + flow narrative
 data/cases/_index.json          # <CODE> -> { syncedAt, commentCount, hash } for incremental sync
 data/cases/_overview.json       # fast aggregated multi-case overview cache
 data/cases/dashboard.html       # standalone, offline interactive HTML dashboard

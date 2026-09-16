@@ -1,7 +1,7 @@
 # 0002. Add case-summary as a separate skill instead of reopening ADR 0001
 
 Date: 2026-08-22
-Status: Accepted, partially superseded 2026-08-27 and 2026-09 (see Addenda)
+Status: Accepted, partially superseded 2026-08-27 and 2026-09, fully superseded 2026-09-16 by ADR 0007 (see Addenda)
 
 ADR 0001 dropped all model-in-the-loop analysis from `qualcomm-case-agent`'s capture pipeline. A
 later need arose — Case Status visibility, per-comment Comment Summaries, and a Case Flow narrative
@@ -51,6 +51,14 @@ Consequence: the "two independently-evolving orderings" problem above is gone �
 (via `qualcomm-case-summary`'s `merge.mjs`/`render_summary.mjs`) now simply mirrors `case.json`'s
 order (new batch prepended, no reverse needed) instead of independently reversing it. See
 `CONTEXT.md`'s Capture/Reply entries for the current contract.
+
+## Addendum (2026-09-16): Summarize workflow removed entirely — see ADR 0007
+
+The case-summarization capability this ADR introduced (`summary.json`/`summary.md`, the
+executive digest, the Case Flow narrative) is deleted, not just relocated. See
+[ADR 0007](0007-remove-summarize-workflow.md) for the removal decision and its consequences.
+Every "Addendum" below this line describes a workflow that no longer exists — read as history of
+how the deleted feature evolved, not as current behavior.
 
 ## Addendum (2026-09): reverted again — nested tree, oldest-first, closed out by #236
 

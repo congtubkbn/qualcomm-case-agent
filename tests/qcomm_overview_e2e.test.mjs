@@ -1,7 +1,6 @@
 // End-to-end integration tests for cases_overview:
 // 1. Finalize capture auto-sync hook -> _overview.json & dashboard.html
-// 2. Qualcomm case summary finalize auto-sync hook -> enriched _overview.json & dashboard.html
-// 3. Multi-case stats aggregation, sorting, and CLI tool interactions
+// 2. Multi-case stats aggregation, sorting, and CLI tool interactions
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -12,9 +11,6 @@ import { fileURLToPath } from 'node:url';
 
 const SCRIPT_FINALIZE = fileURLToPath(
   new URL('../.claude/skills/qcomm/scripts/finalize_case.mjs', import.meta.url)
-);
-const SCRIPT_SUMMARY = fileURLToPath(
-  new URL('../.claude/skills/qcomm/scripts/run_summary.mjs', import.meta.url)
 );
 const SCRIPT_OVERVIEW = fileURLToPath(
   new URL('../.claude/skills/qcomm/scripts/cases_overview.mjs', import.meta.url)
@@ -27,29 +23,6 @@ function runFinalize(root, rawData, caseCode, flags = []) {
   const res = spawnSync(
     process.execPath,
     [SCRIPT_FINALIZE, caseCode, scratchPath, ...flags],
-    {
-      env: { ...process.env, QUALCOMM_ROOT: root },
-      encoding: 'utf8',
-    }
-  );
-
-  let verdict = null;
-  try {
-    verdict = JSON.parse(res.stdout.split('\n').filter(Boolean).pop() || '{}');
-  } catch {
-    verdict = null;
-  }
-
-  return { exit: res.status, verdict, stdout: res.stdout, stderr: res.stderr };
-}
-
-function runSummaryFinalize(root, caseCode, summaryPayload) {
-  const inputPath = join(root, 'agent_summary.json');
-  writeFileSync(inputPath, JSON.stringify(summaryPayload, null, 2), 'utf8');
-
-  const res = spawnSync(
-    process.execPath,
-    [SCRIPT_SUMMARY, 'finalize', caseCode, '--input', inputPath],
     {
       env: { ...process.env, QUALCOMM_ROOT: root },
       encoding: 'utf8',
@@ -136,54 +109,12 @@ describe('cases_overview: End-to-End Pipeline & Auto-Sync Hooks', () => {
       assert.equal(record1.title, '[SM7635] EPS Fallback Failure during Emergency Call');
       assert.equal(record1.status, 'Open');
       assert.equal(record1.product, 'SM7635');
-      assert.equal(record1.hasSummary, false);
-      assert.equal(record1.aiSummary, null);
       // Description is injected as initial comment + 2 comments = 3 comments
       assert.equal(record1.commentCount, 3);
       assert.equal(record1.latestComments.length, 3);
       assert.equal(record1.latestComments[0].author, 'Qualcomm Support');
 
-      // 2. Summary Finalization via run_summary.mjs
-      const summaryPayload = {
-        comments: [
-          {
-            id: record1.latestComments[0].id,
-            author: 'Qualcomm Support',
-            timestamp: 'July 16, 2026 at 10:00 AM',
-            kind: 'investigation-data',
-            summary: 'Qualcomm requested QXDM logs with DE.3.1.4 build mask.',
-            impact: 'awaiting-info',
-            owner: 'qualcomm',
-            nextAction: 'Customer to attach QXDM log',
-          },
-        ],
-        flow: 'Investigation in progress. Awaiting QXDM modem logs from customer.',
-        executive: {
-          ballInCourt: 'customer',
-          blockerOrNextMilestone: 'Customer uploading QXDM log with DE.3.1.4 mask',
-          rootCause: 'Under analysis',
-          resolution: 'Pending log analysis',
-        },
-      };
-
-      const summaryRes = runSummaryFinalize(root, '08603854', summaryPayload);
-      assert.equal(summaryRes.exit, 0, `run_summary finalize exit was ${summaryRes.exit}: ${summaryRes.stderr}`);
-      assert.ok(existsSync(join(casesDir, '08603854', 'summary.json')));
-
-      // Verify overview is enriched with AI Summary
-      const overviewAfterSummary = JSON.parse(readFileSync(join(casesDir, '_overview.json'), 'utf8'));
-      const record1AfterSummary = overviewAfterSummary.cases.find((c) => c.caseNumber === '08603854');
-      assert.ok(record1AfterSummary);
-      assert.equal(record1AfterSummary.hasSummary, true);
-      assert.ok(record1AfterSummary.aiSummary.includes('Resolution: Pending log analysis'));
-      assert.ok(record1AfterSummary.aiSummary.includes('Root cause: Under analysis'));
-      assert.ok(record1AfterSummary.aiSummary.includes('Next: Customer uploading QXDM log with DE.3.1.4 mask'));
-
-      // dashboard.html must also refresh after a summary run (parity with capture/delete legs).
-      const dashboardHtmlAfterSummary = readFileSync(join(casesDir, 'dashboard.html'), 'utf8');
-      assert.ok(dashboardHtmlAfterSummary.includes('Resolution: Pending log analysis'));
-
-      // 3. Second Case Capture (08701234)
+      // 2. Second Case Capture (08701234)
       const rawCase2 = {
         title: '[SDX75] 5G SA Registration Reject 58',
         status: 'Closed-Resolved',
@@ -222,14 +153,13 @@ describe('cases_overview: End-to-End Pipeline & Auto-Sync Hooks', () => {
       assert.equal(overview2.stats.byStatus['Open'], 1);
       assert.equal(overview2.stats.byStatus['Closed-Resolved'], 1);
 
-      // 4. Test CLI interactions against the generated cache
+      // 3. Test CLI interactions against the generated cache
       // A. Default table output
       const cliTable = runOverviewCli(casesDir);
       assert.equal(cliTable.exit, 0);
       assert.ok(cliTable.stdout.includes('QUALCOMM CASES OVERVIEW (2 cases)'));
       assert.ok(cliTable.stdout.includes('[08603854]'));
       assert.ok(cliTable.stdout.includes('[08701234]'));
-      assert.ok(cliTable.stdout.includes('Resolution: Pending log analysis'));
 
       // B. JSON output
       const cliJson = runOverviewCli(casesDir, ['--json']);
@@ -269,51 +199,4 @@ describe('cases_overview: End-to-End Pipeline & Auto-Sync Hooks', () => {
     }
   });
 
-  // #143: a rendering bug in dashboard_renderer.mjs must not turn run_summary's
-  // finalize step into a failure — _overview.json must still be written and the
-  // CLI must still exit 0, with the render failure surfaced only as a stderr warning.
-  it('still writes _overview.json and exits 0 when the dashboard render throws during summary finalize', () => {
-    const root = mkdtempSync(join(tmpdir(), 'qc-e2e-render-throw-'));
-    const casesDir = join(root, 'data', 'cases');
-    const caseDir = join(casesDir, '08603854');
-
-    try {
-      mkdirSync(caseDir, { recursive: true });
-      writeFileSync(join(caseDir, 'case.json'), JSON.stringify({
-        caseNumber: '08603854',
-        title: 'NR SA attach failure',
-        status: 'Open',
-        priority: 'P2',
-        product: 'SM7635',
-        url: 'https://support.qualcomm.com/s/case/500dK00000HZeVSQA1',
-        comments: [
-          { id: 'c1', author: 'Engineer A', timestamp: 'July 15, 2026 at 3:00 AM', body: 'Initial report.' },
-        ],
-      }, null, 2), 'utf8');
-
-      // dashboard.html pre-created as a directory forces renderDashboardHtml's
-      // writeFileSync to throw EISDIR — a real-world stand-in for any HTML
-      // rendering bug.
-      mkdirSync(join(casesDir, 'dashboard.html'), { recursive: true });
-
-      const summaryPayload = {
-        comments: [
-          { id: 'c1', author: 'Engineer A', kind: 'investigation-data', summary: 'Initial report.', impact: 'info-only', owner: 'customer' },
-        ],
-        flow: 'Investigation just started.',
-        executive: { ballInCourt: 'qualcomm', blockerOrNextMilestone: 'None yet', rootCause: 'Unknown', resolution: 'Pending' },
-      };
-
-      const summaryRes = runSummaryFinalize(root, '08603854', summaryPayload);
-      assert.equal(summaryRes.exit, 0, `run_summary finalize exit was ${summaryRes.exit}: ${summaryRes.stderr}`);
-      assert.match(summaryRes.stderr, /Warning: dashboard render failed/);
-      assert.ok(existsSync(join(caseDir, 'summary.json')));
-
-      const overview = JSON.parse(readFileSync(join(casesDir, '_overview.json'), 'utf8'));
-      assert.equal(overview.cases[0].caseNumber, '08603854');
-      assert.equal(overview.cases[0].hasSummary, true);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
 });

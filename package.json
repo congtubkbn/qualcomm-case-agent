@@ -5,7 +5,6 @@
   "scripts": {
     "test": "node --experimental-test-module-mocks --test tests/*.test.mjs",
     "case": "node .claude/skills/qcomm/scripts/run_case.mjs",
-    "case:summary": "node .claude/skills/qcomm/scripts/run_summary.mjs",
     "docs": "node tools/gen_design.mjs",
     "docs:check": "node tools/gen_design.mjs --check",
     "docs:hook": "git config core.hooksPath tools/hooks",

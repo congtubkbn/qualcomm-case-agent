@@ -25,7 +25,9 @@ export function escapeHtml(str) {
  * summary.json's executive.ballInCourt, per #192's rubric: qualcomm | customer |
  * closed | unassigned) takes priority over the status text when present, since
  * it is the authoritative "who needs to act" signal; status-text matching is
- * only a fallback for cases without a summary yet.
+ * only a fallback for cases without a summary yet. summary.json is no longer
+ * produced (the Summarize workflow was removed, ADR 0007), so `ballInCourt` is
+ * always null in practice today and this always falls through to status text.
  * @param {string} status
  * @param {string|null} [ballInCourt]
  * @returns {'open'|'in_progress'|'closed'|'action_required'|'pending_qualcomm'|'pending_customer'|'other'}
@@ -56,7 +58,6 @@ export function renderCaseRow(c) {
     const escapedStatus = escapeHtml(c.status || 'Unknown');
     const escapedPriority = escapeHtml(c.priority || '');
     const escapedProduct = escapeHtml(c.product || '');
-    const escapedAiSummary = escapeHtml(c.aiSummary || '');
     const escapedSyncedAt = escapeHtml(c.syncedAt || '');
     const escapedRaisedBy = escapeHtml(c.raisedBy || '');
     const escapedOpenedAt = escapeHtml(c.openedAt || '');
@@ -73,7 +74,6 @@ export function renderCaseRow(c) {
       c.status,
       c.priority,
       c.openedAt,
-      c.aiSummary,
       ...(c.latestComments || []).map((cm) => `${cm.author} ${cm.snippet}`),
     ]
       .filter(Boolean)
@@ -84,15 +84,6 @@ export function renderCaseRow(c) {
     const projectBadge = escapedCustomerProject
       ? ` <span class="badge badge-project">${escapedCustomerProject}</span>`
       : '';
-
-    let summaryBlock = '';
-    if (c.hasSummary && escapedAiSummary) {
-      summaryBlock = `
-        <div class="ai-summary">
-          <span class="ai-summary-label">Executive:</span>
-          <span>${escapedAiSummary}</span>
-        </div>`;
-    }
 
     let commentsSection = '';
     if (c.latestComments && c.latestComments.length > 0) {
@@ -197,7 +188,6 @@ export function renderCaseRow(c) {
       <tr class="detail-row" data-case-detail="${escapedCaseNum}">
         <td colspan="6">
           <div class="meta-row">${metaLine}</div>
-          ${summaryBlock}
           ${commentsSection}
         </td>
       </tr>`;
@@ -909,23 +899,6 @@ export function renderStyles() {
     .status-tag-pending_qualcomm { color: var(--badge-pending-qc-text); }
     .status-tag-pending_customer { color: var(--badge-pending-cust-text); }
     .status-tag-other { color: var(--text-muted); }
-    .ai-summary {
-      background: var(--summary-bg);
-      border: 1px solid var(--summary-border);
-      color: var(--summary-text);
-      border-radius: var(--radius-md);
-      padding: 10px 14px;
-      font-size: 13px;
-      margin-bottom: 12px;
-      display: flex;
-      gap: 8px;
-      align-items: baseline;
-      line-height: 1.45;
-    }
-    .ai-summary-label {
-      font-weight: 700;
-      flex-shrink: 0;
-    }
     .meta-row {
       font-size: 12px;
       color: var(--text-muted);

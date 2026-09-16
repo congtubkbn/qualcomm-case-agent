@@ -48,10 +48,6 @@ export function renderCliTable(overviewData, options = {}) {
       lines.push(`  Last activity: ${staleness} (${c.lastCommentAt})`);
     }
 
-    if (c.aiSummary) {
-      lines.push(`  Summary: ${c.aiSummary}`);
-    }
-
     if (c.latestComments && c.latestComments.length > 0) {
       const top = c.latestComments[0];
       const author = top.author || 'Unknown';

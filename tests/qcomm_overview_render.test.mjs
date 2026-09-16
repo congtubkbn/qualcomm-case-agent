@@ -40,8 +40,6 @@ function createSampleOverviewData() {
         lastCommentAt: 'July 22, 2026 at 5:42 AM',
         lastCommentAuthor: 'Luyen Kieu Ba',
         commentCount: 4,
-        hasSummary: true,
-        aiSummary: 'Resolution: CR3798678 fix delivered | Root cause: nr5g voice flag',
         latestComments: [
           {
             id: 'c4',
@@ -68,8 +66,6 @@ function createSampleOverviewData() {
         lastCommentAt: 'Aug 21, 2026',
         lastCommentAuthor: 'Alex Chen',
         commentCount: 1,
-        hasSummary: false,
-        aiSummary: null,
         latestComments: [
           {
             id: 'c1',
@@ -298,14 +294,6 @@ describe('cases_overview_render: renderDashboardHtml', () => {
     assert.ok(html.includes('class="detail-row"'));
   });
 
-  it('renders AI summary when available', () => {
-    const data = createSampleOverviewData();
-    const html = renderDashboardHtml(data);
-
-    assert.ok(html.includes('CR3798678 fix delivered'));
-    assert.ok(html.includes('ai-summary'));
-  });
-
   it('renders Two-Tier data grid layout with always-visible meta sublines', () => {
     const data = createSampleOverviewData();
     const html = renderDashboardHtml(data);
@@ -456,7 +444,6 @@ describe('cases_overview_render: renderCliTable', () => {
     assert.ok(output.includes('[08642051]'));
     assert.ok(output.includes('Closed-Customer Requested'));
     assert.ok(output.includes('SM7635'));
-    assert.ok(output.includes('CR3798678 fix delivered'));
     assert.ok(output.includes('MPSS. DE. Fix delivered to customer repo.'));
   });
 
@@ -602,8 +589,6 @@ describe('cases_overview_render: composable template functions (#232)', () => {
       openedAt: '2026-09-01',
       syncedAt: '2026-09-02T00:00:00.000Z',
       commentCount: 1,
-      hasSummary: true,
-      aiSummary: 'Isolated executive test',
       latestComments: [
         { author: 'Jane Dev', timestamp: '2026-09-01', snippet: 'Isolated comment snippet' },
       ],
@@ -617,7 +602,6 @@ describe('cases_overview_render: composable template functions (#232)', () => {
     assert.ok(rowHtml.includes('pri-critical'));
     assert.ok(rowHtml.includes('badge-project'));
     assert.ok(rowHtml.includes('Apollo'));
-    assert.ok(rowHtml.includes('Isolated executive test'));
     assert.ok(rowHtml.includes('Isolated comment snippet'));
     assert.ok(rowHtml.includes('class="action-btn delete-btn"'));
   });

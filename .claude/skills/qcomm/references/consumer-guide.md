@@ -20,8 +20,6 @@ The root `data/cases/` holds the global index, multi-case overview, and dashboar
 | `data/cases/dashboard.html` | Visual multi-case HTML dashboard rendered by cases overview |
 | `data/cases/<CODE>/case.json` | Full case data (see schema below) |
 | `data/cases/<CODE>/case.md` | Full human review — every comment verbatim |
-| `data/cases/<CODE>/summary.json` | Case summary digest and flow narrative (produced by `qcomm`) |
-| `data/cases/<CODE>/summary.md` | Rendered summary for human review (produced by `qcomm`) |
 
 ## Key schema fields
 
@@ -101,8 +99,6 @@ Stdout returns exactly one JSON verdict line:
 ---
 
 ## Pseudocode
-
-Matching the pattern used by `run_summary.mjs`:
 
 ```javascript
 // 1. Invoke capture/sync unconditionally (incremental: fast no-op if unchanged) — see Invoke pattern above

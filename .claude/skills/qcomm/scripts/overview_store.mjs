@@ -46,30 +46,6 @@ export function extractProductFromTitle(title) {
 }
 
 /**
- * Extracts formatted AI executive summary from summary.json data.
- * @param {object} summaryJson
- * @returns {string|null}
- */
-export function extractAiSummary(summaryJson) {
-  if (!summaryJson) return null;
-  if (typeof summaryJson.executive === 'string') return summaryJson.executive;
-  if (summaryJson.executive && typeof summaryJson.executive === 'object') {
-    const exec = summaryJson.executive;
-    const parts = [];
-    if (exec.resolution) parts.push(`Resolution: ${exec.resolution}`);
-    if (exec.rootCause) parts.push(`Root cause: ${exec.rootCause}`);
-    if (exec.blockerOrNextMilestone && exec.blockerOrNextMilestone !== 'None — fix delivered and case closed') {
-      parts.push(`Next: ${exec.blockerOrNextMilestone}`);
-    }
-    if (parts.length > 0) return parts.join(' | ');
-  }
-  if (summaryJson.summary && typeof summaryJson.summary === 'string') {
-    return summaryJson.summary;
-  }
-  return null;
-}
-
-/**
  * Extracts normalized overview record for a single case directory.
  * @param {string} caseDir Absolute or relative path to case directory
  * @param {string} [caseNumber] Fallback case number
@@ -149,24 +125,21 @@ export function extractCaseOverview(caseDir, caseNumber = '') {
       // Opener = oldest comment, which is now LAST in the newest-first array.
       (rawComments.length > 0 && rawComments[rawComments.length - 1].author ? rawComments[rawComments.length - 1].author : '');
 
-    // Summary extraction
+    // ballInCourt extraction. summary.json is no longer produced (the Summarize
+    // workflow was removed, ADR 0007), so this always reads as null now — kept
+    // for #192's status-categorization rubric (getStatusCategory) in case a
+    // future producer of this shape reappears.
     const summaryJsonPath = join(caseDir, 'summary.json');
-    let hasSummary = false;
-    let aiSummary = null;
     let ballInCourt = null;
 
     if (existsSync(summaryJsonPath)) {
       try {
         const summaryRaw = readFileSync(summaryJsonPath, 'utf8');
         const summaryJson = JSON.parse(summaryRaw);
-        aiSummary = extractAiSummary(summaryJson);
         ballInCourt = (summaryJson.executive && typeof summaryJson.executive.ballInCourt === 'string')
           ? summaryJson.executive.ballInCourt
           : null;
-        hasSummary = true;
       } catch {
-        hasSummary = false;
-        aiSummary = null;
         ballInCourt = null;
       }
     }
@@ -188,8 +161,6 @@ export function extractCaseOverview(caseDir, caseNumber = '') {
       lastCommentAt,
       lastCommentAuthor,
       commentCount,
-      hasSummary,
-      aiSummary,
       ballInCourt,
       latestComments,
     };
@@ -294,9 +265,10 @@ export function syncCaseOverview(caseNumber, options = {}) {
   let hadEntry = false;
 
   // Lock the read-modify-write-rename below via overview_lock module: two
-  // syncCaseOverview calls racing on the SAME _overview.json — e.g. finalize_case.mjs
-  // and run_summary.mjs finishing for two different cases at once (issue #202) — can't
-  // both "win" the read-modify-write and clobber each other's upsert.
+  // syncCaseOverview calls racing on the SAME _overview.json — e.g. two
+  // finalize_case.mjs captures finishing for two different cases at once
+  // (issue #202) — can't both "win" the read-modify-write and clobber each
+  // other's upsert.
   const syncResult = withOverviewLock(casesDir, () => {
     if (existsSync(overviewPath)) {
       try {
@@ -397,7 +369,7 @@ export function updateCaseOverview(caseNumber, casesDir = DEFAULT_CASES_DIR) {
 }
 
 /**
- * Resilient synchronization hook for a finalized case (capture or summary).
+ * Resilient synchronization hook for a finalized capture.
  * Convenience wrapper around syncCaseOverview that never throws and isolates errors.
  * @param {string} caseCode Case number
  * @param {string} dataDir Directory containing cases
