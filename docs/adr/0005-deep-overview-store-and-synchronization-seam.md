@@ -10,3 +10,9 @@ Upstream case processors (`finalize_case.mjs` and `run_summary.mjs`) previously 
 2. **Subsume afterFinalize**: `syncCaseOverview` is already non-fatal and resilient; `afterFinalize` is subsumed by it and retained only as a deprecated alias in `overview_store.mjs`.
 3. **Private Extraction Logic**: `extractCaseOverview` remains private to `overview_store.mjs`. It is not extracted into a shared reader module because no other skill consumes this specific aggregated projection.
 4. **CLI As Thin Adapter**: `cases_overview.mjs` is strictly a CLI argument parser and browser launcher. It retains `@deprecated` re-exports for backward compatibility.
+
+## Addendum (2026-09-16): `run_summary.mjs` removed entirely — see ADR 0007
+
+`run_summary.mjs`, named above as a direct `syncCaseOverview` caller, is deleted, not just
+relocated. The seam now has two callers: `finalize_case.mjs` and `delete_case.mjs`. See
+[ADR 0007](0007-remove-summarize-workflow.md).

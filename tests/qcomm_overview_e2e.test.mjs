@@ -52,7 +52,7 @@ function runOverviewCli(casesDir, args = []) {
 }
 
 describe('cases_overview: End-to-End Pipeline & Auto-Sync Hooks', () => {
-  it('triggers auto-sync hook on finalize capture, summary finalize, and serves CLI queries', () => {
+  it('triggers auto-sync hook on finalize capture and serves CLI queries', () => {
     const root = mkdtempSync(join(tmpdir(), 'qc-e2e-pipeline-'));
     const casesDir = join(root, 'data', 'cases');
 
