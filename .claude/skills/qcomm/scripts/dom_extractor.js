@@ -749,6 +749,23 @@
         (location.hostname !== 'account.qualcomm.com' && !/login|auth|okta/i.test(location.pathname));
     }
 
+    // Salesforce sometimes lands the SSO redirect on a "Can't Display Page" click-through
+    // (same host/path as an authenticated page, so isHostAuthenticated() alone false-positives
+    // AUTHENTICATED here) instead of finishing the relay-state redirect on its own.
+    function checkFinishLoginInterstitial() {
+      var bodyText = (document.body && (document.body.innerText || document.body.textContent) || '');
+      if (!/finish logging in/i.test(bodyText)) return false;
+      var btns = QC.qsa('button, a, input[type="button"], input[type="submit"]');
+      for (var i = 0; i < btns.length; i++) {
+        var label = btns[i].innerText || btns[i].value || QC.txt(btns[i]);
+        if (label && /finish logging in/i.test(label)) {
+          btns[i].click();
+          break;
+        }
+      }
+      return true;
+    }
+
     function checkError() {
       var errorEls = QC.qsa('.okta-form-infobox-error, .infobox-error, [role="alert"], .okta-form-input-error, .error-summary, .o-form-error-container');
       for (var i = 0; i < errorEls.length; i++) {
@@ -777,6 +794,10 @@
     }
 
     function classifyCurrentState() {
+      if (checkFinishLoginInterstitial()) {
+        return null;
+      }
+
       if (isHostAuthenticated()) {
         return { outcome: 'AUTHENTICATED' };
       }

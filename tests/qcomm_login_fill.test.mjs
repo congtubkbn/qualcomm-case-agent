@@ -135,5 +135,34 @@ test('login_fill page script', async (t) => {
     const noPwPayload = buildPayload(rawSrc, { __ACTION: 'loginFill' });
     const noPwResult = await vm.runInContext(noPwPayload, noPwContext);
     assert.equal(noPwResult.outcome, 'UNKNOWN');
+
+    // 5. Salesforce "Can't Display Page / first finish logging in" click-through
+    // (regression: case 06453333, 2026-09-18) — same host, path has no login/auth/okta,
+    // so isHostAuthenticated() alone false-positives AUTHENTICATED here while the SSO
+    // relay-state redirect hasn't actually finished. Clicking the button should be what
+    // resolves it, not the host/path check.
+    let interstitialShown = true;
+    const finishLoginContext = createMockDom({
+      hostname: 'support.qualcomm.com',
+      pathname: '/s/global-search/06453333',
+      bodyText: "Can't Display Page\nTo access this page, first finish logging in.\nFinish Logging In",
+    });
+    finishLoginContext.document.querySelectorAll = (sel) => {
+      if (sel.indexOf('button') === -1) return [];
+      if (!interstitialShown) return [];
+      return [{
+        innerText: 'Finish Logging In',
+        click() { interstitialShown = false; },
+      }];
+    };
+    Object.defineProperty(finishLoginContext.document.body, 'innerText', {
+      get() { return interstitialShown ? "Can't Display Page\nTo access this page, first finish logging in.\nFinish Logging In" : 'Case detail loaded'; },
+      configurable: true,
+    });
+    vm.createContext(finishLoginContext);
+    const finishLoginPayload = buildPayload(rawSrc, { __ACTION: 'loginFill', __PASSWORD: 'Pass', __TIMEOUT: 3000 });
+    const finishLoginResult = await vm.runInContext(finishLoginPayload, finishLoginContext);
+    assert.equal(finishLoginResult.outcome, 'AUTHENTICATED');
+    assert.equal(interstitialShown, false);
   });
 });
