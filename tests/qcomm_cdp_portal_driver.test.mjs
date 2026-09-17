@@ -10,7 +10,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { CdpPortalDriver, DETAIL_SWITCH_RETRIES } from '../.claude/skills/qcomm/scripts/cdp_portal_driver.mjs';
+import { CdpPortalDriver, DETAIL_SWITCH_RETRIES, FEED_PROBE_ROUNDS } from '../.claude/skills/qcomm/scripts/cdp_portal_driver.mjs';
 
 // Builds a { browser } namespace stub for expandAndExtract() scenario tests —
 // direct constructor injection (see connect()'s tests below), not
@@ -242,5 +242,143 @@ describe('CdpPortalDriver.expandAndExtract() — Detail-tab and Feed switch-back
     assert.equal(feedSwitchAttempts, DETAIL_SWITCH_RETRIES);
     const extractCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'extractCase');
     assert.equal(extractCalls.length, 1); // the Detail-tab extraction only — never Phase-2
+  });
+});
+
+// The fast path checked below sits right after the feed-probe loop but isn't
+// itself one of the six "phases" #253's architecture review named — it was
+// surfaced during grilling as an equally-untested branch that decides whether
+// expandAndExtract()'s eight remaining code sections run at all.
+describe('CdpPortalDriver.expandAndExtract() — feed probe + onProbe fast path (#256)', () => {
+  it('stabilizes the feed-probe loop (article count stops changing) well before FEED_PROBE_ROUNDS, then continues', async () => {
+    let feedSwitched = false;
+    let probeCalls = 0;
+    let probeCallsAtDecision = null;
+    const { browser } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return feedSwitched ? { comments: [{ id: 'c1' }] } : { detail: 'lightning-metadata' };
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) {
+        probeCalls++;
+        // Before onProbe fires: 2 -> 4 -> 4 (stabilizes on the 3rd call).
+        // After onProbe fires (article-count settle phase, later in the
+        // function): stays at 4 so that phase also settles immediately.
+        if (probeCallsAtDecision === null) return { articles: probeCalls === 1 ? 2 : 4 };
+        return { articles: 4 };
+      }
+      if (vars.__ACTION === 'expandStep') return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+      if (vars.__ACTION === 'checkCollapsed') return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({
+      anchor: 'a1',
+      onProbe: probe => {
+        probeCallsAtDecision = probeCalls;
+        assert.equal(probe.articles, 4); // the stabilized count is what reaches the caller
+        return false; // let the happy path continue past the fast path
+      },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(probeCallsAtDecision, 3); // initial probe + 2 loop rounds, not FEED_PROBE_ROUNDS
+    assert.ok(probeCallsAtDecision < FEED_PROBE_ROUNDS + 1);
+  });
+
+  it('reopens the case page via caseUrl and retries after an empty first probe, succeeding on the second attempt', async () => {
+    let feedSwitched = false;
+    let reopenCalls = 0;
+    const cdp = { navigate: async () => { reopenCalls++; } };
+    const { browser } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return feedSwitched ? { comments: [{ id: 'c1' }] } : { detail: 'lightning-metadata' };
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) {
+        // First probeFeed() (before reopen): always empty, exhausts every round.
+        // Second probeFeed() (after reopen): stabilizes right away.
+        return reopenCalls === 0 ? { articles: 0 } : { articles: 5 };
+      }
+      if (vars.__ACTION === 'expandStep') return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+      if (vars.__ACTION === 'checkCollapsed') return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ cdp, browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1', caseUrl: 'https://example.com/case/1' });
+
+    assert.equal(result.ok, true);
+    assert.equal(reopenCalls, 1);
+  });
+
+  it('returns { ok:false, stage:"no-articles", probe } when the feed probe stays empty and there is no caseUrl to retry', async () => {
+    let feedSwitched = false;
+    const { browser } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return { detail: 'lightning-metadata' }; // Detail-tab only; hard-stops before Phase 2
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 0 };
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1' });
+
+    assert.deepEqual(result, {
+      ok: false,
+      stage: 'no-articles',
+      reason: 'case page has no Chatter feed articles — wrong page or feed never loaded',
+      probe: { articles: 0 },
+    });
+  });
+
+  it('returns { ok:false, stage:"no-articles", probe } when a caseUrl reopen also comes back empty', async () => {
+    let feedSwitched = false;
+    let reopenCalls = 0;
+    const cdp = { navigate: async () => { reopenCalls++; } };
+    const { browser } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return { detail: 'lightning-metadata' };
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 0 };
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ cdp, browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1', caseUrl: 'https://example.com/case/1' });
+
+    assert.deepEqual(result, {
+      ok: false,
+      stage: 'no-articles',
+      reason: 'case page has no Chatter feed articles — wrong page or feed never loaded',
+      probe: { articles: 0 },
+    });
+    assert.equal(reopenCalls, 1);
+  });
+
+  it('returns { ok:true, noUpdate:true, probe } immediately when onProbe returns true, firing none of the expand/settle/trusted-click/final-extract calls', async () => {
+    let feedSwitched = false;
+    const { browser, evalFileCalls } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return { detail: 'lightning-metadata' }; // Detail-tab only
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 7 };
+      // expandStep (non-probe), checkCollapsed: deliberately unscripted —
+      // the fast path must return before any of them ever fire.
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1', onProbe: probe => probe.articles === 7 });
+
+    assert.deepEqual(result, { ok: true, noUpdate: true, probe: { articles: 7 } });
+    const expandCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'expandStep' && !c.vars.__PROBE);
+    const checkCollapsedCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'checkCollapsed');
+    const extractCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'extractCase');
+    const trustedCalls = evalFileCalls.filter(c => c.vars.__TRUSTED);
+    assert.equal(expandCalls.length, 0);
+    assert.equal(checkCollapsedCalls.length, 0);
+    assert.equal(trustedCalls.length, 0);
+    assert.equal(extractCalls.length, 1); // the Detail-tab extraction only — Phase 2's final extraction never runs
   });
 });
