@@ -35,17 +35,17 @@ import { PortalDriver } from './portal_driver.mjs';
 const SCRIPTS = fileURLToPath(new URL('.', import.meta.url));
 const page = name => join(SCRIPTS, name);
 
-const FEED_PROBE_ROUNDS = 15; // x 2s = 30s ceiling — Chatter feed hydration is
-                               // slower than page readiness right after a fresh
-                               // login (cold Lightning component bootstrap)
-const EXPAND_ROUNDS = 40;    // pagination + expansion ticks
-const STUCK_RETRY_ROUNDS = 5; // x2s extra grace once the round budget runs out
-                               // while still clicking "Expand Post" every tick
-const SETTLE_ROUNDS = 8;      // x1s ceiling (incl. 2 mandatory confirm reads)
-const POST_EXPAND_SETTLE_ROUNDS = 15; // x2s ceiling for any post still showing
-                               // "Expand Post" to get a real click and settle
-                               // before extraction
-const DETAIL_SWITCH_RETRIES = 3;
+export const FEED_PROBE_ROUNDS = 15; // x 2s = 30s ceiling — Chatter feed hydration is
+                                     // slower than page readiness right after a fresh
+                                     // login (cold Lightning component bootstrap)
+export const EXPAND_ROUNDS = 40;    // pagination + expansion ticks
+export const STUCK_RETRY_ROUNDS = 5; // x2s extra grace once the round budget runs out
+                                     // while still clicking "Expand Post" every tick
+export const SETTLE_ROUNDS = 8;      // x1s ceiling (incl. 2 mandatory confirm reads)
+export const POST_EXPAND_SETTLE_ROUNDS = 15; // x2s ceiling for any post still showing
+                                             // "Expand Post" to get a real click and settle
+                                             // before extraction
+export const DETAIL_SWITCH_RETRIES = 3;
 
 export class CdpPortalDriver extends PortalDriver {
   /**

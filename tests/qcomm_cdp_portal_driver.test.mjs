@@ -12,6 +12,38 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { CdpPortalDriver } from '../.claude/skills/qcomm/scripts/cdp_portal_driver.mjs';
 
+// Builds a { browser } namespace stub for expandAndExtract() scenario tests —
+// direct constructor injection (see connect()'s tests below), not
+// t.mock.module: this file re-imports nothing per test, so the plain-object
+// seam CdpPortalDriver's constructor already takes is enough. `handler(file,
+// vars)` scripts evalFileViaCdp's response by `vars.__ACTION`
+// ('switchTab' | 'expandStep' | 'checkCollapsed' | 'extractCase'); returning
+// undefined throws. expandStep/checkCollapsed calls are uncaught in
+// expandAndExtract(), so an unscripted response there fails the test loudly;
+// switchTab calls are wrapped in try/catch there, so an unscripted switchTab
+// is instead swallowed into a detailSwitchError/feedSwitchError string.
+// Not yet called from any test in this file — issue #254 is prefactor only;
+// the scenario tickets under #253 consume this helper.
+function scriptedBrowser(handler) {
+  const evalFileCalls = [];
+  return {
+    evalFileCalls,
+    browser: {
+      evalFileViaCdp: async (_cdp, path, vars) => {
+        const file = path.split(/[\\/]/).pop();
+        evalFileCalls.push({ path: file, vars });
+        const res = handler(file, vars);
+        if (res === undefined) {
+          throw new Error(`scriptedBrowser: no response scripted for ${file} __ACTION=${vars?.__ACTION}`);
+        }
+        return res;
+      },
+      sleep: async () => {},
+      open: () => {},
+    },
+  };
+}
+
 class BrowserError extends Error {
   constructor(message, detail) {
     super(message);
