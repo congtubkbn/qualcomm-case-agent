@@ -10,7 +10,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { CdpPortalDriver, DETAIL_SWITCH_RETRIES, FEED_PROBE_ROUNDS } from '../.claude/skills/qcomm/scripts/cdp_portal_driver.mjs';
+import { CdpPortalDriver, DETAIL_SWITCH_RETRIES, FEED_PROBE_ROUNDS, EXPAND_ROUNDS, STUCK_RETRY_ROUNDS } from '../.claude/skills/qcomm/scripts/cdp_portal_driver.mjs';
 
 // Builds a { browser } namespace stub for expandAndExtract() scenario tests —
 // direct constructor injection (see connect()'s tests below), not
@@ -380,5 +380,121 @@ describe('CdpPortalDriver.expandAndExtract() — feed probe + onProbe fast path 
     assert.equal(checkCollapsedCalls.length, 0);
     assert.equal(trustedCalls.length, 0);
     assert.equal(extractCalls.length, 1); // the Detail-tab extraction only — Phase 2's final extraction never runs
+  });
+});
+
+// Every scenario below scripts checkCollapsed to always report zero pending so
+// the settle loop / trusted-click fallback / final gate all fall straight
+// through to a successful extraction — the point of these tests is the expand
+// loop (EXPAND_ROUNDS) and the grace-retry loop (STUCK_RETRY_ROUNDS) that
+// follows it, not the phases after. Each scripted plain (non-probe,
+// non-trusted) expandStep response is keyed off a running call counter, since
+// the same __ACTION also fires once more, harmlessly, in the article-count
+// settle phase after the code under test.
+describe('CdpPortalDriver.expandAndExtract() — expand loop + grace-retry recovery (#257)', () => {
+  it('breaks the expand loop at two consecutive idle ticks well before EXPAND_ROUNDS, never entering the grace-retry loop', async () => {
+    let feedSwitched = false;
+    let plainCalls = 0;
+    const { browser, evalFileCalls } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return feedSwitched ? { comments: [{ id: 'c1' }] } : { detail: 'lightning-metadata' };
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 4 };
+      if (vars.__ACTION === 'expandStep') {
+        plainCalls++;
+        // Ticks 1-2 click; ticks 3-4 go idle (two consecutive), tripping the
+        // idle break at round index 3 — the 5th call is the article-count
+        // settle phase's single stabilizing click, well after the loop under test.
+        if (plainCalls <= 2) return { clickedExpand: 1, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+        return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+      }
+      if (vars.__ACTION === 'checkCollapsed') return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1' });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.rounds, 3); // loop stopped at the idle break, not EXPAND_ROUNDS - 1
+    assert.ok(result.rounds < EXPAND_ROUNDS);
+    assert.deepEqual(result.clicks, { expand: 2, viewMore: 0, moreComments: 0, description: 0 }); // only the first two ticks clicked
+    const expandLoopCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'expandStep' && !c.vars.__PROBE);
+    assert.equal(expandLoopCalls.length, 5); // 4 in the expand loop + 1 in article-count settle — grace-retry never ran
+  });
+
+  it('exhausts the full EXPAND_ROUNDS budget while clicking every tick, then starts the grace-retry loop', async () => {
+    let feedSwitched = false;
+    let plainCalls = 0;
+    let postBudgetCalls = 0; // every plain expandStep call once EXPAND_ROUNDS is spent
+    const { browser, evalFileCalls } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return feedSwitched ? { comments: [{ id: 'c1' }] } : { detail: 'lightning-metadata' };
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 4 };
+      if (vars.__ACTION === 'expandStep') {
+        plainCalls++;
+        // Every one of the EXPAND_ROUNDS expand-loop ticks clicks, so
+        // idleTicks never reaches 2 — the loop only exits when the round
+        // budget runs out. Call EXPAND_ROUNDS+1 is the grace-retry loop's
+        // first tick (idle, so grace lets go immediately); the next call is
+        // article-count settle's single stabilizing click.
+        if (plainCalls <= EXPAND_ROUNDS) return { clickedExpand: 1, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+        postBudgetCalls++;
+        return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+      }
+      if (vars.__ACTION === 'checkCollapsed') return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1' });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.rounds, EXPAND_ROUNDS); // exited on budget exhaustion, not an idle break
+    assert.equal(result.clicks.expand, EXPAND_ROUNDS); // only the expand-loop ticks clicked
+    // article-count settle always contributes exactly one trailing plain
+    // expandStep call (see the #257 describe-block comment), so subtracting
+    // it isolates the grace-retry loop's own tick count: 1, proving the loop
+    // started and immediately let go on its first round.
+    assert.equal(postBudgetCalls, 2);
+    assert.equal(postBudgetCalls - 1, 1);
+  });
+
+  it('lets a stuck grace-retry loop go once clicking stops partway through STUCK_RETRY_ROUNDS, proceeding to settle instead of failing', async () => {
+    const GRACE_CLICKING_ROUNDS = 2; // clicks through 2 grace rounds, then stops — short of STUCK_RETRY_ROUNDS
+    assert.ok(GRACE_CLICKING_ROUNDS < STUCK_RETRY_ROUNDS);
+    let feedSwitched = false;
+    let plainCalls = 0;
+    let postBudgetCalls = 0; // every plain expandStep call once EXPAND_ROUNDS is spent
+    const { browser, evalFileCalls } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return feedSwitched ? { comments: [{ id: 'c1' }] } : { detail: 'lightning-metadata' };
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 4 };
+      if (vars.__ACTION === 'expandStep') {
+        plainCalls++;
+        if (plainCalls <= EXPAND_ROUNDS) return { clickedExpand: 1, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+        postBudgetCalls++;
+        const graceTick = plainCalls - EXPAND_ROUNDS;
+        if (graceTick <= GRACE_CLICKING_ROUNDS) return { clickedExpand: 1, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+        return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 }; // lets go — grace loop breaks here
+      }
+      if (vars.__ACTION === 'checkCollapsed') return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1' });
+
+    assert.equal(result.ok, true); // proceeds through settle -> final gate -> extract, no premature stuck-expand failure
+    assert.equal(result.clicks.expand, EXPAND_ROUNDS + GRACE_CLICKING_ROUNDS);
+    // article-count settle always contributes exactly one trailing plain
+    // expandStep call (see the #257 describe-block comment), so subtracting
+    // it isolates the grace-retry loop's own tick count: GRACE_CLICKING_ROUNDS
+    // clicks + 1 idle tick that breaks it — short of STUCK_RETRY_ROUNDS.
+    assert.equal(postBudgetCalls - 1, GRACE_CLICKING_ROUNDS + 1);
+    const checkCollapsedCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'checkCollapsed');
+    assert.ok(checkCollapsedCalls.length > 0); // settle phase and final gate actually ran
   });
 });
