@@ -340,6 +340,24 @@ export async function run(code, opts = {}) {
 
   const { raw, detailRaw, detailExtracted, detailSwitchError, clicks, pendingExpand, pendingMoreComments, rounds } = expandResult;
 
+  // Global search can resolve to a near-match candidate (fast_landing.mjs
+  // FOUND state with exact:false) whose case page still loads fine — it's
+  // just the wrong case. Nothing upstream verifies the page we landed on is
+  // actually the one requested, so refuse to persist a mismatch rather than
+  // silently writing another case's data under this code's directory
+  // (live repro: requested 08702147, search landed on and captured 08637663).
+  if (raw.caseNumber && raw.caseNumber !== code) {
+    const shot = await shoot(caseDir, 'case_mismatch.png', driver);
+    return {
+      status: 'not-found',
+      reason: `search matched a different case (found ${raw.caseNumber}, requested ${code}) — refusing to persist mismatched data`,
+      caseUrl,
+      timing: { landingMs: landingDurationMs },
+      diagnostics,
+      screenshot: shot,
+    };
+  }
+
   // Merge any metadata captured from Detail tab
   mergeDetailFields(raw, detailRaw, [
     'contactName',

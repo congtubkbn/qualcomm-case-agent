@@ -970,6 +970,58 @@ describe('run() fast landing & verdict integration', () => {
   });
 });
 
+describe('run() case-number identity guard (bug: exact=false search match persisted a different case\'s data)', () => {
+  it('rejects a capture whose extracted caseNumber does not match the requested code (live repro: requested 08702147, search exact=false landed on 08637663 and its data was written to data/cases/08702147/case.json)', async (t) => {
+    const wrongCaseUrl = 'https://support.qualcomm.com/s/case/500dK00000ONSaTQAX/de70-cr-4555226-side-effect';
+    let evalStep = 0;
+    const mockCdp = {
+      isConnected: () => true,
+      navigate: async () => {},
+      eval: async () => {
+        evalStep++;
+        if (evalStep === 1) {
+          // global search: near-match only, NOT exact
+          return { state: 'FOUND', href: wrongCaseUrl, exact: false, rows: 2, fields: {} };
+        }
+        // direct navigation to the resolved (wrong) href lands ON_CASE
+        return { state: 'ON_CASE', href: wrongCaseUrl, fields: { title: 'Wrong Case Title' } };
+      },
+      click: async () => true,
+      close: async () => {},
+    };
+
+    const stableFeed = { articles: 1, displayed: 1, anchorIdx: -1, top: { author: 'A', bodyStart: 'x' } };
+    const idleTick = { clickedExpand: 0, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
+
+    mockBrowser(t, (file, vars) => {
+      const action = vars?.__ACTION;
+      if (action === 'switchTab') return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
+      if (action === 'expandStep') return vars?.__PROBE ? stableFeed : idleTick;
+      if (action === 'checkCollapsed') return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      if (action === 'extractCase') {
+        // This is the wrong case's real data, exactly as the live portal
+        // returned it for requested code 08702147.
+        return {
+          caseNumber: '08637663',
+          title: 'Wrong Case Title',
+          status: 'Open',
+          url: wrongCaseUrl,
+          comments: [{ author: 'A', body: 'wrong case content', timestamp: 'August 12, 2026' }],
+        };
+      }
+      throw new Error(`Unexpected evalFile: ${file} (action=${action})`);
+    }, mockCdp);
+
+    const { run } = await importRunCase();
+    const v = await run('08702147', { mode: 'auto', cdp: mockCdp });
+
+    assert.notEqual(v.status, 'created');
+    assert.notEqual(v.status, 'updated');
+    assert.match(v.reason || '', /08637663/);
+    assert.match(v.reason || '', /08702147/);
+  });
+});
+
 describe('run() connect() failure classification (through the PortalDriver seam)', () => {
   class BrowserError extends Error {
     constructor(message, detail) {
