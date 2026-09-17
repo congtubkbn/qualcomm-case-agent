@@ -98,4 +98,30 @@ describe('verifyCase capture evidence and artifacts', () => {
     assert.equal(r.ok, true, r.errors.join('; '));
     assert.doesNotMatch(r.warnings.join('\n'), /displayedCommentCount/);
   });
+
+  // case 08637663: capture.detailTabExtracted is true (the Detail-tab pass
+  // did run), yet severity/product/updated came back empty because that
+  // org's layout doesn't expose those fields under the labels
+  // dom_extractor.js's sectionValue() checks. The warning must not claim a
+  // Detail-tab pass never happened when the capture record says it did.
+  it('does not claim "expected without a Detail-tab pass" when a Detail-tab pass did run', () => {
+    const dir = fixture({
+      severity: null,
+      product: null,
+      updated: null,
+      capture: { articles: 2, pendingExpand: 0, pendingMoreComments: 0, screenshot: 'capture.png', detailTabExtracted: true },
+    });
+    const r = verifyCase('08000001', dir);
+    const joined = r.warnings.join('\n');
+    assert.doesNotMatch(joined, /expected without a Detail-tab pass/);
+    assert.match(joined, /"severity" is empty \(Detail-tab pass completed/);
+    assert.match(joined, /"product" is empty \(Detail-tab pass completed/);
+    assert.match(joined, /"updated" is empty \(Detail-tab pass completed/);
+  });
+
+  it('still blames a missing Detail-tab pass when one never ran', () => {
+    const dir = fixture({ severity: null, product: null, updated: null, capture: undefined });
+    const r = verifyCase('08000001', dir);
+    assert.match(r.warnings.join('\n'), /"product" is empty \(expected without a Detail-tab pass\)/);
+  });
 });

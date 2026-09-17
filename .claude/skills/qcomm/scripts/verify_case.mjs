@@ -22,7 +22,7 @@ import { genuineCommentCount } from './finalize_completeness.mjs';
 const COLLAPSED_BODY_RE = /\bExpand Post\s*$/i;
 const MOJIBAKE_RE = /â”¬Ã¡|Â(?=[\s\n]|$)/;
 const REQUIRED_CORE_FIELDS = ['caseNumber', 'title', 'status', 'url', 'hash', 'extractedAt'];
-const OPTIONAL_FIELDS_WARN_IF_EMPTY = ['updated', 'product', 'description', 'priority'];
+const OPTIONAL_FIELDS_WARN_IF_EMPTY = ['updated', 'product', 'severity', 'description', 'priority'];
 const RENDERED_FILES = ['case.md'];
 
 function readJsonLoose(path) {
@@ -49,8 +49,20 @@ export function verifyCase(code, dir = join(DATA_DIR, code)) {
   for (const f of REQUIRED_CORE_FIELDS) {
     if (!String(c[f] ?? '').trim()) errors.push(`required field "${f}" is empty`);
   }
+  // A completed Detail-tab pass (capture.detailTabExtracted) only proves the
+  // extractor ran on that tab, not that every field it looked for exists on
+  // this case's layout (case 08637663: Wireless Device record type has no
+  // Severity/Product/Last-Modified field at all — confirmed on the live
+  // Detail tab, not a selector regression). Word the warning accordingly
+  // instead of claiming a pass never happened when the capture record says
+  // it did.
+  const detailPassRan = c.capture?.detailTabExtracted === true;
   for (const f of OPTIONAL_FIELDS_WARN_IF_EMPTY) {
-    if (!String(c[f] ?? '').trim()) warnings.push(`field "${f}" is empty (expected without a Detail-tab pass)`);
+    if (!String(c[f] ?? '').trim()) {
+      warnings.push(detailPassRan
+        ? `field "${f}" is empty (Detail-tab pass completed — field may not exist on this case's layout)`
+        : `field "${f}" is empty (expected without a Detail-tab pass)`);
+    }
   }
 
   if (!Array.isArray(c.comments) || c.comments.length === 0) {
