@@ -10,7 +10,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { CdpPortalDriver } from '../.claude/skills/qcomm/scripts/cdp_portal_driver.mjs';
+import { CdpPortalDriver, DETAIL_SWITCH_RETRIES } from '../.claude/skills/qcomm/scripts/cdp_portal_driver.mjs';
 
 // Builds a { browser } namespace stub for expandAndExtract() scenario tests —
 // direct constructor injection (see connect()'s tests below), not
@@ -22,8 +22,6 @@ import { CdpPortalDriver } from '../.claude/skills/qcomm/scripts/cdp_portal_driv
 // expandAndExtract(), so an unscripted response there fails the test loudly;
 // switchTab calls are wrapped in try/catch there, so an unscripted switchTab
 // is instead swallowed into a detailSwitchError/feedSwitchError string.
-// Not yet called from any test in this file — issue #254 is prefactor only;
-// the scenario tickets under #253 consume this helper.
 function scriptedBrowser(handler) {
   const evalFileCalls = [];
   return {
@@ -145,5 +143,104 @@ describe('CdpPortalDriver.connect()', () => {
     const result = await driver.connect();
     assert.deepEqual(result, { ok: false, stage: 'port-conflict', reason: 'port held by another tool', detail: { port: 9773 } });
     assert.equal(driver.isConnected(), false);
+  });
+});
+
+// Beyond the Detail-tab/Feed-switch loops under test, each scenario below has
+// to script a full happy-path expand/settle/extract so expandAndExtract() can
+// run to completion and hand back a result with detailExtracted on it — that
+// field only appears on the final { ok: true, ... } return, not on any
+// early-exit descriptor.
+describe('CdpPortalDriver.expandAndExtract() — Detail-tab and Feed switch-back (#253)', () => {
+  it('retries the Detail-tab switch+extract on failure and succeeds within DETAIL_SWITCH_RETRIES', async () => {
+    let detailSwitchAttempts = 0;
+    let feedSwitched = false;
+    const { browser } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') {
+        detailSwitchAttempts++;
+        return detailSwitchAttempts === 1
+          ? { ok: false, reason: 'Detail tab not yet rendered' }
+          : { ok: true };
+      }
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') {
+        feedSwitched = true;
+        return { ok: true };
+      }
+      if (vars.__ACTION === 'extractCase') {
+        return feedSwitched ? { comments: [{ id: 'c1' }] } : { detail: 'lightning-metadata' };
+      }
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 2 };
+      if (vars.__ACTION === 'expandStep') return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+      if (vars.__ACTION === 'checkCollapsed') return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1' });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.detailExtracted, true);
+    assert.equal(result.detailSwitchError, null);
+    assert.deepEqual(result.detailRaw, { detail: 'lightning-metadata' });
+    assert.equal(detailSwitchAttempts, 2);
+  });
+
+  it('marks detailExtracted false but continues past a permanently failed Detail-tab switch (non-fatal)', async () => {
+    let detailSwitchAttempts = 0;
+    let feedSwitched = false;
+    const { browser } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') {
+        detailSwitchAttempts++;
+        return { ok: false, reason: 'Detail tab never became active' };
+      }
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') {
+        feedSwitched = true;
+        return { ok: true };
+      }
+      if (vars.__ACTION === 'extractCase') {
+        // Every Detail switchTab attempt fails above, so this is only ever
+        // the final Phase-2 extract — the Detail-tab extractCase never runs.
+        return { comments: [{ id: 'c1' }] };
+      }
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 2 };
+      if (vars.__ACTION === 'expandStep') return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+      if (vars.__ACTION === 'checkCollapsed') return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1' });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.detailExtracted, false);
+    assert.equal(detailSwitchAttempts, DETAIL_SWITCH_RETRIES);
+  });
+
+  it('hard-stops with { ok:false, stage:"feed-switch", retryable:true } when every Feed switch-back attempt fails, without attempting extraction (case 08637663 regression shape)', async () => {
+    let feedSwitchAttempts = 0;
+    const { browser, evalFileCalls } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') {
+        feedSwitchAttempts++;
+        return { ok: false, reason: 'tab is labeled "Communication", not "Feed"' };
+      }
+      if (vars.__ACTION === 'extractCase') return { detail: 'lightning-metadata' }; // Detail-tab call only
+      // expandStep/checkCollapsed are deliberately unscripted: the hard-stop
+      // must return before any of the expand/extract phases are reached.
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1' });
+
+    assert.deepEqual(result, {
+      ok: false,
+      stage: 'feed-switch',
+      reason: 'could not switch back to the Feed tab for extraction: tab is labeled "Communication", not "Feed"',
+      retryable: true,
+    });
+    assert.equal(feedSwitchAttempts, DETAIL_SWITCH_RETRIES);
+    const extractCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'extractCase');
+    assert.equal(extractCalls.length, 1); // the Detail-tab extraction only — never Phase-2
   });
 });
