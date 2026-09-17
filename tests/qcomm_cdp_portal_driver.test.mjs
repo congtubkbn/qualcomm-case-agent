@@ -742,3 +742,126 @@ describe('CdpPortalDriver.expandAndExtract() — settle loop + trusted-click fal
     assert.equal(result.clicks.expand, 2);
   });
 });
+
+// Covers the last section of expandAndExtract(): the article-count-gate
+// settle loop (SETTLE_ROUNDS, second occurrence — driver source ~line 287),
+// the final pre-extraction gate (~line 302), and the Phase-2 extraction call
+// that follows it. Every scenario scripts the settle loop / trusted-click
+// fallback (already covered by #258) to fall straight through clean, so only
+// the code under test drives the outcome.
+describe('CdpPortalDriver.expandAndExtract() — article-count gate + final extraction gate (#259)', () => {
+  it('stabilizes the article-count-settle loop after three consecutive matching counts, then proceeds to the final gate', async () => {
+    let feedSwitched = false;
+    let probeCalls = 0;
+    let checkCollapsedCalls = 0;
+    const { browser, evalFileCalls } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return feedSwitched ? { comments: [{ id: 'c1' }] } : { detail: 'lightning-metadata' };
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) {
+        probeCalls++;
+        // Calls 1-2: initial feed probe, stabilizes immediately at 4 articles.
+        // Calls 3-5: article-count-settle loop — steady at 4 the whole time,
+        // so s=0 sets prevCount and s=1,2 match it, breaking via matches>=3
+        // well before SETTLE_ROUNDS.
+        return { articles: 4 };
+      }
+      if (vars.__ACTION === 'expandStep') return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+      if (vars.__ACTION === 'checkCollapsed') {
+        checkCollapsedCalls++;
+        return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      }
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1' });
+
+    assert.equal(result.ok, true);
+    const articleSettleProbeCalls = probeCalls - 2; // minus the initial feed-probe's 2 calls
+    assert.equal(articleSettleProbeCalls, 3);
+    assert.ok(articleSettleProbeCalls < SETTLE_ROUNDS);
+    // settle loop (2, clean->break) + lastUnexpanded (1, clean->fallback skipped) + final gate (1)
+    assert.equal(checkCollapsedCalls, 4);
+    const extractCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'extractCase');
+    assert.equal(extractCalls.length, 2); // Detail-tab extraction + the final Phase-2 extraction
+  });
+
+  it('extracts successfully when the final gate finds zero pending items', async () => {
+    let feedSwitched = false;
+    const { browser, evalFileCalls } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return feedSwitched ? { comments: [{ id: 'c1' }, { id: 'c2' }] } : { detail: 'lightning-metadata' };
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 4 };
+      if (vars.__ACTION === 'expandStep') return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+      if (vars.__ACTION === 'checkCollapsed') return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1' });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.noUpdate, false);
+    assert.deepEqual(result.raw, { comments: [{ id: 'c1' }, { id: 'c2' }] });
+    assert.equal(result.pendingExpand, 0);
+    assert.equal(result.pendingMoreComments, 0);
+    const extractCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'extractCase');
+    assert.equal(extractCalls.length, 2); // Detail-tab extraction + the final Phase-2 extraction
+  });
+
+  it('fails with stuck-expand when the final gate still finds pending items, without ever calling Phase-2 extractCase', async () => {
+    let feedSwitched = false;
+    let checkCollapsedCalls = 0;
+    const { browser, evalFileCalls } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return { detail: 'lightning-metadata' }; // Detail-tab only; final gate hard-stops before Phase 2
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 4 };
+      if (vars.__ACTION === 'expandStep') return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+      if (vars.__ACTION === 'checkCollapsed') {
+        checkCollapsedCalls++;
+        // 1-2: settle loop, clean -> break early. 3: lastUnexpanded, clean ->
+        // fallback skipped. 4: final gate, still pending -> stuck-expand.
+        if (checkCollapsedCalls <= 3) return { stillCollapsed: 0, stillHasMoreComments: 0 };
+        return { stillCollapsed: 2, stillHasMoreComments: 1 };
+      }
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1' });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.stage, 'stuck-expand');
+    assert.equal(result.reason, 'expand loop left 2 collapsed post(s) and 1 "More comments" control(s)');
+    assert.equal(result.retryable, true);
+    assert.deepEqual(result.evidence.clicks, { expand: 0, viewMore: 0, moreComments: 0, description: 0 });
+    assert.equal(result.evidence.stillCollapsed, 2);
+    assert.equal(result.evidence.stillHasMoreComments, 1);
+    assert.ok(Number.isInteger(result.rounds));
+    const extractCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'extractCase');
+    assert.equal(extractCalls.length, 1); // Detail-tab extraction only — Phase 2 never runs
+  });
+
+  it('returns { ok:false, stage:"no-comments" } when the final gate is clean but Phase-2 extraction comes back empty', async () => {
+    let feedSwitched = false;
+    const { browser, evalFileCalls } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return feedSwitched ? { comments: [] } : { detail: 'lightning-metadata' };
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 4 };
+      if (vars.__ACTION === 'expandStep') return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+      if (vars.__ACTION === 'checkCollapsed') return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1' });
+
+    assert.deepEqual(result, { ok: false, stage: 'no-comments', reason: 'case extraction returned no comments' });
+    const extractCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'extractCase');
+    assert.equal(extractCalls.length, 2); // Detail-tab extraction + the final Phase-2 attempt
+  });
+});
