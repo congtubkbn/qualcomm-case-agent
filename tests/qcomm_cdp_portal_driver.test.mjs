@@ -10,7 +10,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { CdpPortalDriver, DETAIL_SWITCH_RETRIES, FEED_PROBE_ROUNDS, EXPAND_ROUNDS, STUCK_RETRY_ROUNDS } from '../.claude/skills/qcomm/scripts/cdp_portal_driver.mjs';
+import { CdpPortalDriver, DETAIL_SWITCH_RETRIES, FEED_PROBE_ROUNDS, EXPAND_ROUNDS, STUCK_RETRY_ROUNDS, SETTLE_ROUNDS, POST_EXPAND_SETTLE_ROUNDS } from '../.claude/skills/qcomm/scripts/cdp_portal_driver.mjs';
 
 // Builds a { browser } namespace stub for expandAndExtract() scenario tests —
 // direct constructor injection (see connect()'s tests below), not
@@ -496,5 +496,249 @@ describe('CdpPortalDriver.expandAndExtract() — expand loop + grace-retry recov
     assert.equal(postBudgetCalls - 1, GRACE_CLICKING_ROUNDS + 1);
     const checkCollapsedCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'checkCollapsed');
     assert.ok(checkCollapsedCalls.length > 0); // settle phase and final gate actually ran
+  });
+});
+
+// checkCollapsed fires in up to four places: the settle loop itself (once per
+// round), the fallback's pre-check ("lastUnexpanded", deciding stubbornCount),
+// inside the fallback loop (once per round), and the final pre-extraction
+// gate. Each scenario below drives it with a call counter and documents the
+// call-index -> phase mapping inline. Plain (non-probe, non-trusted)
+// expandStep calls are disambiguated the same way: the expand loop above this
+// code always ticks twice with all-zero clicks (idle-break, uninteresting
+// here), and a settle-loop retry returns clickedViewMore:1 so
+// result.clicks.viewMore isolates it. The trailing article-count-settle call
+// (which always fires exactly once after the fallback, per the #257
+// describe-block comment) is fire-and-forget in the driver — its result is
+// never folded into `clicks` — so its occurrence is checked via evalFileCalls
+// counts instead.
+describe('CdpPortalDriver.expandAndExtract() — settle loop + trusted-click fallback (#258)', () => {
+  it('retries expandStep when the settle loop finds pending posts, then re-checks rather than exiting immediately', async () => {
+    let feedSwitched = false;
+    let checkCollapsedCalls = 0;
+    let plainCalls = 0;
+    const { browser, evalFileCalls } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return feedSwitched ? { comments: [{ id: 'c1' }] } : { detail: 'lightning-metadata' };
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 4 };
+      if (vars.__ACTION === 'expandStep' && vars.__TRUSTED) throw new Error('trusted fallback should never run — lastUnexpanded reports zero stubborn posts');
+      if (vars.__ACTION === 'expandStep') {
+        plainCalls++;
+        // 1-2: expand loop (idle-break). 3: settle-loop retry (s=0, pending).
+        // 4: article-count-settle's trailing call.
+        if (plainCalls <= 2) return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+        if (plainCalls === 3) return { clickedExpand: 0, clickedViewMore: 1, clickedMoreComments: 0, clickedDescription: 0 };
+        return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 1 };
+      }
+      if (vars.__ACTION === 'checkCollapsed') {
+        checkCollapsedCalls++;
+        // 1: settle s=0, pending -> retry. 2-3: settle s=1,2, clean twice ->
+        // break. 4: lastUnexpanded, clean -> stubbornCount 0, fallback skipped.
+        // 5: final gate, clean -> proceeds to extract.
+        if (checkCollapsedCalls === 1) return { stillCollapsed: 1, stillHasMoreComments: 0 };
+        return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      }
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1' });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.clicks.viewMore, 1); // exactly one settle-loop retry fired
+    // The article-count-settle phase's own trailing expandStep call (driver
+    // source: cdp_portal_driver.mjs ~line 296) never aggregates its result
+    // into `clicks` — so its occurrence is only observable via evalFileCalls,
+    // not via result.clicks.
+    const plainExpandCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'expandStep' && !c.vars.__PROBE && !c.vars.__TRUSTED);
+    assert.equal(plainExpandCalls.length, 4); // 2 expand-loop idle ticks + 1 settle retry + 1 article-count-settle trailing call
+    const trustedCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'expandStep' && c.vars.__TRUSTED);
+    assert.equal(trustedCalls.length, 0); // fallback never entered
+    assert.equal(checkCollapsedCalls, 5);
+    const settleLoopChecks = checkCollapsedCalls - 2; // minus lastUnexpanded and the final gate
+    assert.equal(settleLoopChecks, 3);
+    assert.ok(settleLoopChecks < SETTLE_ROUNDS);
+  });
+
+  it('confirms zero pending twice consecutively and exits the settle loop well before exhausting SETTLE_ROUNDS', async () => {
+    let feedSwitched = false;
+    let checkCollapsedCalls = 0;
+    let plainCalls = 0;
+    const { browser, evalFileCalls } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return feedSwitched ? { comments: [{ id: 'c1' }] } : { detail: 'lightning-metadata' };
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 4 };
+      if (vars.__ACTION === 'expandStep' && vars.__TRUSTED) throw new Error('trusted fallback should never run — lastUnexpanded reports zero stubborn posts');
+      if (vars.__ACTION === 'expandStep') {
+        plainCalls++;
+        // 1-2: expand loop (idle-break). 3: article-count-settle's trailing
+        // call — no settle-loop retries this time.
+        if (plainCalls <= 2) return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+        return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 1 };
+      }
+      if (vars.__ACTION === 'checkCollapsed') {
+        checkCollapsedCalls++;
+        // 1-2: settle s=0,1, clean both times -> confirmedZero reaches 2,
+        // break. 3: lastUnexpanded, clean -> fallback skipped. 4: final gate.
+        return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      }
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1' });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.clicks.viewMore, 0); // no retries needed
+    const trustedCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'expandStep' && c.vars.__TRUSTED);
+    assert.equal(trustedCalls.length, 0);
+    assert.equal(checkCollapsedCalls, 4);
+    const settleLoopChecks = checkCollapsedCalls - 2;
+    assert.equal(settleLoopChecks, 2);
+    assert.ok(settleLoopChecks < SETTLE_ROUNDS);
+  });
+
+  it('drives the trusted-click fallback through stubborn collapsed posts and asserts every expandStep call in this phase carries __TRUSTED:true', async () => {
+    let feedSwitched = false;
+    let checkCollapsedCalls = 0;
+    let plainCalls = 0;
+    let trustedRoundCalls = 0;
+    const { browser, evalFileCalls } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return feedSwitched ? { comments: [{ id: 'c1' }] } : { detail: 'lightning-metadata' };
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 4 };
+      if (vars.__ACTION === 'expandStep' && vars.__TRUSTED) {
+        trustedRoundCalls++;
+        return { clickedExpand: 1, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+      }
+      if (vars.__ACTION === 'expandStep') {
+        plainCalls++;
+        // 1-2: expand loop (idle-break). 3: article-count-settle's trailing
+        // call — settle loop below is clean immediately, no retries.
+        if (plainCalls <= 2) return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+        return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 1 };
+      }
+      if (vars.__ACTION === 'checkCollapsed') {
+        checkCollapsedCalls++;
+        // 1-2: settle loop, clean both times -> break early.
+        if (checkCollapsedCalls <= 2) return { stillCollapsed: 0, stillHasMoreComments: 0 };
+        // 3: lastUnexpanded -> stubbornCount 1 -> settleBudget = min(15, 9) = 9.
+        if (checkCollapsedCalls === 3) return { stillCollapsed: 1, stillHasMoreComments: 0 };
+        // 4-5: fallback rounds 1-2, still stubborn (consecutiveClean stays 0).
+        // 6-7: fallback rounds 3-4, clean -> consecutiveClean reaches 2, break.
+        if (checkCollapsedCalls <= 5) return { stillCollapsed: 1, stillHasMoreComments: 0 };
+        if (checkCollapsedCalls <= 7) return { stillCollapsed: 0, stillHasMoreComments: 0 };
+        // 8: final gate, clean -> proceeds to extract.
+        return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      }
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1' });
+
+    assert.equal(result.ok, true);
+    const trustedCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'expandStep' && c.vars.__TRUSTED);
+    assert.equal(trustedCalls.length, 4); // 4 fallback rounds before the consecutiveClean>=2 break
+    assert.equal(trustedRoundCalls, 4);
+    assert.ok(trustedCalls.every(c => c.vars.__TRUSTED === true && !c.vars.__PROBE && c.vars.__ANCHOR === 'a1'));
+    assert.equal(result.clicks.expand, 4); // cross-check: only the fallback contributed to clicks.expand
+    assert.equal(result.clicks.viewMore, 0);
+  });
+
+  it('computes the fallback round budget as Math.min(POST_EXPAND_SETTLE_ROUNDS, stubbornCount * 3 + 6) and exhausts it when posts never clear', async () => {
+    const stubbornCount = 1; // min(15, 9) = 9 — proves the formula, not just the POST_EXPAND_SETTLE_ROUNDS ceiling
+    const expectedBudget = Math.min(POST_EXPAND_SETTLE_ROUNDS, stubbornCount * 3 + 6);
+    assert.equal(expectedBudget, 9);
+    let feedSwitched = false;
+    let checkCollapsedCalls = 0;
+    let plainCalls = 0;
+    let trustedRoundCalls = 0;
+    const { browser, evalFileCalls } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return feedSwitched ? { comments: [{ id: 'c1' }] } : { detail: 'lightning-metadata' };
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 4 };
+      if (vars.__ACTION === 'expandStep' && vars.__TRUSTED) {
+        trustedRoundCalls++;
+        return { clickedExpand: 1, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+      }
+      if (vars.__ACTION === 'expandStep') {
+        plainCalls++;
+        if (plainCalls <= 2) return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+        return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 1 };
+      }
+      if (vars.__ACTION === 'checkCollapsed') {
+        checkCollapsedCalls++;
+        // 1-2: settle loop, clean -> break early.
+        if (checkCollapsedCalls <= 2) return { stillCollapsed: 0, stillHasMoreComments: 0 };
+        // 3: lastUnexpanded -> stubbornCount 1 -> settleBudget 9.
+        // 4-12 (9 rounds): fallback never clears -> exhausts the full budget.
+        // 13: final gate, still stuck -> stuck-expand.
+        return { stillCollapsed: stubbornCount, stillHasMoreComments: 0 };
+      }
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1' });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.stage, 'stuck-expand');
+    const trustedCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'expandStep' && c.vars.__TRUSTED);
+    assert.equal(trustedCalls.length, expectedBudget);
+    assert.equal(trustedRoundCalls, expectedBudget);
+    assert.equal(result.evidence.clicks.expand, expectedBudget);
+    assert.equal(result.evidence.stillCollapsed, stubbornCount);
+  });
+
+  it('exits the fallback early via the consecutiveClean >= 2 break rather than exhausting its settle budget', async () => {
+    const stubbornCount = 2; // settleBudget = min(15, 12) = 12
+    const settleBudget = Math.min(POST_EXPAND_SETTLE_ROUNDS, stubbornCount * 3 + 6);
+    assert.equal(settleBudget, 12);
+    let feedSwitched = false;
+    let checkCollapsedCalls = 0;
+    let plainCalls = 0;
+    let trustedRoundCalls = 0;
+    const { browser, evalFileCalls } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return feedSwitched ? { comments: [{ id: 'c1' }] } : { detail: 'lightning-metadata' };
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 4 };
+      if (vars.__ACTION === 'expandStep' && vars.__TRUSTED) {
+        trustedRoundCalls++;
+        return { clickedExpand: 1, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+      }
+      if (vars.__ACTION === 'expandStep') {
+        plainCalls++;
+        if (plainCalls <= 2) return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+        return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 1 };
+      }
+      if (vars.__ACTION === 'checkCollapsed') {
+        checkCollapsedCalls++;
+        // 1-2: settle loop, clean -> break early.
+        if (checkCollapsedCalls <= 2) return { stillCollapsed: 0, stillHasMoreComments: 0 };
+        // 3: lastUnexpanded -> stubbornCount 2 -> settleBudget 12.
+        if (checkCollapsedCalls === 3) return { stillCollapsed: stubbornCount, stillHasMoreComments: 0 };
+        // 4-5: fallback rounds 1-2, both clean immediately -> consecutiveClean
+        // reaches 2, breaks after only 2 of the 12 available rounds.
+        // 6: final gate, clean -> proceeds to extract.
+        return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      }
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1' });
+
+    assert.equal(result.ok, true);
+    const trustedCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'expandStep' && c.vars.__TRUSTED);
+    assert.equal(trustedCalls.length, 2);
+    assert.equal(trustedRoundCalls, 2);
+    assert.ok(trustedCalls.length < settleBudget); // exited early, not by budget exhaustion
+    assert.equal(result.clicks.expand, 2);
   });
 });
