@@ -186,7 +186,7 @@ that is what makes it reviewable.
 | D17 | **The skill lives in the repo** (`.claude/skills/…`), harness-agnostic, references loaded on demand | A global/installed skill; one monolithic runbook | The runbook travels with the code it drives, so they cannot drift apart across machines; on-demand references cut activation from ~15.6k to ~4.7k tokens | Two harness entry points to maintain (`SKILL.md`, `.clinerules/`) |
 | D18 | **Paths resolve by walking up to a marker** (`_paths.mjs` / `_paths.ps1`), never from CWD | `../..` relative paths | An interactive run started from any subdirectory must agree with every other invocation on one cache. Re-nesting the skill does not break it | A `QUALCOMM_ROOT` escape hatch is needed for layouts with no `.git` |
 | D19 | **Comment identity is content-derived** (`commentId` = hash of author + body prefix), assigned in the finalizer | Positional ids from the extractor; trusting the Chatter DOM id | A positional id meant a full re-capture re-keyed every comment on every run, purely from a reshuffled feed order, with no way to tell a genuinely new comment from one that just moved. Deriving the id from the content that defines the comment removes the dependency on position entirely | Two comments with the same author and same opening 120 chars are ambiguous; they are kept distinct with a `-N` suffix and reported as `idCollisions` rather than resolved silently. Caches on the old scheme are migrated on read (`migrateIds`) and re-hash once |
-| D20 | **Unified Case Synchronization Seam (`syncCaseOverview`)** | Ad-hoc callers manually parsing `_overview.json` and triggering HTML rendering | Encapsulates presence detection, atomic cache mutation for both upsert and remove, stats calculation, and dashboard rendering behind a single interface. Rendering errors are trapped and warned non-fatally; callers (capture, delete) never fail due to an overview glitch | Callers must conform to the seam options contract (`casesDir`, `action`, `render`, `onError`, `renderDashboard`) |
+| D20 | **Unified Overview Refresh Seam (`syncCaseOverview`)** | Ad-hoc callers manually parsing `_overview.json` and triggering HTML rendering | Encapsulates presence detection, atomic cache mutation for both upsert and remove, stats calculation, and dashboard rendering behind a single interface. Rendering errors are trapped and warned non-fatally; callers (capture, delete) never fail due to an overview glitch | Callers must conform to the seam options contract (`casesDir`, `action`, `render`, `onError`, `renderDashboard`) |
 
 ---
 
@@ -235,9 +235,9 @@ still `articles[0]`, and the portal's own displayed total is unchanged. Anything
 probe, a missing anchor, a changed total — is *not* unchanged. The unit tests pin this ("never lets
 a failed probe read as unchanged"), and D11 is the policy behind it.
 
-### 5.2 `data/cases/_overview.json` & `dashboard.html` — Case Synchronization Seam (`syncCaseOverview`)
+### 5.2 `data/cases/_overview.json` & `dashboard.html` — Overview Refresh Seam (`syncCaseOverview`)
 
-The aggregated case index (`_overview.json`) and the offline static HTML dashboard (`dashboard.html`) are updated exclusively through a single, unified synchronization seam: `syncCaseOverview(caseNumber, options)`.
+The aggregated case index (`_overview.json`) and the offline static HTML dashboard (`dashboard.html`) are updated exclusively through a single, unified Overview Refresh seam: `syncCaseOverview(caseNumber, options)`.
 
 #### Interface Contract
 
