@@ -16,3 +16,20 @@ Upstream case processors (`finalize_case.mjs` and `run_summary.mjs`) previously 
 `run_summary.mjs`, named above as a direct `syncCaseOverview` caller, is deleted, not just
 relocated. The seam now has two callers: `finalize_case.mjs` and `delete_case.mjs`. See
 [ADR 0007](0007-remove-summarize-workflow.md).
+
+## Addendum (2026-09-19): migration complete — `afterFinalize` removed
+
+`finalize_case.mjs` now imports and calls `syncCaseOverview` from `overview_store.mjs` directly,
+closing the last gap from Decision 1. `afterFinalize` turned out not to be a pure argument
+adapter: it also resolved the `options.syncCaseOverview` injection seam and trapped/warned on a
+throw from the sync stage itself, which `syncCaseOverview` does not do (it only traps its
+render stage). That resilience — dependency-injection resolution plus a try/catch emitting
+`Warning: overview auto-sync failed (<reason>)` — moved into `finalize_case.mjs`'s call site;
+`delete_case.mjs` already resolves the same injection seam without needing the try/catch,
+since it has no equivalent "must always succeed" contract to preserve. One piece was not
+carried over: `afterFinalize` also accepted an `options.updateCaseOverview` injection hook,
+invoked before the sync itself, with no real caller — only the wrapper's own now-deleted test
+exercised it — so it was dropped rather than moved. With no callers left, `afterFinalize` is
+deleted from `overview_store.mjs`, and its re-export from `cases_overview.mjs` is removed.
+Decision 4's other two deprecated re-exports (`syncCaseOverview`, `updateCaseOverview`, the
+exported function — unrelated to the dropped hook of the same name) are unaffected and remain.

@@ -36,7 +36,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'node
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from './_paths.mjs';
-import { afterFinalize } from './overview_store.mjs';
+import { syncCaseOverview } from './overview_store.mjs';
 import { buildNestedTree, countAllComments } from './comment_tree.mjs';
 import { HEADER_KEYS, DETAIL_KEYS, parseHeaderFlags } from './finalize_header.mjs';
 import { computeHash, assignIds, migrateIds } from './finalize_identity.mjs';
@@ -62,7 +62,7 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
   // script) point finalize() at a throwaway directory instead of the real
   // DATA_DIR — every read AND write below goes through this, not just the
   // overview sync at the bottom. A prior version of this override only reached
-  // afterFinalize(), so an in-process test call using a real case code (e.g.
+  // the overview sync call, so an in-process test call using a real case code (e.g.
   // "08603854", used throughout this test suite) silently overwrote that real
   // case's cached data via DATA_DIR — confirmed on a real checkout, not
   // hypothetical.
@@ -295,8 +295,19 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
   };
   writeFileSync(indexPath, JSON.stringify(index, null, 2), 'utf8');
 
-  // Auto-sync cases overview and dashboard
-  afterFinalize(caseCode, casesDir, options);
+  // Auto-sync cases overview and dashboard. syncCaseOverview only traps its
+  // own render-stage failures; a failure earlier in the sync (e.g. a
+  // malformed case.json) must not crash a successful finalize either, so it
+  // is caught here.
+  const syncFn = options.syncCaseOverview || syncCaseOverview;
+  try {
+    syncFn(caseCode, { ...options, casesDir, action: 'upsert' });
+  } catch (e) {
+    if (typeof options.onError === 'function') {
+      options.onError(e, 'overview');
+    }
+    process.stderr.write(`Warning: overview auto-sync failed (${e.message})\n`);
+  }
 
   // Verdict fields the agent branches on. Emitted whenever a cached case existed,
   // including a FULL re-capture of one — the agent sees exactly which comments

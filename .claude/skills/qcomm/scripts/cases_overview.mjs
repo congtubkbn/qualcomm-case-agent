@@ -6,7 +6,6 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureProtocolRegistered } from './ensure_protocol.mjs';
 import {
-  afterFinalize,
   applyFilter,
   buildOverviewData,
   DEFAULT_CASES_DIR,
@@ -21,7 +20,7 @@ import { renderCliTable } from './cli_renderer.mjs';
  * Prefer importing directly from overview_store.mjs (ADR 0005).
  * @deprecated
  */
-export { afterFinalize, syncCaseOverview, updateCaseOverview };
+export { syncCaseOverview, updateCaseOverview };
 
 
 const __filename = fileURLToPath(import.meta.url);

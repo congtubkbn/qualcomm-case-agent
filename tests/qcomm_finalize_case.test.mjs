@@ -1226,8 +1226,8 @@ describe('finalize (child process): dashboard render isolation', () => {
     assert.equal(syncCalledWith.opts.casesDir, join(root, 'data', 'cases'));
   });
 
-  // Regression: options.casesDir used to reach only afterFinalize() (the
-  // overview sync above) — the actual case.json/_index.json read+write still
+  // Regression: options.casesDir used to reach only the overview sync above —
+  // the actual case.json/_index.json read+write still
   // went through the module-level DATA_DIR. Any in-process finalize() call
   // using a case code that happens to match a REAL cached case (as every test
   // in this file does — "08603854") silently overwrote that real capture with
