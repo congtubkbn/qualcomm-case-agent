@@ -20,8 +20,9 @@ _Avoid_: state (ambiguous with a capture-pipeline verdict)
 The deterministic, model-free pipeline that signs in, finds a case, and writes it verbatim to
 `case.json`/`case.md`, persisting Comments as a Comment Tree (see Comment Tree). Comments are
 merged/deduped/hashed in strict Oldest → Newest order — this ascending order is load-bearing for
-the dedup/hash logic.
-_Avoid_: sync, scrape
+the dedup/hash logic. "Fetch" and "sync" are accepted trigger-phrase synonyms for this same
+operation.
+_Avoid_: scrape
 
 **Comment**:
 One item in a case's Comment Tree (`case.json`'s `comments` array) — a verbatim Chatter feed item
@@ -68,8 +69,9 @@ The multi-case aggregation index (`_overview.json`) and offline HTML dashboard (
 representing all locally cached cases under `data/cases/`. Owned and maintained by
 `qcomm`.
 
-**Case Synchronization**:
+**Overview Refresh**:
 The atomic mutation and persistence process (`syncCaseOverview`) that adds, updates, or removes
-a case record in `_overview.json` and updates `dashboard.html`. Owned by `overview_store.mjs`.
-_Avoid_: sync-hook, scrape, export
+a case record in `_overview.json` and updates `dashboard.html` — local data only, no portal
+contact. Owned by `overview_store.mjs`.
+_Avoid_: sync, sync-hook, scrape, export
 
