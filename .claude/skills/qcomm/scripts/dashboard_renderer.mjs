@@ -4,7 +4,10 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { renderStyles } from './dashboard_styles.mjs';
 import { renderClientScript } from './dashboard_client_script.mjs';
-import { escapeHtml, formatStaleness, getStatusCategory, renderCaseRow } from './dashboard_row.mjs';
+import { renderCaseRow } from './dashboard_row.mjs';
+import { escapeHtml } from './html_escape.mjs';
+import { getStatusCategory } from './status_category.mjs';
+import { formatStaleness } from './staleness.mjs';
 
 export { escapeHtml, formatStaleness, getStatusCategory, renderCaseRow, renderClientScript, renderStyles };
 
