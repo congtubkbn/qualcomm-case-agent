@@ -29,11 +29,6 @@ describe('classifyRole', () => {
     assert.equal(classifyRole('Someone', '', '', 'Dear Qualcomm, here is the log you requested.'), 'Customer');
   });
 
-  it('falls back to a hardcoded Qualcomm-engineer author allowlist', () => {
-    assert.equal(classifyRole('Aiden An'), 'Qualcomm');
-    assert.equal(classifyRole('CS Lee'), 'Qualcomm');
-  });
-
   it('defaults to Customer with no Qualcomm/System signal anywhere', () => {
     assert.equal(classifyRole('John Smith', 'Acme Corp', '', 'Here is the reproduction log.'), 'Customer');
   });

@@ -56,10 +56,6 @@ export function classifyRole(author, company = '', context = '', body = '') {
   if (/^(?:dear|hi|hello)\s+(?:qcom|qualcomm)\b/i.test(firstLines.trim())) {
     return 'Customer';
   }
-  const authorLower = (author || '').toLowerCase();
-  if (['aiden an', 'seunghoon lee', 'hoon lee', 'cs lee', 'kyungnam ken lee'].includes(authorLower)) {
-    return 'Qualcomm';
-  }
   return 'Customer';
 }
 
@@ -135,27 +131,6 @@ export function parseTimestamp(ts, referenceDate = new Date()) {
   }
 
   return 0;
-}
-
-/**
- * Checks if a timestamp string is a relative Chatter format (e.g. "12 days ago", "Just now", "Yesterday").
- */
-export function isRelativeTimestamp(ts) {
-  if (!ts || typeof ts !== 'string') return false;
-  const s = ts.trim();
-  if (!s) return false;
-  return (
-    /^(?:just\s+now|right\s+now|a\s+few\s+seconds?\s+ago|seconds?\s+ago)$/i.test(s) ||
-    /^(\d+)\s*s(?:ec(?:ond)?s?)?\s*ago$/i.test(s) ||
-    /^(\d+)\s*(?:m|min(?:ute)?s?)\s*ago$/i.test(s) ||
-    /^(\d+)\s*(?:h|hr|hours?|hrs?)\s*ago$/i.test(s) ||
-    /^(\d+)\s*(?:d|days?)\s*ago$/i.test(s) ||
-    /^(\d+)\s*(?:w|weeks?|wks?)\s*ago$/i.test(s) ||
-    /^(\d+)\s*(?:mo|month|months?|mos?)\s*ago$/i.test(s) ||
-    /^(\d+)\s*(?:y|yr|years?|yrs?)\s*ago$/i.test(s) ||
-    /^yesterday\b/i.test(s) ||
-    /^today\b/i.test(s)
-  );
 }
 
 /**

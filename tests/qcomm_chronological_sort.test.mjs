@@ -87,20 +87,9 @@ describe('parseTimestamp', () => {
   });
 });
 
-describe('isRelativeTimestamp & normalizeComment', () => {
+describe('normalizeComment', () => {
   const refDate1 = new Date('2026-08-22T12:00:00.000Z');
   const refDate2 = new Date('2026-08-30T12:00:00.000Z');
-
-  it('detects relative timestamps correctly', () => {
-    assert.equal(m.isRelativeTimestamp('12 days ago'), true);
-    assert.equal(m.isRelativeTimestamp('1 hour ago'), true);
-    assert.equal(m.isRelativeTimestamp('Just now'), true);
-    assert.equal(m.isRelativeTimestamp('Yesterday'), true);
-    assert.equal(m.isRelativeTimestamp('August 20, 2026 at 3:45 PM'), false);
-    assert.equal(m.isRelativeTimestamp('2026-08-20T10:30:00.000Z'), false);
-    assert.equal(m.isRelativeTimestamp(''), false);
-    assert.equal(m.isRelativeTimestamp(null), false);
-  });
 
   it('resolves relative timestamp to absolute ISO form and retains rawTimestamp', () => {
     const raw = comment('Duc Hoang', 'log attached', '12 days ago');

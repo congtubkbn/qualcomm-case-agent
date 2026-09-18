@@ -115,7 +115,6 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
   }
 
   // Inject description as initial comment if non-empty and not already present.
-  // Inject description as initial comment if non-empty and not already present.
   const descRaw = {
     description: String(raw.description || (cached && cached.description) || '').trim(),
     contactName: String(raw.contactName || (cached && cached.contactName) || '').trim(),
