@@ -5,6 +5,20 @@
 // tab switcher, search results parser, and raw DOM case extractor into
 // window.__QC_DOM__.
 //
+// Audited for a split (issue #264): the six concerns above are cohesive on
+// paper, but this file is shipped whole — `evalFileViaCdp` reads exactly one
+// path, strips comments, and evals the result as a single script (see
+// `browser.mjs`'s `buildPayload`), and every caller (16+ call sites in
+// `cdp_portal_driver.mjs` alone, plus `fast_landing.mjs`, `run_case.mjs`,
+// `finalize_normalize.mjs`, `finalize_completeness.mjs`) hardcodes this one
+// filename. Splitting the source without inventing a concat/bundle step (not
+// used anywhere else in this codebase) would break that injection contract;
+// inventing one, or fanning every call site out to N sequential CDP evals,
+// is a bigger and riskier change than a file-organization pass justifies,
+// especially given this path's bug history (issue #104's __PROBE global
+// leak, the cmd.exe payload-size limit that motivated evalFileViaCdp
+// itself). Left as one file; the comment banners below mark the seams for
+// anyone reading it top to bottom.
 
 (function () {
   var _g = (typeof window !== 'undefined') ? window : (typeof globalThis !== 'undefined' ? globalThis : (typeof global !== 'undefined' ? global : this));
@@ -387,6 +401,7 @@
 
   // --- Feature Sub-routines ---
 
+  // Chatter feed expander
   QC.expandStep = function (anchor, probe, trusted) {
     var ANCHOR = anchor || null;
     var PROBE = probe || false;
@@ -488,6 +503,7 @@
     return result;
   };
 
+  // Chatter feed expander (settle check)
   QC.checkCollapsed = function (anchor) {
     var ANCHOR = anchor || null;
     var articles = QC.qsa('article');
@@ -517,6 +533,7 @@
     return { stillCollapsed: stillCollapsed, stillHasMoreComments: stillHasMoreComments };
   };
 
+  // Tab switcher
   QC.switchTab = function (targetTab) {
     var target = (targetTab || '').toLowerCase().trim();
     if (!target) return { ok: false, reason: 'no target tab specified' };
@@ -568,6 +585,7 @@
     return { ok: false, reason: 'tab not found: ' + target };
   };
 
+  // Case-state observer
   QC.observeCaseState = function (code, timeout) {
     var maxTimeout = typeof timeout !== 'undefined' ? timeout : 15000;
 
@@ -623,6 +641,7 @@
     });
   };
 
+  // Search results parser
   QC.searchCaseResults = function (code, timeout) {
     var maxTimeout = typeof timeout !== 'undefined' ? timeout : 25000;
     var searchCode = typeof code !== 'undefined' ? String(code) : '';
@@ -739,6 +758,7 @@
     });
   };
 
+  // Login helper
   QC.loginFill = function (password, username, timeout) {
     var pw = (typeof password !== 'undefined') ? String(password) : '';
     var user = (typeof username !== 'undefined' && username) ? String(username) : '';
@@ -890,6 +910,7 @@
     });
   };
 
+  // Raw DOM case extractor
   QC.extractCase = function () {
     var titleMatch = (document.title || "").match(/Case:\s*(\d[\w-]*)/i);
     var caseHeading = QC.qsa("h1, [role='heading']").find(function (h) { return /^Case\s+\d/i.test(QC.txt(h)); });
