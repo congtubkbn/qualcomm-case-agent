@@ -312,21 +312,23 @@ export class CdpPortalDriver extends PortalDriver {
     }
 
     let prevCount = -1;
-    let matches = 0;
-    for (let s = 0; s < SETTLE_ROUNDS; s++) {
-      const probeNow = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor, __PROBE: true });
-      const current = probeNow ? probeNow.articles : 0;
-      if (current === prevCount && current > 0) {
-        matches++;
-        if (matches >= 3) break;
-      } else {
-        prevCount = current;
-        matches = 1;
-        const r = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
-        accumulateClicks(clicks, r);
-      }
-      await sleep(2000);
-    }
+    await repeatUntilStable({
+      tick: async () => {
+        const probeNow = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor, __PROBE: true });
+        const current = probeNow ? probeNow.articles : 0;
+        if (current !== prevCount) {
+          prevCount = current;
+          const r = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
+          accumulateClicks(clicks, r);
+        }
+        return current;
+      },
+      isStable: (current, previous) => current > 0 && (previous === undefined || current === previous),
+      stableTarget: 3,
+      maxRounds: SETTLE_ROUNDS,
+      sleepMs: 2000,
+      sleep,
+    });
 
     const gateUnexpanded = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'checkCollapsed', __ANCHOR: anchor });
     const pendingExpand = gateUnexpanded?.stillCollapsed || 0;
