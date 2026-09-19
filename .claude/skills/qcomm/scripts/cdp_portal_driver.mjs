@@ -30,6 +30,7 @@
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { PortalDriver } from './portal_driver.mjs';
+import { repeatUntilStable } from './repeat_until_stable.mjs';
 
 const SCRIPTS = fileURLToPath(new URL('.', import.meta.url));
 const page = name => join(SCRIPTS, name);
@@ -172,14 +173,18 @@ export class CdpPortalDriver extends PortalDriver {
     await sleep(500);
 
     const probeFeed = async () => {
-      let p = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor, __PROBE: true });
-      for (let i = 0; i < FEED_PROBE_ROUNDS; i++) {
-        const prevArticles = p ? p.articles : 0;
-        await sleep(2000);
-        p = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor, __PROBE: true });
-        if (p && p.articles && p.articles === prevArticles) break;
-      }
-      return p;
+      const { value } = await repeatUntilStable({
+        tick: () => evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor, __PROBE: true }),
+        isStable: (current, previous) => {
+          const prevArticles = previous ? previous.articles : 0;
+          return !!(current && current.articles && current.articles === prevArticles);
+        },
+        stableTarget: 1,
+        maxRounds: FEED_PROBE_ROUNDS + 1,
+        sleepMs: 2000,
+        sleep,
+      });
+      return value;
     };
 
     let probe = await probeFeed();
