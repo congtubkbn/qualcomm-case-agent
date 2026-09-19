@@ -1,6 +1,6 @@
-// fixture_portal_driver.mjs — offline PortalDriver: replays pre-recorded
-// snapshots instead of driving Chrome. No CDP, no network, no browser
-// process — this is what lets `node run_case.mjs <CODE>` run in CI (#241).
+// Offline PortalDriver: replays pre-recorded snapshots instead of driving
+// Chrome. No CDP, no network, no browser process — this is what lets
+// `node run_case.mjs <CODE>` run in CI (#241).
 //
 // Fixture layout, one directory per case code:
 //   <fixtureDir>/<CODE>/landing.json   optional — navigateToCase() result

@@ -1,5 +1,4 @@
-// cdp_portal_driver.mjs — production PortalDriver: drives the persistent-
-// profile Chrome over CDP.
+// Production PortalDriver: drives the persistent-profile Chrome over CDP.
 //
 // This is a code MOVE, not a rewrite: the detail-tab/feed-switch/probe/
 // expand/settle/extract sequence below is lifted verbatim from run_case.mjs
@@ -102,7 +101,6 @@ export class CdpPortalDriver extends PortalDriver {
     const cdp = this.cdp;
     const { evalFileViaCdp, open, sleep } = this.browser;
 
-    // --- Detail tab extraction: capture Salesforce Lightning metadata
     let detailRaw = null;
     let detailExtracted = false;
     let detailSwitchError = null;
@@ -130,7 +128,6 @@ export class CdpPortalDriver extends PortalDriver {
       }
     }
 
-    // Switch back to Feed tab for Chatter comments extraction (with retry).
     // A failed switch-back must not be silently swallowed (case 08637663: this
     // org labels the tab "Communication" rather than "Feed"; every
     // visibility-dependent check downstream then reads the hidden Feed panel
@@ -164,7 +161,6 @@ export class CdpPortalDriver extends PortalDriver {
     }
     await sleep(500);
 
-    // --- PHASE 1.5: probe first (fast no-update check), then expand in-page.
     const probeFeed = async () => {
       let p = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor, __PROBE: true });
       for (let i = 0; i < FEED_PROBE_ROUNDS; i++) {
@@ -222,7 +218,6 @@ export class CdpPortalDriver extends PortalDriver {
       await sleep(1500);
     }
 
-    // Grace retries when round budget exhausted
     if (rounds >= EXPAND_ROUNDS && idleTicks < 2) {
       for (let grace = 0; grace < STUCK_RETRY_ROUNDS; grace++) {
         const r = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
@@ -238,7 +233,6 @@ export class CdpPortalDriver extends PortalDriver {
       }
     }
 
-    // --- Settle loop
     let confirmedZero = 0;
     for (let s = 0; s < SETTLE_ROUNDS; s++) {
       await sleep(1000);
@@ -257,7 +251,6 @@ export class CdpPortalDriver extends PortalDriver {
       }
     }
 
-    // Trusted-click fallback for stubborn collapsed posts
     let lastUnexpanded = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'checkCollapsed', __ANCHOR: anchor });
     const stubbornCount = (lastUnexpanded?.stillCollapsed || 0) + (lastUnexpanded?.stillHasMoreComments || 0);
     if (stubbornCount > 0) {
@@ -281,7 +274,6 @@ export class CdpPortalDriver extends PortalDriver {
       }
     }
 
-    // Article count settle
     let prevCount = -1;
     let matches = 0;
     for (let s = 0; s < SETTLE_ROUNDS; s++) {
@@ -298,7 +290,6 @@ export class CdpPortalDriver extends PortalDriver {
       await sleep(2000);
     }
 
-    // Final pre-extraction gate
     const gateUnexpanded = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'checkCollapsed', __ANCHOR: anchor });
     const pendingExpand = gateUnexpanded?.stillCollapsed || 0;
     const pendingMoreComments = gateUnexpanded?.stillHasMoreComments || 0;
@@ -313,7 +304,6 @@ export class CdpPortalDriver extends PortalDriver {
       };
     }
 
-    // --- PHASE 2: extract
     const raw = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'extractCase' });
     if (!raw || !Array.isArray(raw.comments) || raw.comments.length === 0) {
       return { ok: false, stage: 'no-comments', reason: 'case extraction returned no comments' };

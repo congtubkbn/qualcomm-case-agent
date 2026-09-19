@@ -1,4 +1,4 @@
-// cdp_client.mjs — Deep Module: Native WebSocket CDP client for Chrome DevTools Protocol.
+// Deep Module: native WebSocket CDP client for Chrome DevTools Protocol.
 // Zero third-party dependencies, built with standard Node.js (>=22.3.0) native WebSocket and fetch.
 
 import { buildPayload } from './browser.mjs';
@@ -49,7 +49,6 @@ export class CdpClient {
   }
 
   /**
-   * Remove an event listener.
    * @param {string} event
    * @param {Function} handler
    */
@@ -61,7 +60,6 @@ export class CdpClient {
   }
 
   /**
-   * Register a one-time callback for a CDP event.
    * @param {string} event
    * @param {Function} handler
    */
@@ -96,18 +94,15 @@ export class CdpClient {
           targets = await res.json();
         }
       } catch {
-        // Try /json fallback
         try {
           const res = await fetch(`${endpoint}/json`, {
             signal: AbortSignal.timeout(timeout),
           });
           if (res.ok) targets = await res.json();
         } catch {
-          // Ignore
         }
       }
 
-      // Filter target if targetFilter provided, else pick first 'page' or first available
       if (Array.isArray(targets) && targets.length > 0) {
         let chosen;
         if (options.targetFilter && typeof options.targetFilter === 'function') {
@@ -122,7 +117,6 @@ export class CdpClient {
         }
       }
 
-      // If still no wsUrl, try /json/version
       if (!wsUrl) {
         try {
           const res = await fetch(`${endpoint}/json/version`, {
@@ -133,7 +127,6 @@ export class CdpClient {
             wsUrl = ver.webSocketDebuggerUrl;
           }
         } catch {
-          // Ignore
         }
       }
     }
@@ -236,7 +229,6 @@ export class CdpClient {
   }
 
   _handleClose() {
-    // Reject any pending promises if socket closed
     for (const [id, { reject, timer }] of this._pending.entries()) {
       clearTimeout(timer);
       reject(new CdpError('CDP WebSocket connection closed'));
@@ -245,7 +237,6 @@ export class CdpClient {
   }
 
   /**
-   * Send a JSON-RPC command over CDP.
    * Auto-reconnects if connection is currently closed.
    */
   async send(method, params = {}, { timeout = 30000 } = {}) {
@@ -279,7 +270,6 @@ export class CdpClient {
   }
 
   /**
-   * Navigate attached tab to specified URL and optionally wait for lifecycle events.
    * @param {string} url
    * @param {Object} [options]
    * @param {'load'|'domcontentloaded'|'none'} [options.waitUntil='load']
@@ -427,7 +417,6 @@ export class CdpClient {
   }
 
   /**
-   * Capture a screenshot of the current page using CDP Page.captureScreenshot.
    * @param {Object} [options]
    * @param {string} [options.format='png'] 'png' | 'jpeg' | 'webp'
    * @param {number} [options.quality] Compression quality (0-100) for jpeg/webp
@@ -467,9 +456,6 @@ export class CdpClient {
     return Buffer.from(res.data, 'base64');
   }
 
-  /**
-   * Close CDP WebSocket connection.
-   */
   async close() {
     this._closed = true;
     if (this.ws) {

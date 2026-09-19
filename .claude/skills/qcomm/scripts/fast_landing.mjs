@@ -239,7 +239,6 @@ export async function fastLandOnCase(code, options = {}) {
     return { probe, authFailure: null };
   }
 
-  // 1. Fast Path: Direct Navigation if cached case URL is known and valid
   if (caseUrl && !isStubUrl(caseUrl)) {
     logDiag(`Attempting direct navigation to cached URL: ${caseUrl}`);
     try {
@@ -288,7 +287,6 @@ export async function fastLandOnCase(code, options = {}) {
     logDiag(`No cached URL available for case ${code}. Proceeding with global search.`);
   }
 
-  // 2. Fallback Path / Search for New Case
   const searchUrl = `${baseUrl}/s/global-search/${code}`;
   logDiag(`Navigating to global search: ${searchUrl}`);
   try {
@@ -320,7 +318,6 @@ export async function fastLandOnCase(code, options = {}) {
       const fields = searchProbe.fields || {};
       logDiag(`Search found candidate case link: ${searchProbe.href} (exact=${searchProbe.exact}, rows=${searchProbe.rows})`);
 
-      // Case A: href is resolved to a real SFID URL
       if (searchProbe.href && !isStubUrl(searchProbe.href)) {
         try {
           logDiag(`Navigating directly to resolved case URL from search: ${searchProbe.href}`);
@@ -351,7 +348,6 @@ export async function fastLandOnCase(code, options = {}) {
         }
       }
 
-      // Case B: href is stub or direct nav didn't route past stub -> trusted click
       try {
         logDiag(`Dispatching trusted click on search result element [data-cq-hit='1']`);
         const { probe: clickProbe, authFailure: clickAuthFailure } = await probeAndHandleAuth(

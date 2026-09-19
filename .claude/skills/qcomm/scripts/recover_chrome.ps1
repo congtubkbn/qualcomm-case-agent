@@ -1,6 +1,6 @@
 <#
-  recover_chrome.ps1 - Recovery 0 as ONE script (was a raw PowerShell block
-  pasted into SKILL.md, which errored when the agent ran it through the Bash
+  Recovery 0 as ONE script (was a raw PowerShell block pasted into SKILL.md,
+  which errored when the agent ran it through the Bash
   tool: 'Where-Object' is not recognized ...). Bundling it means the agent
   runs a single `powershell -File` line - identical under Bash tool, cmd, and
   PowerShell - so the dialect mismatch can no longer happen.

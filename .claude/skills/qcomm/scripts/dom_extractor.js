@@ -1,5 +1,3 @@
-// scripts/dom_extractor.js
-//
 // Unified, namespaced DOM extractor and browser automation helper module.
 // Consolidates Chatter feed expander, case state observer, login helper,
 // tab switcher, search results parser, and raw DOM case extractor into

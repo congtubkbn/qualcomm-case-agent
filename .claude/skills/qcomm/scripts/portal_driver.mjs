@@ -1,6 +1,6 @@
-// portal_driver.mjs — the seam between run_case.mjs (orchestration: verdicts,
-// retries, screenshots-per-failure-mode) and however a case actually gets
-// read off the portal.
+// The seam between run_case.mjs (orchestration: verdicts, retries,
+// screenshots-per-failure-mode) and however a case actually gets read off
+// the portal.
 //
 // Two implementations:
 //   - CdpPortalDriver     (cdp_portal_driver.mjs)     — live Chrome over CDP.

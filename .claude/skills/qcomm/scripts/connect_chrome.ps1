@@ -1,6 +1,6 @@
 <#
-  connect_chrome.ps1 - launch REAL system Chrome detached with a CDP port +
-  dedicated persistent profile, ready for 'agent-browser connect <port>'.
+  Launch REAL system Chrome detached with a CDP port + dedicated persistent
+  profile, ready for 'agent-browser connect <port>'.
 
   Why: the bundled Playwright Chromium that ships with agent-browser can break
   (e.g. a freshly-downloaded dev build whose CDP handshake times out =>

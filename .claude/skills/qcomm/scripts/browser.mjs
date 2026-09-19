@@ -1,4 +1,4 @@
-// browser.mjs — thin Node wrapper around the `agent-browser` CLI.
+// Thin Node wrapper around the `agent-browser` CLI.
 //
 // Why this exists: every shell-quoting bug this project has hit (see
 // docs/DESIGN.md D4/D5, flow 1784759542159 §1/§3) came from a JS payload crossing a shell.
