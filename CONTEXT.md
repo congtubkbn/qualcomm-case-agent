@@ -69,6 +69,15 @@ The multi-case aggregation index (`_overview.json`) and offline HTML dashboard (
 representing all locally cached cases under `data/cases/`. Owned and maintained by
 `qcomm`.
 
+**Detail Field Provenance**:
+Per-field record of which case fields the Detail tab actually rendered on a given
+Capture (`raw.detailFields`, set by `mergeDetailFields`). A field absent from this
+list is not overwritten in an update — a case might not render that field on this
+case's Detail tab, and the Feed-tab region can stumble onto a wrong-DOM-region
+value for it. Distinct from a per-capture "did the Detail tab load" flag, which
+proved too coarse (see ADR 0008).
+_Avoid_: detailExtracted (the rejected coarser, per-capture version of this)
+
 **Overview Refresh**:
 The atomic mutation and persistence process (`syncCaseOverview`) that adds, updates, or removes
 a case record in `_overview.json` and updates `dashboard.html` — local data only, no portal

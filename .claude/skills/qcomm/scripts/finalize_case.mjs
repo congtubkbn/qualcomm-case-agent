@@ -39,6 +39,7 @@ import { DATA_DIR } from './_paths.mjs';
 import { syncCaseOverview } from './overview_store.mjs';
 import { buildNestedTree, countAllComments } from './comment_tree.mjs';
 import { HEADER_KEYS, DETAIL_KEYS, parseHeaderFlags } from './finalize_header.mjs';
+import { MERGE_FIELDS, applyDetailFieldOverrides } from './detail_fields.mjs';
 import { computeHash, assignIds, migrateIds } from './finalize_identity.mjs';
 import { findCollapsed, countAssert, genuineCommentCount } from './finalize_completeness.mjs';
 import { normalizeComment, normalizeComments } from './finalize_normalize.mjs';
@@ -157,37 +158,16 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
     // Capture evidence always describes THIS run, never the previous one.
     if (raw.capture) out.capture = raw.capture;
     if (String(raw.url || '').trim()) out.url = raw.url;
-    // A field the Detail tab actually rendered this run (raw.detailFields, set by
-    // mergeDetailFields in run_case.mjs) is current truth and overwrites the cache,
-    // the same way status/priority already do below — so a case renamed or
-    // re-severitized in the portal is reflected on its next update run instead of
-    // staying frozen at whatever the first capture saw. `raw.detailExtracted`
-    // alone is NOT enough to gate this: it only means the tab switch worked, not
-    // that this particular field rendered — a field absent from this case's
-    // Detail tab (e.g. no Severity picklist) leaves `raw[k]` holding whatever the
-    // Feed-tab region of the page happened to match (documented above
-    // mergeDetailFields as "can stumble onto a non-empty value ... wrong DOM
-    // region"), which must never clobber a good cached value. So: overwrite only
-    // when this field is in detailFields; otherwise FILL BLANKS ONLY.
-    const detailFields = Array.isArray(raw.detailFields) ? raw.detailFields : [];
-    // Tracked separately from `changed` (comment-hash only) and `headerChanged`
-    // (CLI --status/--priority flags only, per HEADER_KEYS below): neither one
-    // observes a Detail-tab overwrite landing here, so a title/severity/etc.
-    // rename with zero new comments would otherwise write the new value to
-    // case.json and STILL report `no-update` (run_case.mjs's bottom-of-run
-    // no-update gate) — correct on disk, wrong in the verdict the agent reports.
-    let detailChanged = false;
-    for (const k of ['description', 'product', 'updated', ...DETAIL_KEYS, ...HEADER_KEYS]) {
-      const freshVal = String(raw[k] || '').trim();
-      if (!freshVal) continue;
-      const prev = String(out[k] || '').trim();
-      if (detailFields.includes(k)) {
-        if (prev !== freshVal) detailChanged = true;
-        out[k] = raw[k];
-      } else if (!prev) {
-        out[k] = raw[k];
-      }
-    }
+    // Detail Field Provenance (CONTEXT.md, ADR 0008) — see detail_fields.mjs's
+    // applyDetailFieldOverrides for the overwrite-vs-fill-blank policy itself.
+    // `detailChanged` is tracked separately from the mergeVerdict's `changed`
+    // (comment-hash only, below) and `headerChanged` (CLI --status/--priority
+    // flags only, per HEADER_KEYS): neither one observes a Detail-tab
+    // overwrite landing here, so a title/severity/etc. rename with zero new
+    // comments would otherwise write the new value to case.json and STILL
+    // report `no-update` (run_case.mjs's bottom-of-run no-update gate) —
+    // correct on disk, wrong in the verdict the agent reports.
+    const { changed: detailChanged } = applyDetailFieldOverrides(out, raw, MERGE_FIELDS);
     mergeInfo = { newIds, oldHash: cached.hash, cached, detailChanged };
   } else {
     // Full capture: header/description/etc. are complete by definition and
