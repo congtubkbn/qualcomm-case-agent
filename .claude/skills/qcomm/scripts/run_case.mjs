@@ -1,4 +1,4 @@
-// scripts/run_case.mjs — the whole capture pipeline as ONE deterministic command.
+// The whole capture pipeline as ONE deterministic command.
 //
 //     node run_case.mjs <CODE> [--mode auto|full|update]
 //
@@ -70,9 +70,6 @@ export function anchorOf(cached) {
   return c ? { author: c.author, bodyStart: norm(c.body).slice(0, 80) } : null;
 }
 
-/**
- * Infer pipeline action/step name from verdict properties or reason context.
- */
 function inferAction(v) {
   if (v.action) return v.action;
   if (v.stage === 'feed-switch') return 'switchTab';
@@ -95,9 +92,6 @@ function inferAction(v) {
   return 'runCase';
 }
 
-/**
- * Standardize single-line verdict output object.
- */
 export function formatVerdict(code, v = {}, started) {
   const elapsedMs = typeof started === 'number' ? Date.now() - started : (v.elapsedMs || 0);
   const landingMs = v.timing?.landingMs ?? v.durationMs ?? 0;
@@ -353,7 +347,6 @@ export async function run(code, opts = {}) {
     };
   }
 
-  // Merge any metadata captured from Detail tab
   mergeDetailFields(raw, detailRaw, MERGE_FIELDS);
 
   raw.detailExtracted = detailExtracted;
@@ -369,7 +362,6 @@ export async function run(code, opts = {}) {
   const rawPath = join(caseDir, 'case.raw.json');
   writeFileSync(rawPath, JSON.stringify(raw, null, 2), 'utf8');
 
-  // --- Finalize
   // Same overrides a CLI-flags call would have produced: status/priority always
   // win when present, but title is withheld on --merge (an update run trusts the
   // already-cached title over a possibly-stale search-row value).
@@ -391,7 +383,6 @@ export async function run(code, opts = {}) {
   const v = result;
   const newComments = typeof v.newComments === 'number' ? v.newComments : (cached ? 0 : v.commentCount);
 
-  // --- Render
   let artifacts;
   try {
     const mdPath = renderCase(casePath);
@@ -404,7 +395,6 @@ export async function run(code, opts = {}) {
     };
   }
 
-  // --- QA Gate
   const verified = verifyCase(code, caseDir);
   if (!verified.ok) {
     return {

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// render_case.mjs — deterministic markdown renderer for the Qualcomm Case Management Agent.
+// Deterministic markdown renderer for the Qualcomm Case Management Agent.
 // Reads a case.json and writes sibling <stem>.md (case.md) in the SAME folder.
 // Output dir + stem are derived from the input path, so pointing it at
 // data/cases/<CODE>/case.json keeps the artifact in that case folder.
@@ -20,11 +20,6 @@ import { walkCommentTree } from './comment_tree.mjs';
 const S = v => (v == null ? '' : String(v));
 const arr = v => (Array.isArray(v) ? v : []);
 
-/**
- * Format a comment or description body for Markdown rendering.
- * Preserves line structure, formats lists, renders modem log excerpts as fenced blocks,
- * escapes Markdown headers within bodies, and maintains readability without breaking document-level structure.
- */
 export function formatBody(body) {
   if (!body) return '';
   const text = String(body).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
@@ -43,7 +38,6 @@ export function formatBody(body) {
       continue;
     }
 
-    // Fenced code block for runs of modem log lines
     if (isLogLine(line)) {
       const logLines = [line];
       while (i + 1 < lines.length && isLogLine(lines[i + 1])) {
@@ -66,21 +60,17 @@ export function formatBody(body) {
       line = line.replace(/^(\s*)#{1,6}\s/, (m, spaces) => `${spaces}\\${m.trimStart()}`);
     }
 
-    // If this line is a list item and previous line was regular non-empty text, insert blank line
     if (isListItem(line)) {
       if (out.length > 0 && out[out.length - 1] !== '' && !isListItem(lines[i - 1])) {
         out.push('');
       }
       out.push(line);
     } else {
-      // Regular text line.
-      // If previous item in out was a fenced code block, separate with blank line
       if (out.length > 0 && out[out.length - 1] === '```') {
         out.push('');
       }
 
-      // If the next line is also non-empty (and not the end of lines, a list item, or a log line),
-      // append 2 trailing spaces for hard line break in Markdown
+      // Two trailing spaces force a Markdown hard line break.
       const nextLine = i + 1 < lines.length ? lines[i + 1].trim() : '';
       if (nextLine && !isListItem(nextLine) && !isLogLine(lines[i + 1])) {
         out.push(line.trimEnd() + '  ');
@@ -93,7 +83,6 @@ export function formatBody(body) {
   return out.join('\n');
 }
 
-/* ----------------------------- Markdown ----------------------------- */
 export function generateMarkdown(data, stem = 'case') {
   const allComments = arr(data?.comments);
   const desc = S(data?.description).trim();

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// .claude/skills/qcomm/scripts/open_qc_case.mjs
 // Deep Module: Core URI Parser & CDP / Chrome Dispatcher for qc:// custom protocol scheme.
 // Zero external dependencies — runs directly in standard Node.js (>=22.3.0).
 
@@ -10,9 +9,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-/**
- * Robustly resolve project root directory across normal checkouts and git worktrees.
- */
 function findProjectRoot(startDir = HERE) {
   if (process.env.QUALCOMM_ROOT) return process.env.QUALCOMM_ROOT;
 
@@ -22,7 +18,6 @@ function findProjectRoot(startDir = HERE) {
     const gitPath = join(current, '.git');
     if (existsSync(gitPath)) {
       if (statSync(gitPath).isDirectory()) return current;
-      // Handle git worktree pointer
       try {
         const content = readFileSync(gitPath, 'utf8');
         const match = content.match(/^gitdir:\s*(.+?)\s*$/m);
@@ -50,7 +45,6 @@ export const DEFAULT_PROFILE_DIR = join(PROJECT_ROOT, 'data', 'chrome-profile');
 export const DEFAULT_CDP_PORT = Number(process.env.QUALCOMM_CDP_PORT || 9773);
 
 /**
- * Validate that a URL domain belongs to Qualcomm support.
  * @param {string} urlString
  * @returns {boolean}
  */
@@ -68,7 +62,6 @@ export function isValidQualcommUrl(urlString) {
 }
 
 /**
- * Parse an incoming qc:// custom protocol URI string into a structured target object.
  * Supported patterns:
  *   - qc://case/<caseNumber>
  *   - qc://<caseNumber>
@@ -90,16 +83,13 @@ export function parseQcUri(uriString) {
     throw new Error(`Invalid qc URI: scheme must be "qc:", got "${raw}"`);
   }
 
-  // Strip qc: and any leading slashes (e.g. qc:// or qc:)
   let rest = raw.replace(/^qc:\/*(?:\/)?/i, '').trim();
-  // Strip trailing slashes
   rest = rest.replace(/\/+$/, '');
 
   if (!rest) {
     throw new Error(`Invalid qc URI: missing target or case number in "${raw}"`);
   }
 
-  // Handle open?url=...
   if (/^open\?/i.test(rest) || /^open$/i.test(rest)) {
     const queryIdx = rest.indexOf('?');
     if (queryIdx === -1) {
@@ -119,7 +109,6 @@ export function parseQcUri(uriString) {
     return { type: 'url', url: targetUrl };
   }
 
-  // Handle case/<caseNumber> or bare case or <caseNumber>
   let caseCode = rest;
   if (/^case(?:\/|$)/i.test(rest)) {
     caseCode = rest.replace(/^case(?:\/|$)/i, '').trim();
@@ -134,7 +123,6 @@ export function parseQcUri(uriString) {
 
 /**
  * Ensures a Qualcomm support case URL activates tab 1 (Communication tab) by default.
- * Replaces tabset-([a-zA-Z0-9_-]+)=\d+ with tabset-$1=1.
  *
  * @param {string} urlString
  * @returns {string}
@@ -145,7 +133,6 @@ export function ensureCommunicationTabUrl(urlString) {
 }
 
 /**
- * Resolve destination URL for a parsed target object.
  * Reads data/cases/<caseNumber>/case.json if available; falls back to Qualcomm global search.
  *
  * @param {{ type: 'case', caseNumber: string } | { type: 'url', url: string }} parsed
@@ -182,9 +169,6 @@ export function resolveTargetUrl(parsed, options = {}) {
   return ensureCommunicationTabUrl(targetUrl);
 }
 
-/**
- * Default launcher function to start Chrome via connect_chrome.ps1 on Windows.
- */
 function defaultLaunchChrome({ url, port = DEFAULT_CDP_PORT, profileDir = DEFAULT_PROFILE_DIR }) {
   if (process.platform === 'win32') {
     const candidates = [
@@ -229,7 +213,6 @@ function defaultLaunchChrome({ url, port = DEFAULT_CDP_PORT, profileDir = DEFAUL
 }
 
 /**
- * Check whether CDP port is responsive and listening on HTTP.
  * @param {string} host
  * @param {number} port
  * @returns {Promise<boolean>}
@@ -246,8 +229,6 @@ async function isCdpAlive(host, port) {
 }
 
 /**
- * Dispatch target URL to either an active Chrome instance via CDP or launch a new instance.
- *
  * @param {string} targetUrl
  * @param {Object} [options]
  * @param {number} [options.port]
@@ -282,7 +263,6 @@ export async function dispatchQcTarget(targetUrl, options = {}) {
       if (res.ok) {
         const tabInfo = await res.json().catch(() => null);
         if (tabInfo?.id) {
-          // Bring tab to front
           try {
             await fetch(`http://${host}:${port}/json/activate/${tabInfo.id}`, {
               signal: AbortSignal.timeout(2000),
@@ -316,8 +296,6 @@ export async function dispatchQcTarget(targetUrl, options = {}) {
 }
 
 /**
- * End-to-end entrypoint: parse URI, resolve URL, and dispatch navigation.
- *
  * @param {string} rawUri
  * @param {Object} [options]
  * @param {boolean} [options.throwOnError=true]
@@ -344,9 +322,6 @@ export async function openQcCase(rawUri, options = {}) {
   }
 }
 
-/**
- * CLI runner for Windows ShellExecute or terminal invocation.
- */
 async function runCli() {
   const arg = process.argv[2];
   if (!arg) {
@@ -368,7 +343,6 @@ async function runCli() {
   }
 }
 
-// Auto-run if executed as script
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   runCli();
 }

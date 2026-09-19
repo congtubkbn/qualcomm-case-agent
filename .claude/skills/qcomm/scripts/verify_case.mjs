@@ -1,4 +1,4 @@
-// scripts/verify_case.mjs — post-capture QA gate for run_case.mjs's output.
+// Post-capture QA gate for run_case.mjs's output.
 //
 // Independent of the capture pipeline: reads only the persisted files under
 // data/cases/<CODE>/ and checks that what got written is actually complete
@@ -69,7 +69,6 @@ export function verifyCase(code, dir = join(DATA_DIR, code)) {
     errors.push('comments array is missing or empty');
   } else {
     const seenIds = new Map();
-    // Walk the nested tree (top-level + subs) to verify every comment node.
     const verifyNode = (cm, where) => {
       if (!String(cm.id || '').trim()) errors.push(`${where}: missing id`);
       if (!String(cm.author || '').trim()) errors.push(`${where}: missing author`);

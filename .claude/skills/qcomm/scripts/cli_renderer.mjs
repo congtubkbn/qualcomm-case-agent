@@ -3,7 +3,6 @@ import { applyFilter } from './overview_store.mjs';
 import { formatStaleness } from './staleness.mjs';
 
 /**
- * Renders formatted terminal summary and case table.
  * @param {object} overviewData
  * @param {object} [options={}]
  * @returns {string} Formatted CLI output string

@@ -18,7 +18,6 @@ export function normalizeCaseCode(raw) {
   const s = String(raw ?? '').trim();
   if (!s) throw new Error('empty case code');
 
-  // Tolerate a leading CASE- prefix, then require exactly 8 digits.
   const code = s.replace(/^CASE-/i, '');
   if (!/^\d{8}$/.test(code)) throw new Error(`case code must be 8 digits (got: ${s})`);
   return code;

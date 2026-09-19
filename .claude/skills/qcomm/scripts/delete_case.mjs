@@ -1,4 +1,4 @@
-// delete_case.mjs — permanent, agent-confirmed removal of one case's local cache.
+// Permanent, agent-confirmed removal of one case's local cache.
 //
 //     node delete_case.mjs <CODE> --yes
 //
