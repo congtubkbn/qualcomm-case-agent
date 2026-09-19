@@ -3,7 +3,6 @@
 ## Platform
 
 Windows. PowerShell for all shell commands — no Unix syntax.
-See `.clinerules/windows-environment.md`.
 
 ## Capture pipeline
 
