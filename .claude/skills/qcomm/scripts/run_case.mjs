@@ -37,6 +37,7 @@ import * as fastLanding from './fast_landing.mjs';
 import { CdpPortalDriver } from './cdp_portal_driver.mjs';
 import { FixturePortalDriver } from './fixture_portal_driver.mjs';
 import { finalize, EXIT as FINALIZE_EXIT } from './finalize_case.mjs';
+import { DETAIL_KEYS } from './finalize_header.mjs';
 import { renderCase } from './render_case.mjs';
 import { verifyCase } from './verify_case.mjs';
 import { ensureProtocolRegistered } from './ensure_protocol.mjs';
@@ -59,9 +60,7 @@ const norm = s => String(s || '').replace(/\s+/g, ' ').trim();
 // Detail-tab metadata fields merged into `raw` every run (see mergeDetailFields
 // below) and checked for drift by detailFieldsDiffer's fast-path guard.
 const DETAIL_MERGE_FIELDS = [
-  'contactName', 'openedAt', 'closedAt', 'customerProject', 'customerTracking',
-  'accountName', 'relatedCRs', 'caseRecordType', 'description', 'title',
-  'status', 'priority', 'severity', 'product', 'updated',
+  ...DETAIL_KEYS, 'description', 'title', 'status', 'priority', 'severity', 'product', 'updated',
 ];
 
 // Fields the fast no-update probe checks for drift (see detailFieldsDiffer).
@@ -79,8 +78,7 @@ const DETAIL_MERGE_FIELDS = [
 //     independent of anything worth reporting, so it would defeat the fast
 //     path even when nothing user-visible moved.
 const DETAIL_DRIFT_CHECK_FIELDS = [
-  'contactName', 'openedAt', 'closedAt', 'customerProject', 'customerTracking',
-  'accountName', 'relatedCRs', 'caseRecordType', 'description', 'title', 'severity', 'product',
+  ...DETAIL_KEYS, 'description', 'title', 'severity', 'product',
 ];
 
 // The fast no-update probe short-circuits BEFORE finalize() ever runs (no
