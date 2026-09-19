@@ -57,6 +57,29 @@ function accumulateClicks(clicks, r) {
   clicks.description += r.clickedDescription || 0;
 }
 
+// Shared shape behind the main-expand and stuck-retry-grace repeatUntilStable
+// calls: fetch one expandStep, fold its clicks into the running tally, sleep
+// activeSleepMs on a click and idleSleepMs on idle — except on the tick that
+// reaches stableTarget consecutive idle ticks, which ends the loop and so
+// gets no sleep at all (matches the pre-migration raw loops, which broke
+// immediately on their last idle tick rather than sleeping first).
+function makeExpandTick({ evalFileViaCdp, cdp, anchor, clicks, activeSleepMs, idleSleepMs, stableTarget, sleep }) {
+  let consecutiveIdle = 0;
+  return async () => {
+    const r = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
+    accumulateClicks(clicks, r);
+    const isIdle = !r.clickedExpand && !r.clickedViewMore && !r.clickedDescription && !r.clickedMoreComments;
+    if (!isIdle) {
+      consecutiveIdle = 0;
+      await sleep(activeSleepMs);
+    } else {
+      consecutiveIdle++;
+      if (consecutiveIdle < stableTarget) await sleep(idleSleepMs);
+    }
+    return isIdle;
+  };
+}
+
 export class CdpPortalDriver extends PortalDriver {
   /**
    * @param {Object} [options]
@@ -219,32 +242,27 @@ export class CdpPortalDriver extends PortalDriver {
     const clicks = { expand: 0, viewMore: 0, moreComments: 0, description: 0 };
 
     const mainLoop = await repeatUntilStable({
-      tick: async () => {
-        const r = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
-        accumulateClicks(clicks, r);
-        const isIdle = !r.clickedExpand && !r.clickedViewMore && !r.clickedDescription && !r.clickedMoreComments;
-        if (!isIdle) await sleep(1500);
-        else await sleep(1000);
-        return isIdle;
-      },
+      tick: makeExpandTick({ evalFileViaCdp, cdp, anchor, clicks, activeSleepMs: 1500, idleSleepMs: 1000, stableTarget: 2, sleep }),
       isStable: (current) => current,
       stableTarget: 2,
       maxRounds: EXPAND_ROUNDS,
       sleepMs: 0,
       sleep,
     });
+    // mainLoop.rounds counts every tick it ran, including the terminating
+    // one when it stops early — the raw for-loop this replaced (`for (;
+    // rounds < EXPAND_ROUNDS; rounds++)`) never incremented `rounds` for the
+    // iteration that hit `break`, so subtract 1 to match. `rounds` is
+    // returned as-is in the stuck-expand/final-gate descriptors below, so
+    // this keeps that diagnostic value identical to the pre-migration loop.
     rounds = mainLoop.stable ? mainLoop.rounds - 1 : mainLoop.rounds;
     idleTicks = mainLoop.stable ? 2 : 0;
 
     if (rounds >= EXPAND_ROUNDS && idleTicks < 2) {
       const graceLoop = await repeatUntilStable({
-        tick: async () => {
-          const r = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
-          accumulateClicks(clicks, r);
-          const isIdle = !r.clickedExpand && !r.clickedViewMore && !r.clickedDescription && !r.clickedMoreComments;
-          if (!isIdle) await sleep(2000);
-          return isIdle;
-        },
+        // idleSleepMs: 0 — with stableTarget: 1, every idle tick is the
+        // terminating one, so the idle branch never actually sleeps.
+        tick: makeExpandTick({ evalFileViaCdp, cdp, anchor, clicks, activeSleepMs: 2000, idleSleepMs: 0, stableTarget: 1, sleep }),
         isStable: (current) => current,
         stableTarget: 1,
         maxRounds: STUCK_RETRY_ROUNDS,

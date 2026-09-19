@@ -9,7 +9,10 @@ const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * @param {Object} opts
  * @param {() => any | Promise<any>} opts.tick Produces the next value to check.
  * @param {(current: any, previous: any) => boolean} opts.isStable Compares
- *   the current tick's value against the previous tick's value.
+ *   the current tick's value against the previous tick's value. On tick 1,
+ *   `previous` is `undefined` — repeatUntilStable does not force tick 1 to
+ *   be unstable, so a comparator that would treat `undefined` as a match
+ *   must guard that itself.
  * @param {number} opts.stableTarget Consecutive stable ticks required to stop early.
  * @param {number} opts.maxRounds Hard ceiling on ticks run, win or lose.
  * @param {number} opts.sleepMs Delay between ticks.
@@ -26,7 +29,6 @@ export async function repeatUntilStable({
 }) {
   let value;
   let previous;
-  let hasPrevious = false;
   let stableCount = 0;
   let rounds = 0;
 
@@ -34,7 +36,6 @@ export async function repeatUntilStable({
     value = await tick();
     stableCount = isStable(value, previous) ? stableCount + 1 : 0;
     previous = value;
-    hasPrevious = true;
     rounds++;
 
     if (stableCount >= stableTarget) {

@@ -54,8 +54,27 @@ describe('repeatUntilStable', () => {
       sleep: async () => {},
     });
 
-    // tick 1: no previous yet -> not stable. tick 2: 'same' === 'same' -> stable, stop.
+    // tick 1: previous is undefined, and 'same' === undefined is false for
+    // this isStable -> not stable. tick 2: 'same' === 'same' -> stable, stop.
     assert.deepEqual(result, { value: 'same', stable: true, rounds: 2 });
+  });
+
+  it('can resolve stable:true on tick 1 when isStable itself treats previous:undefined as a match (no built-in guard forces the first tick to be unstable)', async () => {
+    const tick = () => 'anything';
+    const isStable = () => true; // ignores previous entirely, always "stable"
+
+    const result = await repeatUntilStable({
+      tick,
+      isStable,
+      stableTarget: 1,
+      maxRounds: 10,
+      sleepMs: 5,
+      sleep: async () => {},
+    });
+
+    // Whether previous:undefined counts as a match is entirely up to
+    // isStable — repeatUntilStable itself does not special-case tick 1.
+    assert.deepEqual(result, { value: 'anything', stable: true, rounds: 1 });
   });
 
   it('sleeps sleepMs between ticks (via the injected fake sleep, not real timers)', async () => {

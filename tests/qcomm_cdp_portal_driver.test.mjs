@@ -24,8 +24,10 @@ import { CdpPortalDriver, DETAIL_SWITCH_RETRIES, FEED_PROBE_ROUNDS, EXPAND_ROUND
 // is instead swallowed into a detailSwitchError/feedSwitchError string.
 function scriptedBrowser(handler) {
   const evalFileCalls = [];
+  const sleepCalls = [];
   return {
     evalFileCalls,
+    sleepCalls,
     browser: {
       evalFileViaCdp: async (_cdp, path, vars) => {
         const file = path.split(/[\\/]/).pop();
@@ -36,7 +38,7 @@ function scriptedBrowser(handler) {
         }
         return res;
       },
-      sleep: async () => {},
+      sleep: async (ms) => { sleepCalls.push(ms); },
       open: () => {},
     },
   };
@@ -451,6 +453,51 @@ describe('CdpPortalDriver.expandAndExtract() — expand loop + grace-retry recov
     assert.deepEqual(result.clicks, { expand: 2, viewMore: 0, moreComments: 0, description: 0 }); // only the first two ticks clicked
     const expandLoopCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'expandStep' && !c.vars.__PROBE);
     assert.equal(expandLoopCalls.length, 5); // 4 in the expand loop + 1 in article-count settle — grace-retry never ran
+  });
+
+  it('sleeps 1500ms after an active tick but skips the sleep on the tick that reaches the 2-consecutive-idle break (repeatUntilStable migration must not add a sleep the raw loop never had)', async () => {
+    let feedSwitched = false;
+    let plainCalls = 0;
+    const { browser, sleepCalls } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return feedSwitched ? { comments: [{ id: 'c1' }] } : { detail: 'lightning-metadata' };
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 4 };
+      if (vars.__ACTION === 'expandStep') {
+        plainCalls++;
+        // Same click pattern as the test above: ticks 1-2 click, ticks 3-4
+        // idle (two consecutive), breaking the loop at tick 4.
+        if (plainCalls <= 2) return { clickedExpand: 1, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+        return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+      }
+      if (vars.__ACTION === 'checkCollapsed') return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    await driver.expandAndExtract({ anchor: 'a1' });
+
+    // Full sequence, deterministic given this scenario's scripted responses:
+    // - Pre-loop: Detail-switch success (1000), the unconditional
+    //   post-feed-switch sleep (500), the feed probe stabilizing (2000).
+    // - Main expand loop (repeatUntilStable, sleepMs:0 -> a 0ms sleep
+    //   between every non-terminating tick, interleaved with each tick's
+    //   own idle/active sleep): tick 1 (click) -> 1500 + 0, tick 2 (click)
+    //   -> 1500 + 0, tick 3 (1st idle) -> 1000 + 0, tick 4 (2nd consecutive
+    //   idle, reaches stableTarget and returns immediately) -> NO sleep at
+    //   all — exactly like the raw for-loop's `if (idleTicks >= 2) break;`
+    //   before its `await sleep(1000)`. Migrating to repeatUntilStable must
+    //   not add a sleep the raw loop never had on that terminating tick.
+    // - confirmedZero settle loop: two clean rounds -> 1000, 1000.
+    // - article-count-settle loop: round 1 (count differs from -1) -> 2000,
+    //   round 2 (matches, count 2 of 3) -> 2000, round 3 (matches >= 3,
+    //   breaks before its own sleep).
+    assert.deepEqual(sleepCalls, [
+      1000, 500, 2000,
+      1500, 0, 1500, 0, 1000, 0,
+      1000, 1000,
+      2000, 2000,
+    ]);
   });
 
   it('exhausts the full EXPAND_ROUNDS budget while clicking every tick, then starts the grace-retry loop', async () => {
