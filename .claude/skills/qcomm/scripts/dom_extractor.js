@@ -453,7 +453,7 @@
 
     var prefixes = articles.map(function (a) { return QC.bodyOf(a).slice(0, 60); });
     var win = (typeof window !== 'undefined') ? window : _g;
-    if (PROBE || !win.__qcExpandBaseline) win.__qcExpandBaseline = prefixes.slice();
+    if (!win.__qcExpandBaseline) win.__qcExpandBaseline = prefixes.slice();
     var baseline = win.__qcExpandBaseline;
 
     var skipElAsCached = function (e) {

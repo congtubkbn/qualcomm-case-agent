@@ -46,6 +46,16 @@ export const POST_EXPAND_SETTLE_ROUNDS = 15; // x2s ceiling for any post still s
                                              // before extraction
 export const DETAIL_SWITCH_RETRIES = 3;
 
+// Single place every expand-loop call site folds an expandStep result's click
+// counters into the running tally — the count-stabilize loop used to skip
+// this and silently drop its clicks (issue #273).
+function accumulateClicks(clicks, r) {
+  clicks.expand += r.clickedExpand || 0;
+  clicks.viewMore += r.clickedViewMore || 0;
+  clicks.moreComments += r.clickedMoreComments || 0;
+  clicks.description += r.clickedDescription || 0;
+}
+
 export class CdpPortalDriver extends PortalDriver {
   /**
    * @param {Object} [options]
@@ -204,10 +214,7 @@ export class CdpPortalDriver extends PortalDriver {
     const clicks = { expand: 0, viewMore: 0, moreComments: 0, description: 0 };
     for (; rounds < EXPAND_ROUNDS; rounds++) {
       const r = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
-      clicks.expand += r.clickedExpand || 0;
-      clicks.viewMore += r.clickedViewMore || 0;
-      clicks.moreComments += r.clickedMoreComments || 0;
-      clicks.description += r.clickedDescription || 0;
+      accumulateClicks(clicks, r);
       if (!r.clickedExpand && !r.clickedViewMore && !r.clickedDescription && !r.clickedMoreComments) {
         idleTicks++;
         if (idleTicks >= 2) break;
@@ -221,10 +228,7 @@ export class CdpPortalDriver extends PortalDriver {
     if (rounds >= EXPAND_ROUNDS && idleTicks < 2) {
       for (let grace = 0; grace < STUCK_RETRY_ROUNDS; grace++) {
         const r = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
-        clicks.expand += r.clickedExpand || 0;
-        clicks.viewMore += r.clickedViewMore || 0;
-        clicks.moreComments += r.clickedMoreComments || 0;
-        clicks.description += r.clickedDescription || 0;
+        accumulateClicks(clicks, r);
         if (!r.clickedExpand && !r.clickedViewMore && !r.clickedDescription && !r.clickedMoreComments) {
           idleTicks = 2;
           break;
@@ -244,10 +248,7 @@ export class CdpPortalDriver extends PortalDriver {
       } else {
         confirmedZero = 0;
         const r = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
-        clicks.expand += r.clickedExpand || 0;
-        clicks.viewMore += r.clickedViewMore || 0;
-        clicks.moreComments += r.clickedMoreComments || 0;
-        clicks.description += r.clickedDescription || 0;
+        accumulateClicks(clicks, r);
       }
     }
 
@@ -258,10 +259,7 @@ export class CdpPortalDriver extends PortalDriver {
       let consecutiveClean = 0;
       for (let s = 0; s < settleBudget; s++) {
         const attempt = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor, __TRUSTED: true });
-        clicks.expand += attempt.clickedExpand || 0;
-        clicks.viewMore += attempt.clickedViewMore || 0;
-        clicks.moreComments += attempt.clickedMoreComments || 0;
-        clicks.description += attempt.clickedDescription || 0;
+        accumulateClicks(clicks, attempt);
         await sleep(2000);
         lastUnexpanded = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'checkCollapsed', __ANCHOR: anchor });
         const remaining = (lastUnexpanded?.stillCollapsed || 0) + (lastUnexpanded?.stillHasMoreComments || 0);
@@ -285,7 +283,8 @@ export class CdpPortalDriver extends PortalDriver {
       } else {
         prevCount = current;
         matches = 1;
-        await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
+        const r = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
+        accumulateClicks(clicks, r);
       }
       await sleep(2000);
     }

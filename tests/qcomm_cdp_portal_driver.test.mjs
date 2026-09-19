@@ -392,6 +392,36 @@ describe('CdpPortalDriver.expandAndExtract() — feed probe + onProbe fast path 
 // the same __ACTION also fires once more, harmlessly, in the article-count
 // settle phase after the code under test.
 describe('CdpPortalDriver.expandAndExtract() — expand loop + grace-retry recovery (#257)', () => {
+  it("accumulateClicks() sums each expandStep response's click fields onto the running tally, defaulting a missing field to 0 rather than resetting the others (#273)", async () => {
+    let feedSwitched = false;
+    let plainCalls = 0;
+    const { browser } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return feedSwitched ? { comments: [{ id: 'c1' }] } : { detail: 'lightning-metadata' };
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 4 };
+      if (vars.__ACTION === 'expandStep') {
+        plainCalls++;
+        // Tick 1: clicks two different fields. Tick 2: clicks a third field
+        // and omits the others entirely (not just zero) — accumulateClicks
+        // must still add tick 1's totals rather than overwrite them. Tick 3+:
+        // idle, breaking the loop; the article-count settle phase's single
+        // trailing call also reports idle, so the tally stays put.
+        if (plainCalls === 1) return { clickedExpand: 2, clickedMoreComments: 1 };
+        if (plainCalls === 2) return { clickedViewMore: 1 };
+        return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+      }
+      if (vars.__ACTION === 'checkCollapsed') return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1' });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.clicks, { expand: 2, viewMore: 1, moreComments: 1, description: 0 });
+  });
+
   it('breaks the expand loop at two consecutive idle ticks well before EXPAND_ROUNDS, never entering the grace-retry loop', async () => {
     let feedSwitched = false;
     let plainCalls = 0;
@@ -509,9 +539,9 @@ describe('CdpPortalDriver.expandAndExtract() — expand loop + grace-retry recov
 // here), and a settle-loop retry returns clickedViewMore:1 so
 // result.clicks.viewMore isolates it. The trailing article-count-settle call
 // (which always fires exactly once after the fallback, per the #257
-// describe-block comment) is fire-and-forget in the driver — its result is
-// never folded into `clicks` — so its occurrence is checked via evalFileCalls
-// counts instead.
+// describe-block comment) also returns clickedDescription:1 in these
+// scenarios but that isn't asserted here — see #259's "count-stabilize loop"
+// test for coverage of that call's clicks now folding into `clicks` (#273).
 describe('CdpPortalDriver.expandAndExtract() — settle loop + trusted-click fallback (#258)', () => {
   it('retries expandStep when the settle loop finds pending posts, then re-checks rather than exiting immediately', async () => {
     let feedSwitched = false;
@@ -744,11 +774,13 @@ describe('CdpPortalDriver.expandAndExtract() — settle loop + trusted-click fal
 });
 
 // Covers the last section of expandAndExtract(): the article-count-gate
-// settle loop (SETTLE_ROUNDS, second occurrence — driver source ~line 287),
-// the final pre-extraction gate (~line 302), and the Phase-2 extraction call
-// that follows it. Every scenario scripts the settle loop / trusted-click
-// fallback (already covered by #258) to fall straight through clean, so only
-// the code under test drives the outcome.
+// settle loop (SETTLE_ROUNDS, second occurrence), the final pre-extraction
+// gate, and the Phase-2 extraction call that follows it. Every scenario
+// scripts the settle loop / trusted-click fallback (already covered by #258)
+// to fall straight through clean, so only the code under test drives the
+// outcome. Since #273, the count-stabilize loop's non-probe expandStep call
+// routes through the shared accumulateClicks() helper like every other
+// expand-loop call site, so its clicks now reach result.clicks too.
 describe('CdpPortalDriver.expandAndExtract() — article-count gate + final extraction gate (#259)', () => {
   it('stabilizes the article-count-settle loop after three consecutive matching counts, then proceeds to the final gate', async () => {
     let feedSwitched = false;
@@ -785,6 +817,36 @@ describe('CdpPortalDriver.expandAndExtract() — article-count gate + final extr
     assert.equal(checkCollapsedCalls, 4);
     const extractCalls = evalFileCalls.filter(c => c.vars.__ACTION === 'extractCase');
     assert.equal(extractCalls.length, 2); // Detail-tab extraction + the final Phase-2 extraction
+  });
+
+  it('folds a click reported by the count-stabilize loop\'s non-probe expandStep call into result.clicks instead of dropping it (#273)', async () => {
+    let feedSwitched = false;
+    let plainCalls = 0;
+    const { browser } = scriptedBrowser((file, vars) => {
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Detail') return { ok: true };
+      if (vars.__ACTION === 'switchTab' && vars.__TARGET_TAB === 'Feed') { feedSwitched = true; return { ok: true }; }
+      if (vars.__ACTION === 'extractCase') return feedSwitched ? { comments: [{ id: 'c1' }] } : { detail: 'lightning-metadata' };
+      if (vars.__ACTION === 'expandStep' && vars.__PROBE) return { articles: 4 };
+      if (vars.__ACTION === 'expandStep') {
+        plainCalls++;
+        // Calls 1-2: main expand loop, idle both ticks -> breaks immediately.
+        // Call 3: the count-stabilize loop's first round, where prevCount
+        // starts at -1 and mismatches the probed count, firing the one
+        // non-probe expandStep under test here.
+        if (plainCalls <= 2) return { clickedExpand: 0, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+        return { clickedExpand: 1, clickedViewMore: 0, clickedMoreComments: 0, clickedDescription: 0 };
+      }
+      if (vars.__ACTION === 'checkCollapsed') return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      return undefined;
+    });
+    const driver = new CdpPortalDriver({ browser, fastLanding: {} });
+
+    const result = await driver.expandAndExtract({ anchor: 'a1' });
+
+    assert.equal(result.ok, true);
+    // Before #273 this click was discarded (the loop awaited the call but
+    // never folded its result into `clicks`) — now it must show up here.
+    assert.equal(result.clicks.expand, 1);
   });
 
   it('extracts successfully when the final gate finds zero pending items', async () => {

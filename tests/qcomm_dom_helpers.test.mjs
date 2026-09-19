@@ -37,6 +37,7 @@ function loadHelpers(html = '<!doctype html><html><body></body></html>') {
     authorOf: qc.authorOf,
     findAnchorIdx: qc.findAnchorIdx,
     skipAsCached: qc.skipAsCached,
+    expandStep: qc.expandStep,
   };
 }
 
@@ -205,5 +206,25 @@ test('dom_extractor.js - shared helpers', async (t) => {
     // Falsy baseline: skip anything at/after the anchor (null-safety guard).
     assert.equal(skipAsCached(1, anchorIdx, null, prefixes), true);
     assert.equal(skipAsCached(0, anchorIdx, null, prefixes), false);
+  });
+
+  await t.test('expandStep() with __PROBE:true does not overwrite an already-initialized window.__qcExpandBaseline (#273)', () => {
+    const { window, expandStep } = loadHelpers(`<!doctype html><body>
+      <article><div class="feedBodyInner">first post body</div></article>
+    </body>`);
+
+    // A non-probe call establishes the baseline from the current articles.
+    expandStep(null, false);
+    assert.ok(Array.isArray(window.__qcExpandBaseline));
+
+    // Simulate the cache-skip state other loops depend on (an anchor-based
+    // capture: earlier posts are recorded in the baseline so later loops know
+    // to skip them as already-seen).
+    window.__qcExpandBaseline = ['sentinel-from-earlier-in-capture'];
+
+    // A __PROBE call firing mid-capture (case #273's exact bug shape) must
+    // read the existing baseline, not reset it just because it's a probe.
+    expandStep(null, true);
+    assert.deepEqual(window.__qcExpandBaseline, ['sentinel-from-earlier-in-capture']);
   });
 });
