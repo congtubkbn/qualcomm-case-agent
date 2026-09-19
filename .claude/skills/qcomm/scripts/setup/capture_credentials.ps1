@@ -47,7 +47,6 @@ if (-not $userInput) {
   exit 1
 }
 
-# Save the email
 [IO.File]::WriteAllText($userFile, $userInput)
 Write-Host "Saved username: $userInput to $userFile"
 

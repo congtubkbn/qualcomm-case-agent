@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// .claude/skills/qcomm/scripts/ensure_protocol.mjs
 // Core Self-Healing Protocol Engine for Qualcomm Case Agent (`qc://`).
 // Zero external dependencies — runs directly in standard Node.js (>=22.3.0).
 
@@ -15,7 +14,7 @@ const REGISTER_SCRIPT = join(HERE, 'register_protocol.ps1');
 const DEFAULT_REG_KEY = 'HKCU:\\Software\\Classes\\qc';
 
 /**
- * Normalize registry key path between PowerShell format (HKCU:\...) and reg.exe format (HKCU\...).
+ * reg.exe format has no colon (HKCU\...); PowerShell format needs one (HKCU:\...).
  * @param {string} keyPath
  * @param {'reg'|'ps'} targetFormat
  * @returns {string}
@@ -25,7 +24,6 @@ function normalizeKeyPath(keyPath, targetFormat = 'reg') {
   if (targetFormat === 'reg') {
     return clean.replace(/^HKCU:\\/i, 'HKCU\\').replace(/^HKEY_CURRENT_USER:\\/i, 'HKEY_CURRENT_USER\\');
   }
-  // PowerShell format (needs colon)
   if (!clean.includes(':\\') && !clean.includes(':/')) {
     return clean.replace(/^(HKCU|HKEY_CURRENT_USER)\\?/i, '$1:\\');
   }
@@ -33,7 +31,6 @@ function normalizeKeyPath(keyPath, targetFormat = 'reg') {
 }
 
 /**
- * Checks if the qc:// custom URL protocol scheme is registered in Windows Registry.
  * @param {object} [options]
  * @param {string} [options.keyPath] - Registry key path (default: HKCU:\Software\Classes\qc)
  * @param {string} [options.platform] - OS platform (default: process.platform)
@@ -61,7 +58,6 @@ export function isProtocolRegistered(options = {}) {
 }
 
 /**
- * Ensures the qc:// custom URL protocol scheme is registered.
  * If missing on Windows, silently registers it via register_protocol.ps1.
  * On macOS/Linux, returns a clean no-op result.
  *
@@ -99,7 +95,6 @@ export function ensureProtocolRegistered(options = {}) {
     };
   }
 
-  // Not registered: self-heal by invoking register_protocol.ps1
   const scriptPath = options.scriptPath || REGISTER_SCRIPT;
   const psKeyPath = normalizeKeyPath(keyPath, 'ps');
 
@@ -169,7 +164,6 @@ export function ensureProtocolRegistered(options = {}) {
   }
 }
 
-// Standalone CLI execution (e.g. invoked via npm postinstall)
 if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
   const result = ensureProtocolRegistered({ silent: false });
   if (!result.ok && !result.skipped) {

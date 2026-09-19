@@ -8,8 +8,6 @@ import { existsSync, unlinkSync } from 'node:fs';
 import { SECRET_PATH } from './_paths.mjs';
 
 /**
- * Decrypt and return the stored Qualcomm ID password, or null if missing/failed.
- *
  * @param {string} [secretPath=SECRET_PATH]
  * @returns {string|null} Plaintext password, or null if missing or decryption fails.
  */
@@ -34,8 +32,6 @@ export function readPassword(secretPath = SECRET_PATH) {
 }
 
 /**
- * Delete the stored secret file (idempotent no-op if already missing).
- *
  * @param {string} [secretPath=SECRET_PATH]
  */
 export function clearSecret(secretPath = SECRET_PATH) {

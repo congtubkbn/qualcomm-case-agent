@@ -16,7 +16,6 @@ param (
 $ErrorActionPreference = "Stop"
 
 try {
-    # Resolve target open_qc_case.mjs script path
     if (-not $ScriptPath) {
         $ScriptPath = Join-Path $PSScriptRoot "open_qc_case.mjs"
     }
@@ -27,7 +26,6 @@ try {
         exit 1
     }
 
-    # Resolve node binary
     if (-not $NodePath) {
         $nodeCmd = Get-Command node -ErrorAction SilentlyContinue
         if ($nodeCmd -and $nodeCmd.Source) {
@@ -37,7 +35,6 @@ try {
         }
     }
 
-    # Create root protocol key in HKCU
     if (-not (Test-Path $KeyPath)) {
         New-Item -Path $KeyPath -Force | Out-Null
     }
@@ -45,13 +42,11 @@ try {
     Set-ItemProperty -Path $KeyPath -Name "(Default)" -Value "URL:Qualcomm Case Protocol"
     Set-ItemProperty -Path $KeyPath -Name "URL Protocol" -Value ""
 
-    # Create shell\open\command subkey
     $cmdKeyPath = Join-Path $KeyPath "shell\open\command"
     if (-not (Test-Path $cmdKeyPath)) {
         New-Item -Path $cmdKeyPath -Force | Out-Null
     }
 
-    # Command string formatting: "<NodePath>" "<ScriptPath>" "%1"
     $launchCommand = "`"$NodePath`" `"$ScriptPath`" `"%1`""
     Set-ItemProperty -Path $cmdKeyPath -Name "(Default)" -Value $launchCommand
 

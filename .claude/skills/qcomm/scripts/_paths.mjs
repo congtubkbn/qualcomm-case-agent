@@ -14,8 +14,8 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const here = dirname(fileURLToPath(import.meta.url)); // scripts/
-export const SKILL_ROOT = resolve(here, '..');        // qcomm/
+const here = dirname(fileURLToPath(import.meta.url));
+export const SKILL_ROOT = resolve(here, '..');
 
 // A real checkout has `.git` as a DIRECTORY. A git *worktree* has `.git` as a
 // FILE (a `gitdir: <path>/.git/worktrees/<name>` pointer). Worktrees do NOT
@@ -34,7 +34,7 @@ function resolveWorktreeMainRoot(d) {
   const gitdir = m[1].replace(/\\/g, '/');
   const i = gitdir.indexOf('/worktrees/');
   if (i === -1) return null;
-  return dirname(gitdir.slice(0, i)); // .../.git -> main repo root
+  return dirname(gitdir.slice(0, i));
 }
 
 function isGitRepoDir(d) {
@@ -64,7 +64,6 @@ export const SECRET_PATH =
 export const PROFILE_DIR = join(PROJECT_ROOT, 'data', 'chrome-profile');
 export const USER_PATH = join(PROJECT_ROOT, 'data', '.secrets', 'qid.user');
 
-// Resolve username
 let resolvedUser = process.env.QUALCOMM_USER || null;
 if (!resolvedUser && existsSync(USER_PATH)) {
   try {
