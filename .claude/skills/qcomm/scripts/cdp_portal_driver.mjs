@@ -294,20 +294,21 @@ export class CdpPortalDriver extends PortalDriver {
     const stubbornCount = (lastUnexpanded?.stillCollapsed || 0) + (lastUnexpanded?.stillHasMoreComments || 0);
     if (stubbornCount > 0) {
       const settleBudget = Math.min(POST_EXPAND_SETTLE_ROUNDS, stubbornCount * 3 + 6);
-      let consecutiveClean = 0;
-      for (let s = 0; s < settleBudget; s++) {
-        const attempt = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor, __TRUSTED: true });
-        accumulateClicks(clicks, attempt);
-        await sleep(2000);
-        lastUnexpanded = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'checkCollapsed', __ANCHOR: anchor });
-        const remaining = (lastUnexpanded?.stillCollapsed || 0) + (lastUnexpanded?.stillHasMoreComments || 0);
-        if (remaining === 0) {
-          consecutiveClean++;
-          if (consecutiveClean >= 2) break;
-        } else {
-          consecutiveClean = 0;
-        }
-      }
+      await repeatUntilStable({
+        tick: async () => {
+          const attempt = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor, __TRUSTED: true });
+          accumulateClicks(clicks, attempt);
+          await sleep(2000);
+          const unexpanded = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'checkCollapsed', __ANCHOR: anchor });
+          const remaining = (unexpanded?.stillCollapsed || 0) + (unexpanded?.stillHasMoreComments || 0);
+          return remaining === 0;
+        },
+        isStable: (current) => current,
+        stableTarget: 2,
+        maxRounds: settleBudget,
+        sleepMs: 0,
+        sleep: (ms) => ms === 0 ? Promise.resolve() : sleep(ms),
+      });
     }
 
     let prevCount = -1;
