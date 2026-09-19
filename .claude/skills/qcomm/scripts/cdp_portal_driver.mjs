@@ -199,7 +199,7 @@ export class CdpPortalDriver extends PortalDriver {
         probe,
       };
     }
-    if (typeof onProbe === 'function' && onProbe(probe)) {
+    if (typeof onProbe === 'function' && onProbe(probe, detailRaw)) {
       return { ok: true, noUpdate: true, probe };
     }
 

@@ -4,7 +4,7 @@
 //     node --experimental-test-module-mocks --test tests/qcomm_run_case.test.mjs
 
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -98,6 +98,25 @@ describe('anchorOf & isNoUpdate', () => {
     });
     assert.equal(anchorOf(null), null);
     assert.equal(anchorOf({ comments: [] }), null);
+  });
+
+  // case.json's top-level comments array is oldest -> newest (finalize_case.mjs's
+  // buildNestedTree; see also the "Oldest -> Newest" nested-tree tests in
+  // qcomm_finalize_case.test.mjs). Chatter's DOM is the opposite: articles[0] is
+  // the newest post. anchorOf must pick the LAST cached comment (newest) to match
+  // what dom_extractor.js's expandStep sees at articles[0] — picking comments[0]
+  // (oldest) means findAnchorIdx searches the DOM for the wrong post, so it never
+  // lands near the top and the fast no-update short-circuit / "skip already-
+  // cached posts" optimization silently never engages on any real multi-comment case.
+  it('anchors on the newest (LAST) cached comment, matching case.json\'s oldest-first order', async () => {
+    const { anchorOf } = await importRunCase();
+    const cached = {
+      comments: [
+        { author: 'Bob', body: 'Initial report' },       // oldest — index 0
+        { author: 'Alice', body: 'RRC reject on n78' },   // newest — last index
+      ],
+    };
+    assert.deepEqual(anchorOf(cached), { author: 'Alice', bodyStart: 'RRC reject on n78' });
   });
 
   it('normalizes whitespace into the anchor body prefix', async () => {
@@ -679,6 +698,142 @@ describe('run() fast landing & verdict integration', () => {
     assert.equal(caseData.caseRecordType, 'Customer Support');
     assert.equal(caseData.description, 'VoNR call drops during 5G SA.');
     assert.equal(v.detailTabExtracted, true);
+  });
+
+  // Regression: the fast no-update probe (cdp_portal_driver.mjs's onProbe
+  // short-circuit) decides purely from the Chatter feed shape (anchor still on
+  // top, nothing pending) and returns BEFORE finalize() ever runs — no write,
+  // no detailChanged plumbing. A case renamed (or re-severitized, etc.) in the
+  // portal with zero new comments must not be swallowed there: run_case.mjs's
+  // onProbe callback also checks whether THIS run's Detail-tab re-scrape
+  // disagrees with the cache (detailFieldsDiffer), and only takes the fast path
+  // when neither the feed nor the Detail-tab metadata changed.
+  it('does not take the fast no-update path when the Detail tab shows a change (rename) with zero new comments', async (t) => {
+    const code = '08611234';
+    const caseDir = join(process.env.QUALCOMM_ROOT, 'data', 'cases', code);
+    mkdirSync(caseDir, { recursive: true });
+    writeFileSync(join(caseDir, 'case.json'), JSON.stringify({
+      caseNumber: code,
+      title: 'Old Title',
+      status: 'Open',
+      comments: [
+        // oldest -> newest, as finalize_case.mjs persists them.
+        { id: 'c1', author: 'Bob', body: 'Initial report', timestamp: '2026-08-10T00:00:00.000Z', subs: [] },
+        { id: 'c2', author: 'Alice', body: 'RRC reject on n78', timestamp: '2026-08-12T00:00:00.000Z', subs: [] },
+      ],
+    }), 'utf8');
+
+    const targetUrl = `https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/${code}`;
+    const mockCdp = {
+      isConnected: () => true,
+      navigate: async () => {},
+      eval: async () => ({ state: 'ON_CASE', href: targetUrl, fields: { title: 'Old Title', status: 'Open' } }),
+      click: async () => true,
+      close: async () => {},
+    };
+
+    let extractCallCount = 0;
+    mockBrowser(t, (file, vars) => {
+      const action = vars?.__ACTION;
+      if (action === 'switchTab') return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
+      if (action === 'expandStep') {
+        if (vars?.__PROBE) {
+          // Feed itself looks unchanged: anchor (Alice, the newest cached
+          // comment) is still on top, nothing pending — the feed alone would
+          // qualify for the fast no-update path.
+          return { articles: 2, displayed: 2, anchorIdx: 0, top: { author: 'Alice', bodyStart: 'RRC reject on n78' }, pendingExpand: 0, pendingMoreComments: 0 };
+        }
+        return { clickedExpand: 0, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
+      }
+      if (action === 'checkCollapsed') return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      if (action === 'extractCase') {
+        extractCallCount++;
+        if (extractCallCount === 1) {
+          // Detail-tab pass: the portal shows a RENAMED title this run.
+          return { caseNumber: code, title: 'RENAMED TITLE', url: targetUrl, comments: [] };
+        }
+        // Feed-tab pass (only reached if the fast path was correctly skipped).
+        return {
+          caseNumber: code, title: 'RENAMED TITLE', url: targetUrl, displayedCommentCount: 2,
+          comments: [
+            { author: 'Bob', body: 'Initial report', timestamp: '5 days ago' },
+            { author: 'Alice', body: 'RRC reject on n78', timestamp: '2 days ago' },
+          ],
+        };
+      }
+      throw new Error(`Unexpected evalFile: ${file} (action=${action})`);
+    }, mockCdp);
+
+    const { run } = await importRunCase();
+    const v = await run(code, { mode: 'auto', cdp: mockCdp });
+
+    assert.equal(v.status, 'updated', 'a Detail-tab rename must reach finalize(), not the fast no-update short-circuit');
+    assert.equal(extractCallCount, 2, 'the Feed-tab extraction must still run once the fast path is correctly skipped');
+    const saved = JSON.parse(readFileSync(join(caseDir, 'case.json'), 'utf8'));
+    assert.equal(saved.title, 'RENAMED TITLE');
+  });
+
+  // Mirror of the regression above, pinning the optimization it restored: when
+  // NEITHER the feed nor the Detail-tab metadata changed, the fast path must
+  // still fire — the Feed-tab extraction (and finalize/write) never runs.
+  // Without this test, a detailFieldsDiffer that returns true on every run
+  // (e.g. comparing a search-row-owned field against a Detail-tab value) would
+  // pass the whole suite while silently disabling the fast path completely.
+  it('still takes the fast no-update path when neither the feed nor the Detail tab changed', async (t) => {
+    const code = '08611235';
+    const caseDir = join(process.env.QUALCOMM_ROOT, 'data', 'cases', code);
+    mkdirSync(caseDir, { recursive: true });
+    writeFileSync(join(caseDir, 'case.json'), JSON.stringify({
+      caseNumber: code,
+      title: 'Stable Title',
+      // Search-row-owned on merge (finalize's HEADER_KEYS loop), stored here in
+      // the search row's own dialect — deliberately NOT the same string the
+      // Detail tab's picklist would render, to pin that status/priority are
+      // excluded from the drift check rather than compared against a different
+      // source of truth for the same field.
+      status: 'Open', priority: 'P2',
+      comments: [
+        { id: 'c1', author: 'Bob', body: 'Initial report', timestamp: '2026-08-10T00:00:00.000Z', subs: [] },
+        { id: 'c2', author: 'Alice', body: 'RRC reject on n78', timestamp: '2026-08-12T00:00:00.000Z', subs: [] },
+      ],
+    }), 'utf8');
+
+    const targetUrl = `https://support.qualcomm.com/s/case/5004W00002Fk8sIQAR/${code}`;
+    const mockCdp = {
+      isConnected: () => true,
+      navigate: async () => {},
+      eval: async () => ({ state: 'ON_CASE', href: targetUrl, fields: { title: 'Stable Title', status: 'Open' } }),
+      click: async () => true,
+      close: async () => {},
+    };
+
+    let extractCallCount = 0;
+    mockBrowser(t, (file, vars) => {
+      const action = vars?.__ACTION;
+      if (action === 'switchTab') return { ok: true, clicked: true, tab: vars?.__TARGET_TAB };
+      if (action === 'expandStep') {
+        if (vars?.__PROBE) {
+          return { articles: 2, displayed: 2, anchorIdx: 0, top: { author: 'Alice', bodyStart: 'RRC reject on n78' }, pendingExpand: 0, pendingMoreComments: 0 };
+        }
+        return { clickedExpand: 0, clickedViewMore: 0, clickedDescription: 0, remainingExpand: 0 };
+      }
+      if (action === 'checkCollapsed') return { stillCollapsed: 0, stillHasMoreComments: 0 };
+      if (action === 'extractCase') {
+        extractCallCount++;
+        // Detail-tab pass: title unchanged, but status/priority come back in
+        // the Detail tab's own dialect ("1 - Critical" vs. the search row's
+        // "P2") — this must NOT count as drift; those two fields are
+        // search-row-owned on merge, not Detail-tab-owned (see headerChanged).
+        return { caseNumber: code, title: 'Stable Title', status: 'Open — Working', priority: '1 - Critical', url: targetUrl, comments: [] };
+      }
+      throw new Error(`Unexpected evalFile: ${file} (action=${action})`);
+    }, mockCdp);
+
+    const { run } = await importRunCase();
+    const v = await run(code, { mode: 'auto', cdp: mockCdp });
+
+    assert.equal(v.status, 'no-update');
+    assert.equal(extractCallCount, 1, 'the Feed-tab extraction must never run once the fast path correctly fires');
   });
 
   it('retries Detail tab switch when it fails on first attempt and succeeds on retry', async (t) => {

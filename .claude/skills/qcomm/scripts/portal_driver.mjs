@@ -36,8 +36,10 @@
 //     or a non-OK state (AUTH, NOT_FOUND, STUB, OTP_TIMEOUT, ...).
 //
 //   expandAndExtract({ anchor, caseUrl, onProbe }) -> descriptor
-//     onProbe(probe) is called once the feed is confirmed non-empty; if it
-//     returns true, expandAndExtract stops there and returns
+//     onProbe(probe, detailRaw) is called once the feed is confirmed non-empty
+//     (detailRaw is whatever the Detail-tab pass at the top of this call
+//     extracted, or null); if it returns true, expandAndExtract stops there
+//     and returns
 //       { ok: true, noUpdate: true, probe }
 //     without running the expand loop. Otherwise it fully expands the feed,
 //     extracts, and returns

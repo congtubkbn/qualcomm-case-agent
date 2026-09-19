@@ -157,12 +157,38 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
     // Capture evidence always describes THIS run, never the previous one.
     if (raw.capture) out.capture = raw.capture;
     if (String(raw.url || '').trim()) out.url = raw.url;
-    // Everything else from the partial capture only FILLS BLANKS — a collapsed
-    // Description/Detail panel must never clobber a good cached value.
+    // A field the Detail tab actually rendered this run (raw.detailFields, set by
+    // mergeDetailFields in run_case.mjs) is current truth and overwrites the cache,
+    // the same way status/priority already do below — so a case renamed or
+    // re-severitized in the portal is reflected on its next update run instead of
+    // staying frozen at whatever the first capture saw. `raw.detailExtracted`
+    // alone is NOT enough to gate this: it only means the tab switch worked, not
+    // that this particular field rendered — a field absent from this case's
+    // Detail tab (e.g. no Severity picklist) leaves `raw[k]` holding whatever the
+    // Feed-tab region of the page happened to match (documented above
+    // mergeDetailFields as "can stumble onto a non-empty value ... wrong DOM
+    // region"), which must never clobber a good cached value. So: overwrite only
+    // when this field is in detailFields; otherwise FILL BLANKS ONLY.
+    const detailFields = Array.isArray(raw.detailFields) ? raw.detailFields : [];
+    // Tracked separately from `changed` (comment-hash only) and `headerChanged`
+    // (CLI --status/--priority flags only, per HEADER_KEYS below): neither one
+    // observes a Detail-tab overwrite landing here, so a title/severity/etc.
+    // rename with zero new comments would otherwise write the new value to
+    // case.json and STILL report `no-update` (run_case.mjs's bottom-of-run
+    // no-update gate) — correct on disk, wrong in the verdict the agent reports.
+    let detailChanged = false;
     for (const k of ['description', 'product', 'updated', ...DETAIL_KEYS, ...HEADER_KEYS]) {
-      if (!String(out[k] || '').trim() && String(raw[k] || '').trim()) out[k] = raw[k];
+      const freshVal = String(raw[k] || '').trim();
+      if (!freshVal) continue;
+      const prev = String(out[k] || '').trim();
+      if (detailFields.includes(k)) {
+        if (prev !== freshVal) detailChanged = true;
+        out[k] = raw[k];
+      } else if (!prev) {
+        out[k] = raw[k];
+      }
     }
-    mergeInfo = { newIds, oldHash: cached.hash, cached };
+    mergeInfo = { newIds, oldHash: cached.hash, cached, detailChanged };
   } else {
     // Full capture: header/description/etc. are complete by definition and
     // replace the cache. Comments are UNIONED with whatever is already
@@ -261,6 +287,13 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
   // #105-109 "Variant A" already specified oldest-first as the canonical shape.)
   out.comments = buildNestedTree(out.comments);
 
+  // detailFields is per-capture provenance (which fields THIS raw pull's Detail
+  // tab actually rendered — see the --merge branch above and run_case.mjs's
+  // mergeDetailFields) — scratch bookkeeping for this finalize() call, not part
+  // of the canonical case.json schema (references/consumer-guide.md). A full
+  // capture's `out = { ...raw, ... }` would otherwise carry it through to disk.
+  delete out.detailFields;
+
   // Stamp identity + write canonical JSON.
   out.hash = computeHash(out);
   out.extractedAt = new Date().toISOString();
@@ -314,7 +347,8 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
   // are genuinely new, whatever the capture mode.
   //   newComments > 0                      -> report the new comments, re-render
   //   newComments 0 but headerChanged      -> re-render only
-  //   newComments 0, !headerChanged, !changed -> "no update", STOP
+  //   newComments 0 but detailChanged      -> re-render only (Detail-tab field changed, e.g. rename)
+  //   newComments 0, !headerChanged, !changed, !detailChanged -> "no update", STOP
   const mergeVerdict = mergeInfo
     ? {
         newComments: mergeInfo.newIds.length,
@@ -323,6 +357,7 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
         headerChanged: HEADER_KEYS.some(k =>
           String(header[k] || '').trim() &&
           String(header[k]).trim() !== String(mergeInfo.cached[k] || '').trim()),
+        detailChanged: !!mergeInfo.detailChanged,
       }
     : {};
 

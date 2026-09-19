@@ -56,9 +56,62 @@ export const STATUS_EXIT = {
 
 const norm = s => String(s || '').replace(/\s+/g, ' ').trim();
 
-/** Anchor = the newest CACHED comment; PHASE 1.5B stops paginating there. */
+// Detail-tab metadata fields merged into `raw` every run (see mergeDetailFields
+// below) and checked for drift by detailFieldsDiffer's fast-path guard.
+const DETAIL_MERGE_FIELDS = [
+  'contactName', 'openedAt', 'closedAt', 'customerProject', 'customerTracking',
+  'accountName', 'relatedCRs', 'caseRecordType', 'description', 'title',
+  'status', 'priority', 'severity', 'product', 'updated',
+];
+
+// Fields the fast no-update probe checks for drift (see detailFieldsDiffer).
+// Deliberately NOT DETAIL_MERGE_FIELDS minus a filter — this list is a
+// separate, explicit provenance decision and must stay that way so a future
+// edit to DETAIL_MERGE_FIELDS can't silently change it too:
+//   - status/priority: search-row-owned on a merge run, not Detail-tab-owned —
+//     finalize_case.mjs's HEADER_KEYS loop always overwrites them from the
+//     fresh search row (run_case.mjs always passes header.status/priority),
+//     and a genuine change there is already caught by finalize's
+//     headerChanged. Comparing the Detail tab's status/priority against a
+//     cache written from the search row compares two different sources of
+//     truth for the same field and would misfire on every run.
+//   - updated (Last Modified Date): the portal churns it on its own schedule
+//     independent of anything worth reporting, so it would defeat the fast
+//     path even when nothing user-visible moved.
+const DETAIL_DRIFT_CHECK_FIELDS = [
+  'contactName', 'openedAt', 'closedAt', 'customerProject', 'customerTracking',
+  'accountName', 'relatedCRs', 'caseRecordType', 'description', 'title', 'severity', 'product',
+];
+
+// The fast no-update probe short-circuits BEFORE finalize() ever runs (no
+// write, no detailChanged plumbing — cdp_portal_driver.mjs returns noUpdate
+// straight from the probe). A Detail-tab-only change (case renamed,
+// re-severitized, …) with zero new comments must not be swallowed by that
+// shortcut just because the Chatter feed itself looks unchanged — so the
+// probe path re-checks the one other thing finalize() would have caught.
+// Field provenance mirrors finalize_case.mjs's detailFields gate: only a field
+// THIS probe's Detail-tab read actually supplied counts, never a stale/blank
+// or wrong-DOM-region value.
+export function detailFieldsDiffer(detailRaw, cached, fields) {
+  if (!detailRaw || !cached) return false;
+  for (const f of fields) {
+    const v = String(detailRaw[f] || '').trim();
+    if (!v) continue;
+    if (v !== String(cached[f] || '').trim()) return true;
+  }
+  return false;
+}
+
+/**
+ * Anchor = the newest CACHED comment; PHASE 1.5B stops paginating there.
+ * case.json's top-level `comments` array is oldest -> newest (finalize_case.mjs's
+ * buildNestedTree), the opposite of the Chatter DOM (dom_extractor.js's
+ * expandStep sees articles[0] as the newest post) — so the newest cached
+ * comment is the LAST element here, not the first.
+ */
 export function anchorOf(cached) {
-  const c = cached && Array.isArray(cached.comments) && cached.comments[0];
+  const list = cached && Array.isArray(cached.comments) ? cached.comments : null;
+  const c = list && list.length ? list[list.length - 1] : null;
   return c ? { author: c.author, bodyStart: norm(c.body).slice(0, 80) } : null;
 }
 
@@ -66,12 +119,20 @@ export function anchorOf(cached) {
  * Detail tab is the only tab that actually renders `fields`; Feed-tab `raw` can still
  * stumble onto a non-empty value for them (wrong DOM region), so detailRaw wins whenever
  * present, and raw is the fallback only when detailRaw didn't capture the field.
- * Mutates and returns `raw`.
+ * Mutates and returns `raw`. Also records which field names detailRaw actually supplied,
+ * as `raw.detailFields` — a field this case's Detail tab genuinely doesn't render (e.g.
+ * no Severity picklist) is NOT in that list even though `raw[f]` still holds the Feed-tab
+ * fallback value, so finalize_case.mjs's --merge path can tell "current truth from a live
+ * Detail-tab read" apart from "stale Feed-tab noise" per field, not just per capture.
  */
 export function mergeDetailFields(raw, detailRaw, fields) {
   if (!detailRaw) return raw;
+  raw.detailFields = raw.detailFields || [];
   for (const f of fields) {
-    if (detailRaw[f]) raw[f] = detailRaw[f];
+    if (detailRaw[f]) {
+      raw[f] = detailRaw[f];
+      raw.detailFields.push(f);
+    }
   }
   return raw;
 }
@@ -280,7 +341,8 @@ export async function run(code, opts = {}) {
   const expandResult = await driver.expandAndExtract({
     anchor,
     caseUrl,
-    onProbe: probe => merge && isNoUpdate(probe, cached),
+    onProbe: (probe, probeDetailRaw) => merge && isNoUpdate(probe, cached)
+      && !detailFieldsDiffer(probeDetailRaw, cached, DETAIL_DRIFT_CHECK_FIELDS),
   });
 
   if (!expandResult.ok) {
@@ -359,23 +421,7 @@ export async function run(code, opts = {}) {
   }
 
   // Merge any metadata captured from Detail tab
-  mergeDetailFields(raw, detailRaw, [
-    'contactName',
-    'openedAt',
-    'closedAt',
-    'customerProject',
-    'customerTracking',
-    'accountName',
-    'relatedCRs',
-    'caseRecordType',
-    'description',
-    'title',
-    'status',
-    'priority',
-    'severity',
-    'product',
-    'updated',
-  ]);
+  mergeDetailFields(raw, detailRaw, DETAIL_MERGE_FIELDS);
 
   raw.detailExtracted = detailExtracted;
   raw.capture = {
@@ -438,7 +484,7 @@ export async function run(code, opts = {}) {
     };
   }
 
-  if (merge && newComments === 0 && !v.headerChanged && !v.changed) {
+  if (merge && newComments === 0 && !v.headerChanged && !v.changed && !v.detailChanged) {
     return {
       status: 'no-update',
       since: cached.extractedAt,
