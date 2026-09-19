@@ -5,20 +5,22 @@
 // tab switcher, search results parser, and raw DOM case extractor into
 // window.__QC_DOM__.
 //
-// Audited for a split (issue #264): the six concerns above are cohesive on
-// paper, but this file is shipped whole — `evalFileViaCdp` reads exactly one
-// path, strips comments, and evals the result as a single script (see
-// `browser.mjs`'s `buildPayload`), and every caller (16+ call sites in
-// `cdp_portal_driver.mjs` alone, plus `fast_landing.mjs`, `run_case.mjs`,
-// `finalize_normalize.mjs`, `finalize_completeness.mjs`) hardcodes this one
-// filename. Splitting the source without inventing a concat/bundle step (not
-// used anywhere else in this codebase) would break that injection contract;
-// inventing one, or fanning every call site out to N sequential CDP evals,
-// is a bigger and riskier change than a file-organization pass justifies,
-// especially given this path's bug history (issue #104's __PROBE global
-// leak, the cmd.exe payload-size limit that motivated evalFileViaCdp
-// itself). Left as one file; the comment banners below mark the seams for
-// anyone reading it top to bottom.
+// Audited for a split (issue #264): a cohesive seam DOES exist between the
+// six concerns above, but this file is shipped whole — `evalFileViaCdp`
+// reads exactly one path, strips comments, and evals the result as a single
+// script (see `browser.mjs`'s `buildPayload`), and every caller (16+ call
+// sites in `cdp_portal_driver.mjs` alone, plus `fast_landing.mjs`,
+// `run_case.mjs`, `finalize_normalize.mjs`, `finalize_completeness.mjs`)
+// hardcodes this one filename. Splitting the source without inventing a
+// concat/bundle step (not used anywhere else in this codebase) would break
+// that injection contract; inventing one, or fanning every call site out to
+// N sequential CDP evals, is a bigger and riskier change than a
+// file-organization pass justifies, especially given this path's bug
+// history (a page-global leak from unscoped param injection that stalled
+// feed expansion until `buildPayload` wrapped params in a function scope,
+// fixed in d9637c4; and the cmd.exe payload-size limit that motivated
+// `evalFileViaCdp` itself). Left as one file; the comment banners below
+// mark the seams for anyone reading it top to bottom.
 
 (function () {
   var _g = (typeof window !== 'undefined') ? window : (typeof globalThis !== 'undefined' ? globalThis : (typeof global !== 'undefined' ? global : this));
