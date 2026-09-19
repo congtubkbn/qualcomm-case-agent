@@ -3,45 +3,15 @@
 // Zero external dependencies — runs directly in standard Node.js (>=22.3.0).
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { PROJECT_ROOT, DATA_DIR, PROFILE_DIR } from './_paths.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-function findProjectRoot(startDir = HERE) {
-  if (process.env.QUALCOMM_ROOT) return process.env.QUALCOMM_ROOT;
-
-  let current = startDir;
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const gitPath = join(current, '.git');
-    if (existsSync(gitPath)) {
-      if (statSync(gitPath).isDirectory()) return current;
-      try {
-        const content = readFileSync(gitPath, 'utf8');
-        const match = content.match(/^gitdir:\s*(.+?)\s*$/m);
-        if (match) {
-          const gitdir = match[1].replace(/\\/g, '/');
-          const idx = gitdir.indexOf('/worktrees/');
-          if (idx !== -1) return dirname(gitdir.slice(0, idx));
-        }
-      } catch {}
-      return current;
-    }
-    if (existsSync(join(current, 'data', 'cases'))) {
-      return current;
-    }
-    const parent = dirname(current);
-    if (parent === current) break;
-    current = parent;
-  }
-  return process.cwd();
-}
-
-export const PROJECT_ROOT = findProjectRoot();
-export const DEFAULT_CASES_DIR = join(PROJECT_ROOT, 'data', 'cases');
-export const DEFAULT_PROFILE_DIR = join(PROJECT_ROOT, 'data', 'chrome-profile');
+export const DEFAULT_CASES_DIR = DATA_DIR;
+export const DEFAULT_PROFILE_DIR = PROFILE_DIR;
 export const DEFAULT_CDP_PORT = Number(process.env.QUALCOMM_CDP_PORT || 9773);
 
 /**
