@@ -32,7 +32,7 @@ export async function repeatUntilStable({
 
   while (rounds < maxRounds) {
     value = await tick();
-    stableCount = hasPrevious && isStable(value, previous) ? stableCount + 1 : 0;
+    stableCount = isStable(value, previous) ? stableCount + 1 : 0;
     previous = value;
     hasPrevious = true;
     rounds++;

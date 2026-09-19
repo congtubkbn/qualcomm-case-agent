@@ -217,29 +217,41 @@ export class CdpPortalDriver extends PortalDriver {
     let rounds = 0;
     let idleTicks = 0;
     const clicks = { expand: 0, viewMore: 0, moreComments: 0, description: 0 };
-    for (; rounds < EXPAND_ROUNDS; rounds++) {
-      const r = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
-      accumulateClicks(clicks, r);
-      if (!r.clickedExpand && !r.clickedViewMore && !r.clickedDescription && !r.clickedMoreComments) {
-        idleTicks++;
-        if (idleTicks >= 2) break;
-        await sleep(1000);
-        continue;
-      }
-      idleTicks = 0;
-      await sleep(1500);
-    }
 
-    if (rounds >= EXPAND_ROUNDS && idleTicks < 2) {
-      for (let grace = 0; grace < STUCK_RETRY_ROUNDS; grace++) {
+    const mainLoop = await repeatUntilStable({
+      tick: async () => {
         const r = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
         accumulateClicks(clicks, r);
-        if (!r.clickedExpand && !r.clickedViewMore && !r.clickedDescription && !r.clickedMoreComments) {
-          idleTicks = 2;
-          break;
-        }
-        await sleep(2000);
-      }
+        const isIdle = !r.clickedExpand && !r.clickedViewMore && !r.clickedDescription && !r.clickedMoreComments;
+        if (!isIdle) await sleep(1500);
+        else await sleep(1000);
+        return isIdle;
+      },
+      isStable: (current) => current,
+      stableTarget: 2,
+      maxRounds: EXPAND_ROUNDS,
+      sleepMs: 0,
+      sleep,
+    });
+    rounds = mainLoop.stable ? mainLoop.rounds - 1 : mainLoop.rounds;
+    idleTicks = mainLoop.stable ? 2 : 0;
+
+    if (rounds >= EXPAND_ROUNDS && idleTicks < 2) {
+      const graceLoop = await repeatUntilStable({
+        tick: async () => {
+          const r = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
+          accumulateClicks(clicks, r);
+          const isIdle = !r.clickedExpand && !r.clickedViewMore && !r.clickedDescription && !r.clickedMoreComments;
+          if (!isIdle) await sleep(2000);
+          return isIdle;
+        },
+        isStable: (current) => current,
+        stableTarget: 1,
+        maxRounds: STUCK_RETRY_ROUNDS,
+        sleepMs: 0,
+        sleep,
+      });
+      if (graceLoop.stable) idleTicks = 2;
     }
 
     let confirmedZero = 0;
