@@ -1,5 +1,3 @@
-// scripts/finalize_merge.mjs
-//
 // Comment merge policy: union fresh comments into a cache by content id,
 // enforce chronological order, and flag same-author high-similarity "new"
 // comments as possible edits of an old one for a human to check.

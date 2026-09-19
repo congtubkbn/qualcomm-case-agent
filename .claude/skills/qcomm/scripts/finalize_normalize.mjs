@@ -1,13 +1,8 @@
-// scripts/finalize_normalize.mjs
-//
 // Timestamp and author-role normalization policy: Chatter relative timestamps
 // ("13h ago") resolved to absolute ISO-8601 against a capture reference date,
 // chronological ordering with a display-position tie-break, and author role
 // classification (Qualcomm / Customer / System) used by the renderer.
 
-/**
- * Checks if a timestamp string contains Salesforce/Chatter UI tooltip noise.
- */
 export function isBlacklistedTs(s) {
   if (!s || typeof s !== 'string') return true;
   const lower = s.toLowerCase();
@@ -20,9 +15,6 @@ export function isBlacklistedTs(s) {
   );
 }
 
-/**
- * Classifies author role into 'Qualcomm', 'Customer', or 'System' based on author name, company, and body clues.
- */
 export function classifyRole(author, company = '', context = '', body = '') {
   const combined = ((author || '') + ' ' + (company || '') + ' ' + (context || '')).toLowerCase();
   if (
@@ -59,10 +51,6 @@ export function classifyRole(author, company = '', context = '', body = '') {
   return 'Customer';
 }
 
-/**
- * Normalizes and parses various timestamp formats into epoch milliseconds.
- * Supports ISO-8601, standard date strings, and Chatter relative formats.
- */
 export function parseTimestamp(ts, referenceDate = new Date()) {
   if (!ts || typeof ts !== 'string') return 0;
   const s = ts.trim();
@@ -70,7 +58,6 @@ export function parseTimestamp(ts, referenceDate = new Date()) {
 
   const now = referenceDate instanceof Date ? referenceDate.getTime() : (Number(referenceDate) || Date.now());
 
-  // 1. Relative seconds / just now
   if (/^(?:just\s+now|right\s+now|a\s+few\s+seconds?\s+ago|seconds?\s+ago)$/i.test(s)) {
     return now;
   }
@@ -79,43 +66,36 @@ export function parseTimestamp(ts, referenceDate = new Date()) {
     return now - Number(secMatch[1]) * 1000;
   }
 
-  // 2. Relative minutes
   const minMatch = s.match(/^(\d+)\s*(?:m|min(?:ute)?s?)\s*ago$/i);
   if (minMatch) {
     return now - Number(minMatch[1]) * 60 * 1000;
   }
 
-  // 3. Relative hours
   const hrMatch = s.match(/^(\d+)\s*(?:h|hr|hours?|hrs?)\s*ago$/i);
   if (hrMatch) {
     return now - Number(hrMatch[1]) * 3600 * 1000;
   }
 
-  // 4. Relative days
   const dayMatch = s.match(/^(\d+)\s*(?:d|days?)\s*ago$/i);
   if (dayMatch) {
     return now - Number(dayMatch[1]) * 86400 * 1000;
   }
 
-  // 5. Relative weeks
   const wkMatch = s.match(/^(\d+)\s*(?:w|weeks?|wks?)\s*ago$/i);
   if (wkMatch) {
     return now - Number(wkMatch[1]) * 7 * 86400 * 1000;
   }
 
-  // 6. Relative months
   const moMatch = s.match(/^(\d+)\s*(?:mo|month|months?|mos?)\s*ago$/i);
   if (moMatch) {
     return now - Number(moMatch[1]) * 30 * 86400 * 1000;
   }
 
-  // 7. Relative years
   const yrMatch = s.match(/^(\d+)\s*(?:y|yr|years?|yrs?)\s*ago$/i);
   if (yrMatch) {
     return now - Number(yrMatch[1]) * 365 * 86400 * 1000;
   }
 
-  // 8. Yesterday / Today
   if (/^yesterday/i.test(s)) {
     return now - 86400 * 1000;
   }
@@ -123,7 +103,7 @@ export function parseTimestamp(ts, referenceDate = new Date()) {
     return now;
   }
 
-  // 9. Standard Date format (e.g. ISO 8601 or 'August 20, 2026 at 3:45 PM')
+  // Strip "at" (e.g. 'August 20, 2026 at 3:45 PM') — Date.parse doesn't accept it.
   const cleanDateStr = s.replace(/\bat\b/gi, ' ').replace(/\s+/g, ' ').trim();
   const parsed = Date.parse(cleanDateStr);
   if (!isNaN(parsed)) {
@@ -133,11 +113,6 @@ export function parseTimestamp(ts, referenceDate = new Date()) {
   return 0;
 }
 
-/**
- * Normalizes any relative or non-ISO absolute Chatter timestamp to an ISO-8601
- * string resolved against capture reference date, retaining raw portal string
- * in `rawTimestamp`.
- */
 export function normalizeComment(comment, referenceDate = new Date()) {
   if (!comment || typeof comment !== 'object') return comment;
   const rawTs = comment.timestamp || '';
@@ -155,9 +130,6 @@ export function normalizeComment(comment, referenceDate = new Date()) {
   return comment;
 }
 
-/**
- * Normalizes all comments in an array.
- */
 export function normalizeComments(comments, referenceDate = new Date()) {
   if (!Array.isArray(comments)) return [];
   return comments.map(c => normalizeComment(c, referenceDate));
@@ -173,10 +145,8 @@ export function sortCommentsChronological(comments, referenceDate = new Date()) 
   if (!Array.isArray(comments) || comments.length === 0) return [];
   const n = comments.length;
 
-  // 1. Initial timestamp parsing
   const parsedTimes = comments.map(c => parseTimestamp(c.timestamp, referenceDate));
 
-  // 2. Identify indices with known timestamps (> 0)
   const knownIndices = [];
   for (let i = 0; i < n; i++) {
     if (parsedTimes[i] > 0) {
@@ -188,25 +158,21 @@ export function sortCommentsChronological(comments, referenceDate = new Date()) 
   const STEP_MS = 1000; // 1 second spacing for extrapolations/offsets
 
   if (knownIndices.length === 0) {
-    // All timestamps missing: preserve original index sequence
     const base = referenceDate.getTime();
     for (let i = 0; i < n; i++) {
       times[i] = base + i * STEP_MS;
     }
   } else if (knownIndices.length === 1) {
-    // Single known timestamp: offset relative to it preserving index direction
     const k = knownIndices[0];
     const base = times[k];
     for (let i = 0; i < n; i++) {
       times[i] = base + (i - k) * STEP_MS;
     }
   } else {
-    // Determine overall trend of known timestamps (increasing vs decreasing)
     const firstK = knownIndices[0];
     const lastK = knownIndices[knownIndices.length - 1];
     const isIncreasing = times[lastK] >= times[firstK];
 
-    // Interpolate gaps between known indices
     for (let idx = 0; idx < knownIndices.length - 1; idx++) {
       const startIdx = knownIndices[idx];
       const endIdx = knownIndices[idx + 1];
@@ -219,24 +185,19 @@ export function sortCommentsChronological(comments, referenceDate = new Date()) 
       }
     }
 
-    // Extrapolate before first known index (indices 0 .. firstK - 1)
     for (let i = 0; i < firstK; i++) {
       if (isIncreasing) {
-        // Earlier index is older
         times[i] = times[firstK] - (firstK - i) * STEP_MS;
       } else {
-        // Earlier index is newer (DOM order where newest is at top)
+        // DOM order where newest is at top: an earlier index is a newer comment.
         times[i] = times[firstK] + (firstK - i) * STEP_MS;
       }
     }
 
-    // Extrapolate after last known index (indices lastK + 1 .. n - 1)
     for (let i = lastK + 1; i < n; i++) {
       if (isIncreasing) {
-        // Later index is newer
         times[i] = times[lastK] + (i - lastK) * STEP_MS;
       } else {
-        // Later index is older
         times[i] = times[lastK] - (i - lastK) * STEP_MS;
       }
     }

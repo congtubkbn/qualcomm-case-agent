@@ -1,5 +1,3 @@
-// scripts/comment_tree.mjs
-//
 // Sole owner of the Comment Tree shape: the nested `subs:[]` structure that
 // case.json persists (a Comment's replies live in its own `subs` array, not a
 // separate structure — see CONTEXT.md's Comment Tree entry). Every module
@@ -73,14 +71,11 @@ export function buildNestedTree(comments) {
   });
 }
 
-// Count all comments recursively through nested subs.
 export function countAllComments(comments) {
   if (!Array.isArray(comments)) return 0;
   return comments.reduce((n, c) => n + 1 + countAllComments(c?.subs), 0);
 }
 
-// Depth-first search for the node whose id matches, at any depth. Read-only,
-// early-exits on the first match.
 export function findCommentNode(nodes, id) {
   for (const n of (nodes || [])) {
     if (n.id === id) return n;

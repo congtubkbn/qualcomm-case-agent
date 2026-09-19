@@ -1,5 +1,3 @@
-// scripts/finalize_description.mjs
-//
 // Description-as-first-comment policy (PRD #53 / Issues #54-56): synthesizes
 // the Case's description field into a presentation comment when the portal
 // feed does not already carry it, and derives the 1-2 sentence preview
@@ -43,10 +41,6 @@ function splitSentences(line) {
   return sentences;
 }
 
-/**
- * Extracts a concise 1-2 sentence preview summary from raw comment body,
- * stripping common email greetings/salutations.
- */
 export function extractSummary(body) {
   if (!body || typeof body !== 'string') return '';
   let text = body.replace(/\s*Expand Post\s*$/i, '').trim();
@@ -80,10 +74,6 @@ export function extractSummary(body) {
   return summary.replace(/\s*Expand Post\s*$/i, '').trim();
 }
 
-/**
- * Synthesizes an initial comment representing the case problem statement
- * from raw case description, if non-empty.
- */
 export function synthesizeDescriptionComment(raw) {
   if (!raw) return null;
   const desc = typeof raw.description === 'string' ? raw.description.trim() : '';
@@ -105,9 +95,6 @@ export function synthesizeDescriptionComment(raw) {
   };
 }
 
-/**
- * Checks if a comment matching the case description is already present.
- */
 export function hasDescriptionComment(comments, description) {
   if (!Array.isArray(comments) || !description || typeof description !== 'string') return false;
   const target = description.trim();

@@ -1,5 +1,3 @@
-// scripts/detail_fields.mjs
-//
 // Sole owner of the Detail Field Provenance policy (CONTEXT.md, ADR 0008):
 // deciding, per Detail-tab field, whether a fresh portal value should
 // overwrite the cached case.json or the cached value should win.

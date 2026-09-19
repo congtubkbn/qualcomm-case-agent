@@ -1,5 +1,3 @@
-// scripts/finalize_case.mjs
-//
 // Persistence post-processor for the AGENT-DRIVEN extraction.
 //
 // This script does NOT drive the browser. The agent expands the case via
@@ -46,14 +44,12 @@ import { normalizeComment, normalizeComments } from './finalize_normalize.mjs';
 import { mergeComments } from './finalize_merge.mjs';
 import { extractSummary, synthesizeDescriptionComment, hasDescriptionComment } from './finalize_description.mjs';
 
-// ---- Exit codes (exported so tests can import) ----
 export const EXIT = {
   OK: 0,
   BAD_ARGS: 2,
   INCOMPLETE: 5,
 };
 
-// ---- Main ----
 export function finalize(caseCode, rawPath, header = {}, merge = false, options = {}) {
   if (!existsSync(rawPath)) {
     return { code: EXIT.BAD_ARGS, reason: `raw JSON not found: ${rawPath}` };
@@ -115,7 +111,6 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
     return { code: EXIT.BAD_ARGS, reason: `--merge but no cached case.json at ${casePath} — run a full extraction (no --merge) first`, caseCode };
   }
 
-  // Inject description as initial comment if non-empty and not already present.
   const descRaw = {
     description: String(raw.description || (cached && cached.description) || '').trim(),
     contactName: String(raw.contactName || (cached && cached.contactName) || '').trim(),
@@ -141,8 +136,6 @@ export function finalize(caseCode, rawPath, header = {}, merge = false, options 
     }
   }
 
-  // `out` is the object that gets persisted. Full capture: the raw itself.
-  // Update run (--merge): the cached case with only the NEW comments prepended.
   let out;
   let mergeInfo = null;
   let newIds = [];

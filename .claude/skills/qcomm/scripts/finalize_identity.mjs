@@ -1,5 +1,3 @@
-// scripts/finalize_identity.mjs
-//
 // Comment identity + hash policy: content-derived comment ids (stable across
 // runs regardless of feed position), legacy-id migration, and the case-level
 // completeness hash finalize_case.mjs stamps onto every persisted case.json.

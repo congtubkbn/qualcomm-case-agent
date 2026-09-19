@@ -1,5 +1,3 @@
-// scripts/finalize_completeness.mjs
-//
 // Completeness gate policy: fail-closed checks that stop finalize() from
 // persisting a capture that is short, still collapsed, or otherwise less
 // than the portal actually shows — a failed capture must never look like a

@@ -1,13 +1,8 @@
-// scripts/finalize_header.mjs
-//
 // Header-flag policy: the fields the agent already holds in-context from the
 // PHASE 1 search row (title/status/priority/severity), passed to finalize_case.mjs
 // as CLI flags so the big raw file never has to be re-Read just to add a title
 // (O(1) tokens, not O(case size)), plus the Detail-tab metadata field list.
 
-// Header fields the agent already holds in-context from the PHASE 1 search row.
-// Passing them as flags lets the script backfill the big raw file in CODE — the
-// agent never re-Reads case.raw.json just to add a title (O(1) tokens, not O(case size)).
 export const HEADER_KEYS = ['title', 'status', 'priority', 'severity'];
 
 // Salesforce Lightning Detail tab metadata fields persisted to canonical case.json.
