@@ -272,20 +272,23 @@ export class CdpPortalDriver extends PortalDriver {
       if (graceLoop.stable) idleTicks = 2;
     }
 
-    let confirmedZero = 0;
-    for (let s = 0; s < SETTLE_ROUNDS; s++) {
-      await sleep(1000);
-      const unexpanded = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'checkCollapsed', __ANCHOR: anchor });
-      const pending = (unexpanded?.stillCollapsed || 0) + (unexpanded?.stillHasMoreComments || 0);
-      if (pending === 0) {
-        confirmedZero++;
-        if (confirmedZero >= 2) break;
-      } else {
-        confirmedZero = 0;
-        const r = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
-        accumulateClicks(clicks, r);
-      }
-    }
+    await repeatUntilStable({
+      tick: async () => {
+        await sleep(1000);
+        const unexpanded = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'checkCollapsed', __ANCHOR: anchor });
+        const pending = (unexpanded?.stillCollapsed || 0) + (unexpanded?.stillHasMoreComments || 0);
+        if (pending > 0) {
+          const r = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'expandStep', __ANCHOR: anchor });
+          accumulateClicks(clicks, r);
+        }
+        return pending === 0;
+      },
+      isStable: (current) => current,
+      stableTarget: 2,
+      maxRounds: SETTLE_ROUNDS,
+      sleepMs: 0,
+      sleep: (ms) => ms === 0 ? Promise.resolve() : sleep(ms),
+    });
 
     let lastUnexpanded = await evalFileViaCdp(cdp, page('dom_extractor.js'), { __ACTION: 'checkCollapsed', __ANCHOR: anchor });
     const stubbornCount = (lastUnexpanded?.stillCollapsed || 0) + (lastUnexpanded?.stillHasMoreComments || 0);
