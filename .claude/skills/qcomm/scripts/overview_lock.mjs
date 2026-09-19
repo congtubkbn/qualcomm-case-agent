@@ -15,7 +15,6 @@ function randomToken() {
 }
 
 /**
- * Acquires exclusive lock guarding _overview.json's read-modify-write-rename.
  * Returns a { path, token } handle to pass to releaseOverviewLock.
  *
  * @param {string} casesDir
@@ -58,7 +57,6 @@ export function acquireOverviewLock(casesDir, opts = {}) {
 }
 
 /**
- * Releases a lock acquired by acquireOverviewLock.
  * Safe no-op if lock was already reclaimed or taken over by another process token.
  * @param {{ path: string, token: string }} lock
  */
@@ -76,8 +74,6 @@ export function releaseOverviewLock(lock) {
 }
 
 /**
- * High-level helper executing fn within an acquired overview lock.
- * Ensures releaseOverviewLock is always called in a finally block.
  * @template T
  * @param {string} casesDir
  * @param {function(): T} fn

@@ -26,7 +26,6 @@ export { syncCaseOverview, updateCaseOverview };
 const __filename = fileURLToPath(import.meta.url);
 
 /**
- * Opens a local file in the default OS web browser.
  * @param {string} filePath
  */
 export function openInBrowser(filePath) {
@@ -44,7 +43,6 @@ export function openInBrowser(filePath) {
 }
 
 /**
- * Parses CLI arguments.
  * @param {string[]} args
  * @returns {object}
  */
@@ -92,7 +90,6 @@ export function parseArgs(args) {
   } else if (parsed.json) {
     parsed.open = false;
   } else {
-    // Default CLI behavior: auto-open dashboard in browser
     parsed.open = true;
   }
 
@@ -100,7 +97,6 @@ export function parseArgs(args) {
 }
 
 /**
- * Rebuilds overview data and atomically writes _overview.json.
  * @param {string} [casesDir=DEFAULT_CASES_DIR] Cases directory
  * @returns {object} The generated overview data
  */
@@ -113,7 +109,6 @@ export function rebuildOverview(casesDir = DEFAULT_CASES_DIR) {
   return overview;
 }
 
-// CLI Execution entrypoint
 if (process.argv[1] && resolve(process.argv[1]) === __filename) {
   try {
     ensureProtocolRegistered({ silent: true });
@@ -151,7 +146,6 @@ Options:
     }
   }
 
-  // Always keep dashboard.html updated when rebuilding or requesting HTML/Open
   if (options.rebuild || options.html || options.open || !existsSync(dashboardPath)) {
     renderDashboardHtml(overview, dashboardPath);
   }

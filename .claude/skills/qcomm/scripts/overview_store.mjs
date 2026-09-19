@@ -13,7 +13,6 @@ export { acquireOverviewLock, releaseOverviewLock };
 export const DEFAULT_CASES_DIR = DATA_DIR;
 
 /**
- * Normalizes text snippet from a comment (removes duplicate whitespace/newlines, truncates).
  * @param {object} comment
  * @param {number} [maxLen=160]
  * @returns {string}
@@ -26,8 +25,7 @@ export function createCommentSnippet(comment, maxLen = 160) {
 }
 
 /**
- * Extracts product code from title if product field is missing or empty.
- * e.g. "[DE.3.1.4][SM7635] epsfb_if_emc_and_no_vonr does not work" -> "SM7635"
+ * Example: "[DE.3.1.4][SM7635] epsfb_if_emc_and_no_vonr does not work" -> "SM7635"
  * @param {string} title
  * @returns {string}
  */
@@ -46,7 +44,6 @@ export function extractProductFromTitle(title) {
 }
 
 /**
- * Extracts normalized overview record for a single case directory.
  * @param {string} caseDir Absolute or relative path to case directory
  * @param {string} [caseNumber] Fallback case number
  * @returns {object|null} Case overview object or null if invalid directory
@@ -88,7 +85,6 @@ export function extractCaseOverview(caseDir, caseNumber = '') {
     const url = caseJson.url || '';
     const syncedAt = caseJson.extractedAt || caseJson.syncedAt || '';
 
-    // Comments extraction
     // comments are in nested tree shape: oldest-first top-level, each with subs:[]
     const rawComments = Array.isArray(caseJson.comments) ? caseJson.comments : [];
     const allComments = sortCommentsChronological(flattenComments(rawComments));
@@ -99,12 +95,10 @@ export function extractCaseOverview(caseDir, caseNumber = '') {
     const latestComments = [];
 
     if (allComments.length > 0) {
-      // Top chronologically newest comment across top-level and nested replies
       const newestComment = allComments[allComments.length - 1];
       lastCommentAt = newestComment.timestamp || '';
       lastCommentAuthor = newestComment.author || '';
 
-      // Extract up to 3 newest comments (slice from the tail, reverse for newest-first)
       const topRecent = allComments.slice(-3).reverse();
       for (const c of topRecent) {
         latestComments.push({
@@ -170,7 +164,6 @@ export function extractCaseOverview(caseDir, caseNumber = '') {
 }
 
 /**
- * Recomputes overview statistics from an array of cases.
  * @param {Array<object>} cases
  * @returns {object}
  */
@@ -188,7 +181,6 @@ export function computeStats(cases) {
 }
 
 /**
- * Scans all case directories in casesDir and aggregates overview data.
  * @param {string} casesDir Directory containing case folders
  * @returns {object} Overview data object containing cases array and stats
  */
@@ -204,7 +196,6 @@ export function buildOverviewData(casesDir = DEFAULT_CASES_DIR) {
   const cases = [];
 
   for (const entry of entries) {
-    // Only process subdirectories that do not start with '.' or '_'
     if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name.startsWith('_')) {
       continue;
     }
@@ -216,7 +207,6 @@ export function buildOverviewData(casesDir = DEFAULT_CASES_DIR) {
     }
   }
 
-  // Sort cases: most recently synced or higher case number first
   cases.sort((a, b) => {
     if (a.syncedAt && b.syncedAt) {
       return b.syncedAt.localeCompare(a.syncedAt);
@@ -231,11 +221,6 @@ export function buildOverviewData(casesDir = DEFAULT_CASES_DIR) {
 }
 
 /**
- * Unified, resilient synchronization seam for case overview cache and dashboard.
- * Supports both upserting and removing cases from the overview cache,
- * atomically persisting _overview.json, recomputing summary statistics,
- * and regenerating dashboard.html.
- *
  * @param {string} caseNumber
  * @param {object|string} [options={}] Options object, or dataDir string for backward compatibility
  * @param {'upsert'|'remove'} [options.action='upsert'] Sync action
@@ -293,7 +278,6 @@ export function syncCaseOverview(caseNumber, options = {}) {
       }
       overviewData.cases = overviewData.cases.filter((c) => c.caseNumber !== caseNumber);
     } else {
-      // action === 'upsert'
       const caseDir = join(casesDir, caseNumber);
       const updatedRecord = extractCaseOverview(caseDir, caseNumber);
 
@@ -305,12 +289,10 @@ export function syncCaseOverview(caseNumber, options = {}) {
           overviewData.cases.unshift(updatedRecord);
         }
       } else {
-        // If case dir is deleted or invalid, remove from overview
         overviewData.cases = overviewData.cases.filter((c) => c.caseNumber !== caseNumber);
       }
     }
 
-    // Re-sort and recompute stats
     overviewData.cases.sort((a, b) => {
       if (a.syncedAt && b.syncedAt) {
         return b.syncedAt.localeCompare(a.syncedAt);
@@ -320,7 +302,6 @@ export function syncCaseOverview(caseNumber, options = {}) {
 
     overviewData.stats = computeStats(overviewData.cases);
 
-    // Atomic write to _overview.json
     const tempPath = join(casesDir, `_overview.json.tmp.${process.pid}.${Date.now()}`);
     writeFileSync(tempPath, JSON.stringify(overviewData, null, 2), 'utf8');
     renameSync(tempPath, overviewPath);
@@ -353,7 +334,6 @@ export function syncCaseOverview(caseNumber, options = {}) {
 }
 
 /**
- * Incrementally updates or inserts a single case record in _overview.json atomically.
  * Backwards-compatible wrapper delegating to syncCaseOverview with render: false.
  * @param {string} caseNumber Case ID (e.g. "08603854")
  * @param {string} casesDir Directory containing case folders
@@ -369,7 +349,6 @@ export function updateCaseOverview(caseNumber, casesDir = DEFAULT_CASES_DIR) {
 }
 
 /**
- * Filters overview cases by status string (case-insensitive substring match).
  * @param {object} overviewData
  * @param {string|null} filter
  * @returns {object}

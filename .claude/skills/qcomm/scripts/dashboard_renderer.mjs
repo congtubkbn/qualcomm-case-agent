@@ -12,7 +12,6 @@ import { formatStaleness } from './staleness.mjs';
 export { escapeHtml, formatStaleness, getStatusCategory, renderCaseRow, renderClientScript, renderStyles };
 
 /**
- * Renders dashboard header with case counts, last updated timestamp, and action toolbar.
  * @param {object} stats Overview stats { total, lastUpdated }
  * @returns {string}
  */
@@ -49,7 +48,6 @@ export function renderHeader(stats) {
 }
 
 /**
- * Renders search input and filter navigation tabs with status counts.
  * @param {object} stats Overview stats { total }
  * @param {object} counts Status category counts
  * @returns {string}
@@ -79,7 +77,6 @@ export function renderControlsBar(stats, counts) {
 }
 
 /**
- * Renders the cases table wrapper and headers around rendered rows.
  * @param {string} rowsHtml Concatenated HTML rows
  * @returns {string}
  */
@@ -104,7 +101,6 @@ export function renderCasesTable(rowsHtml) {
 }
 
 /**
- * Renders the Protocol Help modal dialog for custom URI scheme registration.
  * @returns {string}
  */
 export function renderProtocolModal() {
@@ -131,7 +127,6 @@ export function renderProtocolModal() {
 }
 
 /**
- * Generates self-contained, offline HTML Dashboard.
  * @param {object} overviewData
  * @param {string|null} [outputPath=null] Optional output path to write dashboard file
  * @returns {string} The complete HTML document string

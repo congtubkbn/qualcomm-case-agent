@@ -79,7 +79,11 @@ function docAbove(lines, line) {
     const t = lines[i].trim();
     if (t === '') break;
     if (t.startsWith('*/')) { parts.unshift(''); continue; }
-    if (/^(\/\/|\*|\/\*)/.test(t)) { parts.unshift(t.replace(/^(\/\/+|\/\*+|\*+\/?)\s?/, '').trim()); continue; }
+    if (/^(\/\/|\*|\/\*)/.test(t)) {
+      const stripped = t.replace(/^(\/\/+|\/\*+|\*+\/?)\s?/, '').trim();
+      if (!stripped.startsWith('@')) parts.unshift(stripped);
+      continue;
+    }
     break;
   }
   const text = parts.join(' ').replace(/-{2,}/g, ' ').replace(/\s+/g, ' ').trim();

@@ -1,7 +1,6 @@
 // Embedded CSS stylesheet for the offline Qualcomm case dashboard.
 
 /**
- * Renders embedded CSS stylesheet for the dashboard.
  * @returns {string}
  */
 export function renderStyles() {

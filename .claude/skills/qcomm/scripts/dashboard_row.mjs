@@ -4,7 +4,6 @@ import { escapeHtml } from './html_escape.mjs';
 import { getStatusCategory } from './status_category.mjs';
 
 /**
- * Renders the summary row and expandable detail row pair for a single case.
  * @param {object} c Case record
  * @returns {string}
  */
@@ -20,7 +19,6 @@ export function renderCaseRow(c) {
     const escapedOpenedAt = escapeHtml(c.openedAt || '');
     const commentCount = c.commentCount || 0;
 
-    // Searchable text index for client-side filtering
     const searchTokens = [
       c.caseNumber,
       c.title,

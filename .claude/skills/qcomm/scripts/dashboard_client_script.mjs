@@ -2,7 +2,6 @@
 // (filtering, searching, theme toggle, auto-refresh, modal interactions).
 
 /**
- * Renders embedded client-side script for filtering, searching, and interactions.
  * @returns {string}
  */
 export function renderClientScript() {
@@ -23,7 +22,6 @@ export function renderClientScript() {
       const copyProtocolCmdBtn = document.getElementById('copyProtocolCmdBtn');
       const copyNpmCmdBtn = document.getElementById('copyNpmCmdBtn');
 
-      // Row click toggles the adjacent detail row (AI summary + recent comments).
       rows.forEach(row => {
         row.addEventListener('click', (e) => {
           if (e.target.closest('button') || e.target.closest('a')) return;
@@ -78,7 +76,6 @@ export function renderClientScript() {
         }
       }
 
-      // Restore active filter tab from localStorage
       let currentFilter = safeStorageGet(STORAGE_KEY_FILTER, 'all');
       const validFilter = Array.from(filterTabs).some(t => t.getAttribute('data-filter') === currentFilter);
       if (!validFilter) {
@@ -92,7 +89,6 @@ export function renderClientScript() {
         }
       });
 
-      // Restore search query from localStorage
       let currentSearch = safeStorageGet(STORAGE_KEY_SEARCH, '');
       if (searchInput && currentSearch) {
         searchInput.value = currentSearch;
@@ -163,7 +159,6 @@ export function renderClientScript() {
         });
       });
 
-      // Hide buttons
       document.querySelectorAll('.hide-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -177,7 +172,6 @@ export function renderClientScript() {
         });
       });
 
-      // Unhide buttons
       document.querySelectorAll('.unhide-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -191,7 +185,6 @@ export function renderClientScript() {
         });
       });
 
-      // Shared clipboard-copy path (Copy ID, Delete instruction, Protocol Cmds).
       async function copyTextToClipboard(text) {
         try {
           await navigator.clipboard.writeText(text);
@@ -214,7 +207,6 @@ export function renderClientScript() {
         }, 1200);
       }
 
-      // Copy ID buttons
       document.querySelectorAll('.copy-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
           const caseId = btn.getAttribute('data-case-id');
@@ -239,7 +231,6 @@ export function renderClientScript() {
         });
       });
 
-      // Toggle comments drawer inside detail row
       document.querySelectorAll('.comments-toggle-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -251,7 +242,6 @@ export function renderClientScript() {
         });
       });
 
-      // Protocol Help Modal
       function openModal() {
         if (protocolModal) {
           protocolModal.classList.add('active');
@@ -377,7 +367,6 @@ export function renderClientScript() {
         }, 1000);
       }
 
-      // Interval popover — pick an auto-refresh interval directly (Off…15m)
       if (intervalBtn && intervalPopover) {
         function closeIntervalPopover() {
           intervalPopover.classList.remove('open');
@@ -429,7 +418,6 @@ export function renderClientScript() {
 
       startCountdown();
 
-      // Initial filter & hidden count pass
       updateHiddenCount();
       applyFilters();
     });
